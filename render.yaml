@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: delta-multiagent-trading-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    plan: free
+    region: oregon
+    envVars:
+      - key: DELTA_ENVIRONMENT
+        value: testnet_india
+      - key: DELTA_BASE_URL
+        value: https://cdn-ind.testnet.deltaex.org
+      - key: DELTA_API_KEY
+        sync: false
+      - key: DELTA_API_SECRET
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: TELEGRAM_NOTIFICATIONS_ENABLED
+        value: "true"
+      - key: BTC_LEVERAGE
+        value: "50"
+      - key: ALT_LEVERAGE
+        value: "25"
+      - key: CAPITAL_ALLOCATION_MIN_PCT
+        value: "0.75"
+      - key: CAPITAL_ALLOCATION_MAX_PCT
+        value: "1.00"
+      - key: DEFAULT_SYMBOLS
+        value: "BTCUSD,ETHUSD,SOLUSD,PAXGUSD"
+      - key: SCAN_INTERVAL_SECONDS
+        value: "120"
+

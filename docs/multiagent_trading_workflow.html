@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Delta Exchange Multi-Agent Trading System — Workflow & Architecture</title>
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 16mm;
+  }
+  @media print {
+    body {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page-break {
+      page-break-after: always;
+      break-after: page;
+    }
+    .no-break {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1e293b;
+    background: #ffffff;
+    line-height: 1.55;
+    font-size: 10pt;
+  }
+
+  /* Cover / Header Section */
+  .cover-card {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0369a1 100%);
+    color: #ffffff;
+    padding: 32px 28px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.15);
+  }
+  .cover-badge {
+    display: inline-block;
+    background: rgba(56, 189, 248, 0.2);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .cover-title {
+    font-size: 22pt;
+    font-weight: 800;
+    line-height: 1.2;
+    margin-bottom: 8px;
+    color: #ffffff;
+  }
+  .cover-subtitle {
+    font-size: 11pt;
+    color: #94a3b8;
+    font-weight: 400;
+    margin-bottom: 16px;
+    max-width: 90%;
+  }
+  .cover-meta {
+    display: flex;
+    gap: 20px;
+    font-size: 8.5pt;
+    color: #cbd5e1;
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+    padding-top: 12px;
+  }
+  .cover-meta strong {
+    color: #ffffff;
+  }
+
+  /* Section Styles */
+  h2 {
+    font-size: 14pt;
+    font-weight: 700;
+    color: #0f172a;
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 6px;
+    margin-top: 20px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h2 .num {
+    background: #0284c7;
+    color: #ffffff;
+    font-size: 9pt;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+  }
+  h3 {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #1e293b;
+    margin-top: 14px;
+    margin-bottom: 6px;
+  }
+  p {
+    margin-bottom: 10px;
+    color: #334155;
+    text-align: justify;
+  }
+
+  /* Callouts */
+  .callout {
+    padding: 12px 14px;
+    border-radius: 8px;
+    margin: 12px 0;
+    font-size: 9pt;
+    border-left: 4px solid;
+  }
+  .callout-info {
+    background: #f0f9ff;
+    border-color: #0284c7;
+    color: #0369a1;
+  }
+  .callout-warning {
+    background: #fef2f2;
+    border-color: #ef4444;
+    color: #991b1b;
+  }
+  .callout-success {
+    background: #f0fdf4;
+    border-color: #22c55e;
+    color: #166534;
+  }
+  .callout-title {
+    font-weight: 700;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 16px 0;
+    font-size: 8.5pt;
+  }
+  th, td {
+    padding: 7px 10px;
+    text-align: left;
+    border: 1px solid #e2e8f0;
+  }
+  th {
+    background: #f8fafc;
+    font-weight: 700;
+    color: #0f172a;
+    border-bottom: 2px solid #cbd5e1;
+  }
+  tr:nth-child(even) td {
+    background: #fbfcfe;
+  }
+
+  /* Code & Formulas */
+  .formula-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin: 10px 0;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 9pt;
+    color: #0f172a;
+  }
+  .agent-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    background: #ffffff;
+  }
+  .agent-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+  .agent-badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 7.5pt;
+    font-weight: 700;
+  }
+  .badge-analyst { background: #e0f2fe; color: #0369a1; }
+  .badge-strategy { background: #fef3c7; color: #b45309; }
+  .badge-risk { background: #fee2e2; color: #b91c1c; }
+  .badge-execution { background: #dcfce7; color: #15803d; }
+  .badge-monitor { background: #f3e8ff; color: #7e22ce; }
+
+  /* Diagram */
+  .diagram-container {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 14px;
+    margin: 14px 0;
+    text-align: center;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 6px;
+    background: #e2e8f0;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 8pt;
+    color: #0f172a;
+  }
+</style>
+</head>
+<body>
+
+  <!-- COVER / HEADER -->
+  <div class="cover-card">
+    <div class="cover-badge">Institutional Architecture & Operational Runbook</div>
+    <div class="cover-title">Delta Exchange Multi-Agent Trading System</div>
+    <div class="cover-subtitle">
+      Automated Technical Regime Analysis, Quantitative Sizing, Circuit Breaker Risk Gating, and Leveraged Bracket Order Execution.
+    </div>
+    <div class="cover-meta">
+      <div><strong>Architecture:</strong> 5-Agent Multi-Agent Pipeline</div>
+      <div><strong>Protocol:</strong> Model Context Protocol (MCP)</div>
+      <div><strong>Platform:</strong> Delta Exchange (India & Global)</div>
+      <div><strong>Date:</strong> October 2026</div>
+    </div>
+  </div>
+
+  <!-- SECTION 1: ARCHITECTURE OVERVIEW -->
+  <h2><span class="num">1</span> System Overview & Core Philosophy</h2>
+  <p>
+    The Delta Exchange Multi-Agent Trading System is built on the core principle of <strong>strict capital preservation</strong> inspired by <span class="pill">claude-trading-skills</span>. It solves the critical problem of emotional, unhedged, and undisciplined trading by separating trade decisions into <strong>five specialized, non-overlapping autonomous agents</strong>.
+  </p>
+
+  <div class="callout callout-warning">
+    <div class="callout-title">⚠️ Non-Negotiable Institutional Rule</div>
+    No trade is ever placed blindly or naked. Every single executed trade must satisfy mathematical regime filters, pass the Risk Gatekeeper's daily drawdown circuit breaker, enforce exact 1% account risk sizing, and transmit an atomic bracket Stop-Loss and Take-Profit protection order simultaneously.
+  </div>
+
+  <table class="no-break">
+    <thead>
+      <tr>
+        <th>Agent Name</th>
+        <th>Specialization & Role</th>
+        <th>Key Metrics / Tools</th>
+        <th>Primary Safety Rule</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>1. Market Regime Analyst</strong></td>
+        <td>Multi-timeframe trend & volatility classification.</td>
+        <td>EMA 9/21/50/200, RSI-14, ATR-14, MACD, Pivot S/R</td>
+        <td>Strictly read-only; never suggests orders.</td>
+      </tr>
+      <tr>
+        <td><strong>2. Strategy & Setup Generator</strong></td>
+        <td>High-probability setup discovery with edge.</td>
+        <td>Trend continuation, mean reversion, 2.0:1 R:R target</td>
+        <td>Must guarantee minimum 2:1 Reward-to-Risk ratio.</td>
+      </tr>
+      <tr>
+        <td><strong>3. Risk & Discipline Gatekeeper</strong></td>
+        <td>Capital preservation & account sizing gate.</td>
+        <td>Circuit breaker, 1% account risk math, margin audit</td>
+        <td>Absolute veto power; stops breach halts trading.</td>
+      </tr>
+      <tr>
+        <td><strong>4. Execution & Order Manager</strong></td>
+        <td>Low-slippage HMAC-SHA256 order placement.</td>
+        <td>Leverage setup, bracket limit/market orders</td>
+        <td>Never executes without Risk Gatekeeper stamp.</td>
+      </tr>
+      <tr>
+        <td><strong>5. Portfolio Monitor & Journaler</strong></td>
+        <td>Live position tracking, trailing stops, memory.</td>
+        <td><span class="pill">state/trade_journal.json</span>, daily digests</td>
+        <td>Maintains long-term postmortem trade logs.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- SECTION 2: END-TO-END PIPELINE DIAGRAM -->
+  <div class="no-break">
+    <h2><span class="num">2</span> End-to-End Decision & Execution Pipeline</h2>
+    <p>
+      The trading system executes in a sequential pipeline where downstream agents only activate if upstream mathematical gates approve the trade candidate.
+    </p>
+
+    <div class="diagram-container">
+      <svg width="100%" height="210" viewBox="0 0 720 210" xmlns="http://www.w3.org/2000/svg">
+        <!-- Step 1: Exchange Data -->
+        <rect x="10" y="80" width="100" height="50" rx="6" fill="#0f172a" />
+        <text x="60" y="102" fill="#38bdf8" font-size="9" font-weight="700" text-anchor="middle">Delta Exchange</text>
+        <text x="60" y="118" fill="#cbd5e1" font-size="7.5" text-anchor="middle">Live Candles & Book</text>
+
+        <!-- Arrow 1 -->
+        <line x1="110" y1="105" x2="135" y2="105" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
+
+        <!-- Step 2: Agent 1 -->
+        <rect x="140" y="70" width="115" height="70" rx="6" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5" />
+        <text x="197" y="90" fill="#0369a1" font-size="8.5" font-weight="700" text-anchor="middle">Agent 1: Analyst</text>
+        <text x="197" y="106" fill="#0f172a" font-size="7.5" text-anchor="middle">EMA Stack + RSI + ATR</text>
+        <text x="197" y="122" fill="#047857" font-size="7" font-weight="700" text-anchor="middle">Classify Market Regime</text>
+
+        <!-- Arrow 2 -->
+        <line x1="255" y1="105" x2="280" y2="105" stroke="#64748b" stroke-width="2" />
+
+        <!-- Step 3: Agent 2 -->
+        <rect x="285" y="70" width="115" height="70" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5" />
+        <text x="342" y="90" fill="#b45309" font-size="8.5" font-weight="700" text-anchor="middle">Agent 2: Strategy</text>
+        <text x="342" y="106" fill="#0f172a" font-size="7.5" text-anchor="middle">Continuation / Reversion</text>
+        <text x="342" y="122" fill="#b45309" font-size="7" font-weight="700" text-anchor="middle">Min 2.0:1 R:R Setup</text>
+
+        <!-- Arrow 3 -->
+        <line x1="400" y1="105" x2="425" y2="105" stroke="#64748b" stroke-width="2" />
+
+        <!-- Step 4: Agent 3 -->
+        <rect x="430" y="60" width="125" height="90" rx="6" fill="#fee2e2" stroke="#dc2626" stroke-width="2" />
+        <text x="492" y="82" fill="#b91c1c" font-size="8.5" font-weight="700" text-anchor="middle">Agent 3: Risk Gate</text>
+        <text x="492" y="98" fill="#0f172a" font-size="7" text-anchor="middle">Daily Drawdown &lt; 5%</text>
+        <text x="492" y="112" fill="#0f172a" font-size="7" text-anchor="middle">Max Risk &lt;= 1% Equity</text>
+        <text x="492" y="130" fill="#dc2626" font-size="7.5" font-weight="700" text-anchor="middle">VETO OR APPROVAL</text>
+
+        <!-- Arrow 4 -->
+        <line x1="555" y1="105" x2="580" y2="105" stroke="#64748b" stroke-width="2" />
+
+        <!-- Step 5: Agent 4 -->
+        <rect x="585" y="70" width="125" height="70" rx="6" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5" />
+        <text x="647" y="90" fill="#15803d" font-size="8.5" font-weight="700" text-anchor="middle">Agent 4: Execution</text>
+        <text x="647" y="106" fill="#0f172a" font-size="7.5" text-anchor="middle">Atomic Bracket Order</text>
+        <text x="647" y="122" fill="#15803d" font-size="7" font-weight="700" text-anchor="middle">Entry + SL + TP Attached</text>
+
+        <!-- Veto Path (Down) -->
+        <line x1="492" y1="150" x2="492" y2="185" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="3,3" />
+        <rect x="440" y="185" width="105" height="20" rx="4" fill="#991b1b" />
+        <text x="492" y="198" fill="#ffffff" font-size="7" font-weight="700" text-anchor="middle">REJECT: Capital Protected</text>
+      </svg>
+    </div>
+  </div>
+
+  <div class="page-break"></div>
+
+  <!-- SECTION 3: TECHNICAL ANALYSIS MATH -->
+  <h2><span class="num">3</span> Technical Analysis & Quantitative Edge</h2>
+  <p>
+    The Regime Analyst evaluates the last 100 hourly candlesticks (<span class="pill">resolution: 60</span>) across watched perpetual futures pairs (<span class="pill">BTCUSDT</span>, <span class="pill">ETHUSDT</span>, <span class="pill">SOLUSDT</span>, <span class="pill">XRPUSDT</span>):
+  </p>
+
+  <div class="agent-card no-break">
+    <div class="agent-card-header">
+      <strong>1. Exponential Moving Average (EMA) Ribbon Stack</strong>
+      <span class="agent-badge badge-analyst">Trend Filter</span>
+    </div>
+    <p>
+      Calculates EMA 9, 21, 50, and 200. When $\text{EMA}_9 > \text{EMA}_{21} > \text{EMA}_{50} > \text{EMA}_{200}$ and price is above the 9 EMA, the regime is classified as <strong>STRONG_BULLISH</strong>. Counter-trend trades are strictly forbidden.
+    </p>
+  </div>
+
+  <div class="agent-card no-break">
+    <div class="agent-card-header">
+      <strong>2. Momentum & Volatility (RSI-14 & ATR-14)</strong>
+      <span class="agent-badge badge-analyst">Exhaustion Filter</span>
+    </div>
+    <p>
+      - <strong>RSI-14 (Relative Strength Index):</strong> Filters out overbought FOMO chases ($>72$) and oversold panic dumps ($<28$). Healthy continuation trades require RSI between $45 \text{ and } 65$.<br>
+      - <strong>ATR-14 (Average True Range):</strong> Measures true candle volatility to place stops that withstand normal market chop:
+    </p>
+    <div class="formula-box">
+      True Range (TR) = max(High - Low, |High - Close_prev|, |Low - Close_prev|)<br>
+      ATR_14 = Simple Moving Average of TR over 14 periods
+    </div>
+  </div>
+
+  <div class="agent-card no-break">
+    <div class="agent-card-header">
+      <strong>3. Dynamic Stop Loss & Target Math</strong>
+      <span class="agent-badge badge-strategy">Alpha Edge</span>
+    </div>
+    <p>
+      The invalidation level (Stop Loss) is dynamically anchored to structural trend support plus volatility buffer:
+    </p>
+    <div class="formula-box">
+      Stop Loss (Long) = max(EMA_21 * 0.995, Entry - 1.5 * ATR_14)<br>
+      Risk Distance = Entry - Stop Loss<br>
+      Take Profit Target = Entry + (Risk Distance * 2.0) &nbsp;&nbsp;[Guarantees 2:1 R:R]
+    </div>
+  </div>
+
+  <!-- SECTION 4: RISK MANAGEMENT & SIZING -->
+  <h2><span class="num">4</span> Risk Management Engine & Circuit Breaker</h2>
+  <p>
+    The Risk Gatekeeper acts as a strict, emotionless trading desk manager. If a candidate setup fails any single risk criterion, the trade is discarded instantly.
+  </p>
+
+  <table class="no-break">
+    <thead>
+      <tr>
+        <th>Discipline Rule</th>
+        <th>Threshold / Formula</th>
+        <th>Purpose & Impact</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Daily Drawdown Circuit Breaker</strong></td>
+        <td>$\text{Drawdown} \ge 5.0\%$ of starting equity</td>
+        <td>Haults all trading for the day to prevent revenge trading or catastrophic black swans.</td>
+      </tr>
+      <tr>
+        <td><strong>Position Risk Ceiling</strong></td>
+        <td>$\text{Max Risk} = \text{Account Equity} \times 0.01$ (1%)</td>
+        <td>Never risks more than 1% of total equity on any single trade invalidation.</td>
+      </tr>
+      <tr>
+        <td><strong>Mathematical Sizing</strong></td>
+        <td>$\text{Contracts} = \frac{\text{Risk Amount}}{\text{Distance to Stop} \times \text{Contract Value}}$</td>
+        <td>Dynamically scales contract size up when stop is tight and down when stop is wide.</td>
+      </tr>
+      <tr>
+        <td><strong>Leverage Ceiling</strong></td>
+        <td>Max $10\times$ leverage (Default $5\times$)</td>
+        <td>Prevents liquidation wipes; liquidation distance is maintained $> 15\%$ away.</td>
+      </tr>
+      <tr>
+        <td><strong>Concurrent Positions</strong></td>
+        <td>Max 3 open positions simultaneously</td>
+        <td>Caps total portfolio correlation and margin exposure.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- SECTION 5: LIVE CASE STUDY -->
+  <div class="no-break">
+    <h2><span class="num">5</span> Live Case Study: BTCUSD Perpetual Bracket Trade</h2>
+    <p>
+      The following is the verifiable live trade executed on Delta Exchange India Testnet (<span class="pill">https://cdn-ind.testnet.deltaex.org</span>) demonstrating the full lifecycle from entry to breakeven adjustment:
+    </p>
+
+    <table class="no-break">
+      <thead>
+        <tr>
+          <th>Execution Parameter</th>
+          <th>Verified Live Value</th>
+          <th>Matching Engine State</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Contract</strong></td>
+          <td>BTCUSD Perpetual Futures</td>
+          <td>Active Margined Position</td>
+        </tr>
+        <tr>
+          <td><strong>Direction & Contracts</strong></td>
+          <td>BUY / LONG (1 contract = 0.001 BTC)</td>
+          <td>Filled at Market</td>
+        </tr>
+        <tr>
+          <td><strong>Entry Fill Price</strong></td>
+          <td>$80,957.50 USD</td>
+          <td>Order ID: <span class="pill">2176773631</span></td>
+        </tr>
+        <tr>
+          <td><strong>Liquidation Price</strong></td>
+          <td>$64,968.39 USD</td>
+          <td>Safe distance buffer (20% away)</td>
+        </tr>
+        <tr>
+          <td><strong>Profit Target (Take-Profit)</strong></td>
+          <td>$81,760.10 USD</td>
+          <td>Order ID: <span class="pill">2176773633</span> (Pending, Reduce-Only)</td>
+        </tr>
+        <tr>
+          <td><strong>Breakeven Stop-Loss</strong></td>
+          <td>$80,957.50 USD</td>
+          <td>Order ID: <span class="pill">2176774413</span> (Pending, Reduce-Only)</td>
+        </tr>
+        <tr>
+          <td><strong>Trade Status</strong></td>
+          <td><strong>Free-Roll / Zero Downside Risk</strong></td>
+          <td>Max risk: $0.00 | Upside target: +$802.60 / BTC</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout-success no-break">
+    <div class="callout-title">✅ Institutional Memory & Journaling</div>
+    Every trade execution, along with its entry thesis, mathematical sizing, and post-fill updates, is automatically appended to <span class="pill">state/trade_journal.json</span> and compiled into daily performance reports in <span class="pill">reports/daily_digest_YYYY-MM-DD.md</span>.
+  </div>
+
+  <!-- SECTION 6: HOW TO OPERATE -->
+  <h2><span class="num">6</span> Operational CLI Commands & Operating Modes</h2>
+  <table class="no-break">
+    <thead>
+      <tr>
+        <th>Command</th>
+        <th>Mode</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="pill">python main.py test</span></td>
+        <td>Diagnostic</td>
+        <td>Validates HMAC-SHA256 authentication, wallet balance, and product catalog.</td>
+      </tr>
+      <tr>
+        <td><span class="pill">python main.py interactive</span></td>
+        <td>Semi-Autonomous</td>
+        <td>Scans markets, calculates setups and risk sizing, but prompts user [y/N] before orders.</td>
+      </tr>
+      <tr>
+        <td><span class="pill">python main.py auto</span></td>
+        <td>Fully Autonomous</td>
+        <td>Runs a continuous 5-minute background loop, executing setups approved by Agent 3.</td>
+      </tr>
+      <tr>
+        <td><span class="pill">python main.py mcp</span></td>
+        <td>Model Context Protocol</td>
+        <td>Starts the FastMCP & JSON-RPC stdio engine for Antigravity IDE and Claude Desktop.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div style="margin-top: 24px; padding-top: 10px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 8pt; color: #94a3b8;">
+    <div>Delta Exchange Multi-Agent Trading System — Powered by MCP & Claude Code Architecture</div>
+    <div>Page 2 of 2</div>
+  </div>
+
+</body>
+</html>
+

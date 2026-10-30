@@ -1,0 +1,86 @@
+schema_version: 1
+id: delta-perpetual-trading-pipeline
+display_name: Delta Exchange Multi-Agent Perpetual Trading Pipeline
+cadence: intraday-or-daily
+target_users:
+  - crypto-perpetual-trader
+  - algorithmic-trader
+difficulty: intermediate
+
+when_to_run: >-
+  Run to scan watched crypto markets, evaluate technical regimes, calculate disciplined
+  risk-sized setups, and execute protective bracket orders on Delta Exchange.
+when_not_to_run: >-
+  Do not run when account circuit breaker is triggered or when high-impact unscheduled
+  market volatility threatens severe slippage.
+
+required_agents:
+  - regime-analyst
+  - strategy-agent
+  - risk-gatekeeper
+  - execution-agent
+  - portfolio-monitor
+
+artifacts:
+  - id: circuit_breaker_status
+    produced_by_step: 1
+    required: true
+  - id: market_regime_analysis
+    produced_by_step: 2
+    required: true
+  - id: candidate_trade_setups
+    produced_by_step: 3
+    required: true
+  - id: gatekeeper_approval_decision
+    produced_by_step: 4
+    required: true
+  - id: order_execution_receipt
+    produced_by_step: 5
+    required: false
+  - id: journal_memory_record
+    produced_by_step: 6
+    required: true
+
+steps:
+  - step: 1
+    name: Check Account Health & Circuit Breaker
+    agent: risk-gatekeeper
+    decision_gate: true
+    decision_question: >-
+      Is daily drawdown under 5% and are active open positions less than the maximum limit?
+    mcp_tool: delta_check_circuit_breaker
+
+  - step: 2
+    name: Scan Market Structure & Candlestick Indicators
+    agent: regime-analyst
+    decision_gate: false
+    mcp_tool: delta_get_candles_analysis
+
+  - step: 3
+    name: Identify High-Probability Setups
+    agent: strategy-agent
+    decision_gate: true
+    decision_question: >-
+      Does a trade setup exist with minimum 2.0x Reward-to-Risk ratio and clear invalidation level?
+
+  - step: 4
+    name: Pre-Trade Discipline & Sizing Gate
+    agent: risk-gatekeeper
+    decision_gate: true
+    decision_question: >-
+      Does the position size satisfy the 1% max account risk limit and available collateral buffer?
+    mcp_tool: delta_calculate_position_size
+
+  - step: 5
+    name: Order Execution with Protective Brackets
+    agent: execution-agent
+    decision_gate: true
+    decision_question: >-
+      Has the trade setup been confirmed (by user or automated gate) for submission?
+    mcp_tool: delta_place_bracket_order
+
+  - step: 6
+    name: Trade Memory Journaling & Portfolio Monitoring
+    agent: portfolio-monitor
+    decision_gate: false
+    mcp_tool: delta_journal_trade

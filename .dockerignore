@@ -1,0 +1,13 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.git
+.gitignore
+.env.local
+node_modules
+*.pdf
+docs/*.html
+reports/*.md
+reference_repo
+

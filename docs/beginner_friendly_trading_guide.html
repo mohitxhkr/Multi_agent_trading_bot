@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The Simple, Plain-English Guide to Your Automated Trading System</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 16mm 14mm 16mm 14mm;
+  }
+
+  @media print {
+    body {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page-break {
+      page-break-after: always;
+      break-after: page;
+    }
+    .no-break {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #1e293b;
+    background: #ffffff;
+    line-height: 1.6;
+    font-size: 9pt;
+  }
+
+  /* Cover Banner */
+  .hero-banner {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0284c7 100%);
+    color: #ffffff;
+    padding: 26px 22px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+  }
+  .hero-tag {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.18);
+    color: #e0f2fe;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 10px;
+  }
+  .hero-title {
+    font-size: 20pt;
+    font-weight: 800;
+    line-height: 1.25;
+    margin-bottom: 8px;
+  }
+  .hero-subtitle {
+    font-size: 10.5pt;
+    color: #cbd5e1;
+    font-weight: 400;
+    line-height: 1.4;
+  }
+
+  /* Headings */
+  h2 {
+    font-size: 13pt;
+    font-weight: 800;
+    color: #0f172a;
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 6px;
+    margin-top: 20px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .h2-icon {
+    font-size: 14pt;
+  }
+  h3 {
+    font-size: 10pt;
+    font-weight: 700;
+    color: #1e293b;
+    margin-top: 12px;
+    margin-bottom: 4px;
+  }
+  p {
+    margin-bottom: 10px;
+    color: #334155;
+    text-align: justify;
+  }
+
+  /* Cards */
+  .card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .card-title {
+    font-size: 9.5pt;
+    font-weight: 700;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Badges */
+  .badge {
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 7.5pt;
+    font-weight: 700;
+  }
+  .badge-blue { background: #e0f2fe; color: #0284c7; }
+  .badge-amber { background: #fef3c7; color: #d97706; }
+  .badge-red { background: #fee2e2; color: #dc2626; }
+  .badge-green { background: #dcfce7; color: #16a34a; }
+  .badge-purple { background: #f3e8ff; color: #9333ea; }
+
+  /* Callout Boxes */
+  .analogy-box {
+    background: #f8fafc;
+    border-left: 4px solid #3b82f6;
+    padding: 10px 14px;
+    border-radius: 0 6px 6px 0;
+    margin: 10px 0;
+    font-size: 8.5pt;
+  }
+  .analogy-title {
+    font-weight: 700;
+    color: #1d4ed8;
+    margin-bottom: 3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .safety-box {
+    background: #fef2f2;
+    border-left: 4px solid #ef4444;
+    padding: 10px 14px;
+    border-radius: 0 6px 6px 0;
+    margin: 10px 0;
+    font-size: 8.5pt;
+  }
+  .safety-title {
+    font-weight: 700;
+    color: #b91c1c;
+    margin-bottom: 3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .success-box {
+    background: #f0fdf4;
+    border-left: 4px solid #22c55e;
+    padding: 10px 14px;
+    border-radius: 0 6px 6px 0;
+    margin: 10px 0;
+    font-size: 8.5pt;
+  }
+  .success-title {
+    font-weight: 700;
+    color: #15803d;
+    margin-bottom: 3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 14px 0;
+    font-size: 8.5pt;
+  }
+  th, td {
+    padding: 7px 10px;
+    text-align: left;
+    border: 1px solid #e2e8f0;
+  }
+  th {
+    background: #f8fafc;
+    font-weight: 700;
+    color: #0f172a;
+    border-bottom: 2px solid #cbd5e1;
+  }
+  tr:nth-child(even) td { background: #fbfcfe; }
+
+  /* Flow Steps */
+  .step-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .step-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .step-num {
+    background: #0284c7;
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 10pt;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .step-content {
+    flex-grow: 1;
+  }
+  .step-heading {
+    font-weight: 700;
+    font-size: 9pt;
+    color: #0f172a;
+    margin-bottom: 2px;
+  }
+  .step-desc {
+    font-size: 8.2pt;
+    color: #475569;
+    line-height: 1.4;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 1px 6px;
+    background: #e2e8f0;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 8pt;
+    color: #0f172a;
+  }
+  .footer-note {
+    border-top: 1px solid #e2e8f0;
+    padding-top: 8px;
+    margin-top: 16px;
+    font-size: 7.8pt;
+    color: #94a3b8;
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+  <!-- ========================================================
+       PAGE 1: WELCOME & THE CORE IDEA
+       ======================================================== -->
+  <div class="hero-banner">
+    <div class="hero-tag">Beginner-Friendly Edition • No Tech Jargon</div>
+    <div class="hero-title">How Your Automated Trading System Works</div>
+    <div class="hero-subtitle">
+      A simple, step-by-step guide explaining how 5 smart AI agents team up to analyze the crypto market, manage your risk, and safely execute trades on Delta Exchange.
+    </div>
+  </div>
+
+  <h2><span class="h2-icon">💡</span> The Big Picture: What Does This System Do?</h2>
+  <p>
+    Imagine you hired a <strong>team of 5 professional traders</strong> to sit in front of the charts 24/7. Instead of one person making impulsive, emotional, or tired decisions, each person has just <strong>one specific job</strong>:
+  </p>
+
+  <div class="analogy-box no-break">
+    <div class="analogy-title">🏢 Real-World Analogy: The 5-Person Wall Street Desk</div>
+    <strong>1. The Scout (Analyst):</strong> Looks at market weather and tells you if the wind is blowing up or down.<br>
+    <strong>2. The Planner (Strategist):</strong> Finds a sensible trade setup with high profit potential.<br>
+    <strong>3. The Safety Boss (Risk Gatekeeper):</strong> Checks your wallet, ensures you risk almost nothing, and has the power to say <em>"NO, trade rejected!"</em><br>
+    <strong>4. The Pilot (Executioner):</strong> Presses the button on Delta Exchange safely with protective stops.<br>
+    <strong>5. The Accountant (Portfolio Monitor):</strong> Watches the trade, logs everything into a diary, and moves your safety net up so you can't lose money.
+  </div>
+
+  <h2><span class="h2-icon">📖</span> Plain-English Jargon Buster</h2>
+  <p>
+    Trading is full of confusing words. Here is what they actually mean in simple terms:
+  </p>
+
+  <table class="no-break">
+    <thead>
+      <tr>
+        <th style="width: 25%;">Fancy Word</th>
+        <th style="width: 35%;">What It Actually Means</th>
+        <th style="width: 40%;">Everyday Life Example</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Long (Buy)</strong></td>
+        <td>Betting that the price of Bitcoin will go up.</td>
+        <td>Buying a house expecting prices to rise in the next year.</td>
+      </tr>
+      <tr>
+        <td><strong>Short (Sell)</strong></td>
+        <td>Betting that the price will drop.</td>
+        <td>Selling an umbrella in sunny weather before rain gear gets cheaper.</td>
+      </tr>
+      <tr>
+        <td><strong>Stop-Loss (SL)</strong></td>
+        <td>A built-in emergency exit that cuts your loss if the market goes against you.</td>
+        <td>Like an <strong>airbag in a car</strong>. It stops small damage from turning into a total wreck.</td>
+      </tr>
+      <tr>
+        <td><strong>Take-Profit (TP)</strong></td>
+        <td>The target price where your trade automatically closes to lock in cash profits.</td>
+        <td>Selling your crypto when it hits your dream profit target while you sleep.</td>
+      </tr>
+      <tr>
+        <td><strong>Bracket Order</strong></td>
+        <td>Placing your Entry, Stop-Loss, and Take-Profit orders all at the exact same time.</td>
+        <td>Buying a flight ticket with travel insurance already included.</td>
+      </tr>
+      <tr>
+        <td><strong>Breakeven Stop</strong></td>
+        <td>Moving your emergency exit up to the exact price you bought at.</td>
+        <td>A <strong>free lottery ticket</strong>: If price falls, you lose $0. If it climbs, you win.</td>
+      </tr>
+      <tr>
+        <td><strong>1% Risk Rule</strong></td>
+        <td>Never allowing any single trade to lose more than 1% of your account balance.</td>
+        <td>If you have $100, the worst possible loss on a bad trade is strictly $1.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="safety-box no-break">
+    <div class="safety-title">⚠️ Why 95% of Retail Traders Lose Money (And How This Fixes It)</div>
+    Most people lose money because of <strong>emotions</strong>: greed (buying when price is already at the top), fear (not cutting losses), and revenge trading (betting too big after a loss). This system uses <strong>strict rules and zero emotion</strong>. If a trade is not safe, the Risk Boss simply refuses to execute it.
+  </div>
+
+  <div class="page-break"></div>
+
+  <!-- ========================================================
+       PAGE 2: THE 5 AGENTS EXPLAINED SIMPLY
+       ======================================================== -->
+  <h2><span class="h2-icon">🤖</span> Meet Your 5 AI Trading Agents</h2>
+  <p>
+    Here is a breakdown of who each agent is, what they look at, and why they protect you:
+  </p>
+
+  <div class="card no-break">
+    <div class="card-header">
+      <div class="card-title">🔍 Agent 1: The Market Scout (Regime Analyst)</div>
+      <span class="badge badge-blue">Job: Check the Weather</span>
+    </div>
+    <p>
+      The Scout looks at the charts for Bitcoin, Ethereum, and other coins over the past 100 hours. It looks at lines called <strong>Moving Averages</strong> (which show average prices over 9, 21, 50, and 200 hours) and the <strong>RSI speedometer</strong> (showing if buyers or sellers are in control).
+    </p>
+    <p>
+      <strong>Its Output:</strong> Gives a simple market report: <em>"The market is Strong Bullish"</em> or <em>"The market is Choppy/Messy — Do Not Trade."</em>
+    </p>
+  </div>
+
+  <div class="card no-break">
+    <div class="card-header">
+      <div class="card-title">💡 Agent 2: The Strategy Planner (Setup Generator)</div>
+      <span class="badge badge-amber">Job: Find Good Opportunities</span>
+    </div>
+    <p>
+      Once the Scout says the market is trending nicely, the Planner looks for a smart entry point. It enforces the <strong>2-for-1 Rule</strong>: for every $1 you risk losing if you are wrong, you must have a clear path to make at least $2 in profit if you are right.
+    </p>
+    <p>
+      <strong>Its Output:</strong> Suggests a trade idea: <em>"Buy Bitcoin at $80,950, put safety exit at $79,350, and target profit at $81,760."</em>
+    </p>
+  </div>
+
+  <div class="card no-break">
+    <div class="card-header">
+      <div class="card-title">🛡️ Agent 3: The Risk Boss (Discipline Gatekeeper)</div>
+      <span class="badge badge-red">Job: Protect Your Money</span>
+    </div>
+    <p>
+      This is the <strong>most important agent on the team</strong>. The Risk Boss checks your actual Delta Exchange account balance and asks 3 hard questions:
+    </p>
+    <ul style="margin-left: 20px; font-size: 8.5pt; color: #334155; margin-bottom: 6px;">
+      <li><em>"Did we lose more than 5% today?"</em> ➔ If yes: <strong>STOP ALL TRADING FOR THE DAY.</strong></li>
+      <li><em>"Do we already have 3 trades running?"</em> ➔ If yes: <strong>REJECT. No more clutter.</strong></li>
+      <li><em>"How much can we lose if the stop-loss is hit?"</em> ➔ If more than 1% of your account: <strong>REJECT.</strong></li>
+    </ul>
+    <p>
+      <strong>Its Output:</strong> Stabs a giant green <strong>[APPROVED]</strong> or red <strong>[REJECTED]</strong> stamp on the trade.
+    </p>
+  </div>
+
+  <div class="card no-break">
+    <div class="card-header">
+      <div class="card-title">🚀 Agent 4: The Order Pilot (Execution Manager)</div>
+      <span class="badge badge-green">Job: Punch the Trade Safely</span>
+    </div>
+    <p>
+      The Pilot takes the approved trade and talks directly to Delta Exchange. It sets the safe leverage (like 5x) and sends a <strong>3-in-1 Bracket Order</strong>. This means your Entry, your Stop-Loss, and your Target are sent together in one second. You are never left floating unprotected.
+    </p>
+  </div>
+
+  <div class="card no-break">
+    <div class="card-header">
+      <div class="card-title">📊 Agent 5: The Guard & Accountant (Portfolio Monitor)</div>
+      <span class="badge badge-purple">Job: Watch & Lock In Safety</span>
+    </div>
+    <p>
+      Once the trade is running, Agent 5 watches price action like a hawk. When Bitcoin starts climbing into profit, Agent 5 triggers the <strong>Breakeven Protocol</strong>: it cancels the old stop-loss and moves it up to your purchase price. Now your trade has <strong>ZERO downside risk!</strong> It also writes down the trade in a private digital diary (<span class="pill">trade_journal.json</span>).
+    </p>
+  </div>
+
+  <div class="page-break"></div>
+
+  <!-- ========================================================
+       PAGE 3: STORY OF THE REAL TRADE WE JUST DID
+       ======================================================== -->
+  <h2><span class="h2-icon">🎯</span> Story of the Real Trade Executed on Your Account</h2>
+  <p>
+    Here is exactly what happened step-by-step when we ran the trade on your Delta Testnet demo account today:
+  </p>
+
+  <div class="step-container no-break">
+    <div class="step-row">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-heading">Checking Account Balance</div>
+        <div class="step-desc">
+          The system connected to Delta Exchange and found <strong>$204.83 USD</strong> in your demo wallet with zero open trades.
+        </div>
+      </div>
+    </div>
+
+    <div class="step-row">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-heading">Market Scan: The Green Light</div>
+        <div class="step-desc">
+          Agent 1 scanned Bitcoin and saw it trading at <strong>$81,061</strong> with healthy momentum (RSI: 56). It tagged Bitcoin as <strong>STRONG BULLISH</strong>.
+        </div>
+      </div>
+    </div>
+
+    <div class="step-row">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-heading">The Risk Calculation</div>
+        <div class="step-desc">
+          Agent 3 calculated your safe 1% risk limit: out of $204.83, the most you could risk was <strong>$2.04</strong>. It sized the trade to 1 contract of Bitcoin, risking just <strong>$0.80 (less than half of 1%)</strong>.
+        </div>
+      </div>
+    </div>
+
+    <div class="step-row">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <div class="step-heading">Order Placed on Delta Exchange</div>
+        <div class="step-desc">
+          Agent 4 submitted the order. It filled at <strong>$80,957.50</strong> (Order ID: <span class="pill">2176773631</span>). Simultaneously, a profit target was set at <strong>$81,760.10</strong> and an emergency stop at <strong>$79,355.40</strong>.
+        </div>
+      </div>
+    </div>
+
+    <div class="step-row">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <div class="step-heading">Price Rose ➔ The Free-Roll Upgrade!</div>
+        <div class="step-desc">
+          Bitcoin price moved up to <strong>$81,096.92</strong> (in green profit). You asked to adjust stops, so the system moved your Stop-Loss up to <strong>$80,957.50</strong> (Order ID: <span class="pill">2176774413</span>).
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="success-box no-break">
+    <div class="success-title">🎉 What Does "Free-Roll" Mean For You Right Now?</div>
+    Right now on Delta Exchange, your Bitcoin trade cannot lose money:
+    <ul style="margin-left: 20px; font-size: 8.5pt; margin-top: 4px;">
+      <li><strong>Worst Case Scenario:</strong> Bitcoin crashes back down. The exchange automatically sells your contract at $80,957.50 (what you paid). <strong>Loss = $0.00.</strong></li>
+      <li><strong>Best Case Scenario:</strong> Bitcoin continues climbing to $81,760.10. The exchange automatically sells your contract for a profit. <strong>Profit = Real Gain in your wallet!</strong></li>
+    </ul>
+  </div>
+
+  <h2><span class="h2-icon">🎮</span> How You Control It (Simple Buttons)</h2>
+  <table class="no-break">
+    <thead>
+      <tr>
+        <th>What You Want To Do</th>
+        <th>What You Type in Terminal</th>
+        <th>What Will Happen</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Test Connection</strong></td>
+        <td><span class="pill">python test_delta_connection.py</span></td>
+        <td>Checks your API keys and shows your current wallet balance.</td>
+      </tr>
+      <tr>
+        <td><strong>Run Safe Interactive Scan</strong></td>
+        <td><span class="pill">python main.py interactive</span></td>
+        <td>Agents scan the market, calculate sizes, and ask you: <em>"Confirm order? [y/N]"</em>. You decide!</td>
+      </tr>
+      <tr>
+        <td><strong>Auto-Pilot Mode</strong></td>
+        <td><span class="pill">python main.py auto</span></td>
+        <td>Runs in the background every 5 minutes, placing only trades approved by the Risk Boss.</td>
+      </tr>
+      <tr>
+        <td><strong>Emergency Stop (Panic Button)</strong></td>
+        <td>Ask in chat: <em>"Close my positions"</em></td>
+        <td>Instantly cancels all pending orders and sells positions at market price.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="footer-note">
+    <div>Delta Exchange Multi-Agent Trading System • Beginner's Guide</div>
+    <div>Page 3 of 3 • Designed for Non-Technical Traders</div>
+  </div>
+
+</body>
+</html>
+

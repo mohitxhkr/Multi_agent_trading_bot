@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delta Exchange Multi-Agent 24/7 Architecture Diagram</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --primary: #3b82f6;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #8b5cf6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding: 24px;
+      line-height: 1.5;
+    }
+    .header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .title h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 4px;
+    }
+    .title p {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    .btn-group {
+      display: flex;
+      gap: 12px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+    }
+    .btn-primary {
+      background-color: #238636;
+      color: #ffffff;
+      border-color: #2ea043;
+    }
+    .btn-primary:hover { background-color: #2ea043; }
+    .btn-secondary {
+      background-color: var(--card-bg);
+      color: var(--text);
+      border-color: var(--border);
+    }
+    .btn-secondary:hover { background-color: #21262d; border-color: #8b949e; }
+    .diagram-container {
+      background-color: #0b0f14;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 32px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      overflow-x: auto;
+    }
+    .diagram-container svg {
+      width: 100%;
+      height: auto;
+      min-width: 900px;
+      display: block;
+    }
+    .specs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+      margin-bottom: 32px;
+    }
+    .spec-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+    }
+    .spec-card h3 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .spec-card ul {
+      list-style-type: none;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .spec-card ul li {
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .spec-card ul li strong {
+      color: var(--text);
+    }
+    @media print {
+      body { background: #ffffff; color: #000000; padding: 0; }
+      .header, .specs-grid { display: none; }
+      .diagram-container { border: none; box-shadow: none; padding: 0; background: #ffffff; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="title">
+      <h1>🚀 Delta Exchange Multi-Agent 24/7 Architecture</h1>
+      <p>Autonomous Trading Pipeline with 5-Timeframe Institutional Confluence, 2-Way Telegram Gate & Dynamic Trailing Stop</p>
+    </div>
+    <div class="btn-group">
+      <a href="workflow_architecture_diagram.svg" download="Delta_Trading_Workflow_Architecture.svg" class="btn btn-primary">
+        📥 Download Vector SVG
+      </a>
+      <button onclick="window.print()" class="btn btn-secondary">
+        🖨️ Print / Save as PDF
+      </button>
+    </div>
+  </div>
+
+  <div class="diagram-container">
+    <object type="image/svg+xml" data="workflow_architecture_diagram.svg" style="width: 100%; height: auto;">
+      <!-- Fallback image preview -->
+      <img src="workflow_architecture_diagram.svg" alt="Workflow Architecture Diagram" style="width: 100%;">
+    </object>
+  </div>
+
+  <div class="specs-grid">
+    <div class="spec-card">
+      <h3 style="color: #38bdf8;">🧠 Multi-Agent Core</h3>
+      <ul>
+        <li><span>Agent 1:</span> <strong>Regime Analyst (5 Timeframes)</strong></li>
+        <li><span>Agent 2:</span> <strong>Strategy Agent (SMC &amp; Scoring)</strong></li>
+        <li><span>Agent 3:</span> <strong>Risk Gatekeeper (Capital &amp; Leverage)</strong></li>
+        <li><span>Agent 4:</span> <strong>Execution Agent (Delta Brackets)</strong></li>
+        <li><span>Agent 5:</span> <strong>Portfolio Monitor &amp; Journal</strong></li>
+      </ul>
+    </div>
+    <div class="spec-card">
+      <h3 style="color: #10b981;">📊 5-Timeframe Confluence</h3>
+      <ul>
+        <li><span>1-Month (1M):</span> <strong>Monthly Open &amp; Range Expansion</strong></li>
+        <li><span>1-Week (1W):</span> <strong>Weekly EMA 21 &amp; PWH / PWL Liquidity</strong></li>
+        <li><span>1-Day (1D):</span> <strong>Daily EMA Stack &amp; PDH / PDL Sweeps</strong></li>
+        <li><span>4-Hour (4H):</span> <strong>Cycle Momentum &amp; Trend Stack</strong></li>
+        <li><span>1-Hour (1H):</span> <strong>BSL/SSL Sweeps + Wick Rejection + MSS</strong></li>
+      </ul>
+    </div>
+    <div class="spec-card">
+      <h3 style="color: #f59e0b;">🛡️ Risk &amp; Sizing Rules</h3>
+      <ul>
+        <li><span>Capital Allocation:</span> <strong>75% to 100% of Available Margin</strong></li>
+        <li><span>BTC Leverage:</span> <strong>50x Isolated</strong></li>
+        <li><span>Alts &amp; Gold Leverage:</span> <strong>25x Isolated (SOL, XAU, ETH, etc.)</strong></li>
+        <li><span>Starting R:R:</span> <strong>Exact 1:2 Risk/Reward</strong></li>
+        <li><span>Initial Stop Loss:</span> <strong>Structural Wick Extreme + 0.15 ATR</strong></li>
+      </ul>
+    </div>
+    <div class="spec-card">
+      <h3 style="color: #ec4899;">⚡ Dynamic Trailing Stop</h3>
+      <ul>
+        <li><span>Milestone 1 (+1.0R):</span> <strong>Move SL to Breakeven (Zero Risk)</strong></li>
+        <li><span>Milestone 2 (+2.0R):</span> <strong>Lock +1.0R Profit &amp; Extend TP to 1:3</strong></li>
+        <li><span>Milestone 3 (+3.0R):</span> <strong>Lock +2.0R Profit &amp; Extend TP to 1:5</strong></li>
+        <li><span>Milestone 4 (+5.0R):</span> <strong>Lock +4.0R Profit (Runner Mode)</strong></li>
+        <li><span>Polling Speed:</span> <strong>Every 15 seconds (PUT /v2/orders)</strong></li>
+      </ul>
+    </div>
+  </div>
+
+</body>
+</html>

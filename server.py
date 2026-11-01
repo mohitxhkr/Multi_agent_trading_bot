@@ -97,7 +97,7 @@ def run_scanner_loop():
         "  <i>(1:1 -> Breakeven, 1:2 -> Lock +1R & trail to 1:3, 1:5)</i>\n"
         "• <b>Confluence Engine:</b> 🎯 <b>80-90% WIN-RATE FILTER</b>\n"
         "  <i>(4H Macro Stack + 1H Liquidity Sweeps + MSS + Structural SL)</i>\n"
-        "• <b>Universe:</b> <code>BTCUSD, ETHUSD, SOLUSD, PAXGUSD</code>\n"
+        "• <b>Universe:</b> <code>BTCUSD, ETHUSD, SOLUSD, XAUUSD, PAXGUSD, XRPUSD, DOGEUSD, ADAUSD</code>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "⚡ <i>Monitoring charts 24/7. Capital is protected.</i>"
     )

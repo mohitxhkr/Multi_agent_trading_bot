@@ -179,9 +179,18 @@ class DeltaExchangeClient:
     def resolve_symbol(self, symbol: str) -> str:
         """
         Automatically resolve symbols between Delta India (e.g. BTCUSD) and Delta Global (e.g. BTCUSDT).
+        Also maps commodity & gold aliases such as XAUUSD / GOLD -> XAUTUSD / PAXGUSD.
         """
         sym = symbol.strip().upper()
         self.load_products()
+
+        # Handle Gold / Commodity aliases
+        if sym in ["XAUUSD", "GOLD", "GOLDUSD", "XAU"]:
+            if "XAUTUSD" in self._products_cache:
+                return "XAUTUSD"
+            if "PAXGUSD" in self._products_cache:
+                return "PAXGUSD"
+
         if sym in self._products_cache:
             return sym
         if sym.endswith("USDT") and sym[:-1] in self._products_cache:

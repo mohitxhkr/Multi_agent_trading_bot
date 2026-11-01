@@ -58,7 +58,7 @@ class MultiAgentTradingOrchestrator:
         self.telegram_bot = TelegramConfirmationBot()
         self.trailing_stop_manager = TrailingStopManager(client=self.client, telegram=self.telegram)
 
-        raw_symbols = os.getenv("DEFAULT_SYMBOLS", "BTCUSD,ETHUSD,SOLUSD,PAXGUSD")
+        raw_symbols = os.getenv("DEFAULT_SYMBOLS", "BTCUSD,ETHUSD,SOLUSD,XAUUSD,PAXGUSD,XRPUSD,DOGEUSD,ADAUSD")
         self.symbols = symbols or [s.strip().upper() for s in raw_symbols.split(",") if s.strip()]
         self.interactive = interactive
         self.leverage = leverage

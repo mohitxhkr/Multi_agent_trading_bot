@@ -93,22 +93,49 @@ class RiskGatekeeperAgent:
         pinfo = self.client.get_product_info(symbol)
         contract_value = float(pinfo.get("contract_value", "0.001")) if pinfo else 0.001
 
-        # 6. Compute strict position sizing and R:R validation
-        sizing = self.risk_manager.calculate_position_size(
-            account_equity=total_usdt,
-            entry_price=entry,
-            stop_loss_price=stop,
-            take_profit_price=tp,
-            contract_value=contract_value,
-            leverage=leverage,
-            risk_pct_override=risk_pct_override
-        )
+        # 6. Sizing Engine: Target 75% to 100% Capital Allocation at specified leverage
+        alloc_min = float(os.getenv("CAPITAL_ALLOCATION_MIN_PCT", "0.75"))
+        alloc_max = float(os.getenv("CAPITAL_ALLOCATION_MAX_PCT", "1.00"))
 
-        if sizing.get("gate_status") != "APPROVED":
+        usable_capital = max(available_usdt, 0.0)
+        if usable_capital < 5.0:
             return {
                 "gate_decision": "REJECTED",
-                "reason": "; ".join(sizing.get("rejection_reasons", ["Sizing gate criteria not met"])),
-                "sizing_details": sizing
+                "reason": f"Available capital (${usable_capital:.2f}) is too low to open a new position."
+            }
+
+        target_margin = usable_capital * alloc_min
+        target_notional = target_margin * leverage
+        per_contract_notional = contract_value * entry
+        if per_contract_notional <= 0:
+            return {"gate_decision": "REJECTED", "reason": "Invalid entry price or contract value."}
+
+        contracts = int(target_notional / per_contract_notional)
+        if contracts < 1:
+            contracts = 1
+
+        req_margin = (contracts * per_contract_notional) / leverage
+        # Clamp to available balance with buffer
+        if req_margin > usable_capital * 0.98:
+            contracts = int((usable_capital * 0.95 * leverage) / per_contract_notional)
+            req_margin = (contracts * per_contract_notional) / leverage
+
+        if contracts < 1 or req_margin > usable_capital:
+            return {
+                "gate_decision": "REJECTED",
+                "reason": f"Minimum contract margin (${req_margin:.2f}) exceeds available capital (${usable_capital:.2f})."
+            }
+
+        stop_distance = abs(entry - stop)
+        dollar_risk = contracts * contract_value * stop_distance
+        risk_pct = (dollar_risk / total_usdt) * 100.0 if total_usdt > 0 else 0.0
+        profit_distance = abs(tp - entry)
+        rr_ratio = round((profit_distance / stop_distance), 2) if stop_distance > 0 else 2.0
+
+        if rr_ratio < self.risk_manager.min_reward_to_risk:
+            return {
+                "gate_decision": "REJECTED",
+                "reason": f"Reward-to-Risk ratio {rr_ratio:.2f}:1 is below required minimum of {self.risk_manager.min_reward_to_risk:.1f}:1"
             }
 
         # Passed all gates
@@ -118,15 +145,15 @@ class RiskGatekeeperAgent:
             "side": setup.get("side"),
             "strategy": setup.get("strategy_name"),
             "thesis": setup.get("thesis"),
-            "contracts": sizing["contracts"],
+            "contracts": contracts,
             "entry_price": entry,
             "stop_loss_price": stop,
             "take_profit_price": tp,
-            "reward_to_risk_ratio": sizing["reward_to_risk_ratio"],
-            "dollar_risk_usd": sizing["actual_dollar_risk"],
-            "risk_pct": sizing["actual_risk_pct"],
-            "required_margin_usd": sizing["required_margin_usd"],
-            "leverage": sizing["leverage"],
+            "reward_to_risk_ratio": rr_ratio,
+            "dollar_risk_usd": round(dollar_risk, 2),
+            "risk_pct": round(risk_pct, 2),
+            "required_margin_usd": round(req_margin, 2),
+            "leverage": leverage,
             "account_equity": total_usdt,
             "available_usdt": available_usdt,
             "circuit_breaker": cb_res

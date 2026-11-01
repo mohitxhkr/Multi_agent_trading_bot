@@ -17,36 +17,50 @@
 
 ## 🏛️ System Architecture
 
-![Multi-Agent Architecture](multiagent_pipeline_architecture.png)
+![Multi-Agent Architecture](workflow_architecture_diagram.png)
+
+> **📥 Downloadable Architecture Formats:**  
+> • **[High-Resolution Graphic (PNG Image)](workflow_architecture_diagram.png)**  
+> • **[Vector Diagram (Scalable SVG)](workflow_architecture_diagram.svg)**  
+> • **[Interactive HTML Viewer &amp; Print/PDF Layout](workflow_architecture.html)**
 
 ```
-                                  24/7 AUTONOMOUS SCANNER
-                                    (server.py / run_247_scanner.py)
+                           24/7 CLOUD AUTONOMOUS SCANNER (Render)
+                              (server.py / run_247_scanner.py)
                                              │
                        ┌─────────────────────┴─────────────────────┐
                        ▼                                           ▼
-          [Agent 1: Scout & Liquidity]                [Agent 5: Portfolio Monitor]
-        Maps BSL & SSL / Sweeps 24/7                  Monitors PnL & Circuit Breaker
+      [Agent 1: 5-Timeframe Scout]                    [Agent 5: Portfolio Monitor]
+   1M (Month Open) · 1W (Weekly EMA)                Monitors PnL & Circuit Breaker
+    1D (Daily Stack) · 4H (Cycle)                                  │
+    1H (Liquidity Sweep + MSS)                                     │
                        │                                           │
                        └─────────────────────┬─────────────────────┘
-                                             │  Qualified Setup Found (>= 2.0x R:R)
+                                             │  Qualified Setup (Score >= 70, R:R >= 2.0)
                                              ▼
-                               [Agent 3: Risk Gatekeeper]
-                              Sizes 75%–100% Capital Margin
-                               50x BTC / 25x ETH, SOL, PAXG
+                                [Agent 3: Risk Gatekeeper]
+                               Sizes 75%–100% Available Capital
+                                50x BTC / 25x SOL, XAU (Gold), Alts
+                                             │
+                                             ▼
+                             📱 TELEGRAM 2-WAY CONFIRMATION GATE
+                         Pushes Full Reasoning & Confluence to Phone
+                         [✅ Confirm & Execute]   [❌ Reject Trade]
                                              │
                        ┌─────────────────────┴─────────────────────┐
                        ▼                                           ▼
-             📱 TELEGRAM NOTIFIER                       🚀 [Agent 4: Execution]
-         Instant Setup & Entry Alert                 Places 3-in-1 Bracket Order
-         Target, Stop Loss, Contracts                (Entry + Stop Loss + Take Profit)
-                       │                                           │
-                       └─────────────────────┬─────────────────────┘
-                                             │  Fill Confirmed
-                                             ▼
-                                   📱 TELEGRAM RECEIPT
-                               Instant Fill Confirmation &
-                                    Order ID on Mobile
+             [❌ User Taps Reject]                       [✅ User Taps Confirm]
+          Order Dropped · Zero Risk                                │
+                                                                   ▼
+                                                       🚀 [Agent 4: Execution]
+                                                     Places 3-in-1 Bracket Order
+                                                  (Entry + Protective SL + 1:2 TP)
+                                                                   │
+                                                                   ▼
+                                                    🛡️ TRAILING STOP MANAGER (15s Loop)
+                                                    • +1.0R ──► Breakeven (0 Risk)
+                                                    • +2.0R ──► Lock +1.0R & TP to 1:3
+                                                    • +3.0R ──► Lock +2.0R & TP to 1:5
 ```
 
 ---
@@ -100,7 +114,7 @@ BTC_LEVERAGE=50
 ALT_LEVERAGE=25
 
 # Multi-Agent Scan Settings
-DEFAULT_SYMBOLS=BTCUSD,ETHUSD,SOLUSD,PAXGUSD
+DEFAULT_SYMBOLS=BTCUSD,ETHUSD,SOLUSD,XAUUSD,PAXGUSD,XRPUSD,DOGEUSD,ADAUSD
 TRADING_MODE=interactive
 
 # Telegram Bot Push Alerts

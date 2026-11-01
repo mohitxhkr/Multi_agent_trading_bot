@@ -418,6 +418,39 @@ class DeltaExchangeClient:
 
         return self._request("POST", "/v2/orders", payload=payload, authenticated=True)
 
+    def edit_order(
+        self,
+        order_id: int,
+        product_id: Optional[int] = None,
+        symbol: Optional[str] = None,
+        stop_price: Optional[float] = None,
+        limit_price: Optional[float] = None,
+        size: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Edit an open order or bracket order on Delta Exchange.
+        Endpoint: PUT /v2/orders
+        """
+        pid = product_id
+        if pid is None and symbol:
+            pid = self.get_product_id(symbol)
+
+        if not pid:
+            return {"success": False, "error": "product_id or valid symbol is required"}
+
+        payload: Dict[str, Any] = {
+            "id": int(order_id),
+            "product_id": int(pid),
+        }
+        if stop_price is not None:
+            payload["stop_price"] = str(stop_price)
+        if limit_price is not None:
+            payload["limit_price"] = str(limit_price)
+        if size is not None:
+            payload["size"] = int(size)
+
+        return self._request("PUT", "/v2/orders", payload=payload, authenticated=True)
+
     def cancel_order(self, symbol: str, order_id: int) -> Dict[str, Any]:
         """Cancel an open order by ID."""
         pid = self.get_product_id(symbol)

@@ -23,6 +23,8 @@ from multiagent_team.risk_gatekeeper import RiskGatekeeperAgent
 from multiagent_team.execution_agent import ExecutionAgent
 from multiagent_team.portfolio_monitor import PortfolioMonitorAgent
 from src.telegram_notifier import TelegramNotifier
+from src.telegram_bot import TelegramConfirmationBot
+from src.trailing_stop_manager import TrailingStopManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("orchestrator")
@@ -46,15 +48,17 @@ class MultiAgentTradingOrchestrator:
             min_reward_to_risk=target_rr_ratio
         )
         
-        # Team of 5 agents + Telegram Notifier
+        # Team of agents + Telegram Confirmation Bot + Trailing Stop Manager
         self.regime_analyst = RegimeAnalystAgent(self.client)
         self.strategy_agent = StrategyAgent(target_rr_ratio=target_rr_ratio)
         self.risk_gatekeeper = RiskGatekeeperAgent(self.client, self.risk_manager)
         self.execution_agent = ExecutionAgent(self.client)
         self.portfolio_monitor = PortfolioMonitorAgent(self.client)
         self.telegram = TelegramNotifier()
+        self.telegram_bot = TelegramConfirmationBot()
+        self.trailing_stop_manager = TrailingStopManager(client=self.client, telegram=self.telegram)
 
-        raw_symbols = os.getenv("DEFAULT_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT")
+        raw_symbols = os.getenv("DEFAULT_SYMBOLS", "BTCUSD,ETHUSD,SOLUSD,PAXGUSD")
         self.symbols = symbols or [s.strip().upper() for s in raw_symbols.split(",") if s.strip()]
         self.interactive = interactive
         self.leverage = leverage
@@ -75,6 +79,11 @@ class MultiAgentTradingOrchestrator:
         active_cnt = pos_summary.get("active_count", 0)
         unrealized_pnl = pos_summary.get("total_unrealized_pnl_usd", 0.0)
         print(f"   Active Positions: {active_cnt} | Total Unrealized PnL: ${unrealized_pnl:.2f}")
+
+        # Trailing Stop Protection for Active Positions
+        trailing_updates = self.trailing_stop_manager.check_and_update_trailing_stops()
+        if trailing_updates:
+            print(f"   🛡️ Trailing Stop Manager applied {len(trailing_updates)} stop update(s).")
 
         # -----------------------------------------------------------------
         # Step 2: Market Regime Analysis (Agent 1)
@@ -115,9 +124,9 @@ class MultiAgentTradingOrchestrator:
             status = decision.get("gate_decision")
             if status == "APPROVED":
                 print(f"   ✅ [APPROVED] {sym} ({decision.get('leverage', asset_leverage)}x): {decision['contracts']} contracts | Risk: ${decision['dollar_risk_usd']} ({decision['risk_pct']}%) | Margin: ${decision['required_margin_usd']}")
+                # Propagate confluence details into trade spec
+                decision["confluence"] = c.get("confluence", {})
                 approved_trades.append(decision)
-                # Instant Telegram alert when a perfect qualified opportunity is identified
-                self.telegram.notify_perfect_trade_opportunity(decision)
             else:
                 print(f"   ❌ [REJECTED] {sym}: {decision.get('reason')}")
 
@@ -126,33 +135,53 @@ class MultiAgentTradingOrchestrator:
             return {"status": "REJECTED_BY_RISK_GATE", "regime": market_regime}
 
         # -----------------------------------------------------------------
-        # Step 5: Execution Management (Agent 4)
+        # Step 5: Telegram 2-Way Execution Gate (Agent 4 + Telegram Bot)
         # -----------------------------------------------------------------
         executed_records = []
         for trade in approved_trades:
-            print("\n🚀 [Agent 4: Execution Agent] Ready to execute:")
+            print("\n📱 [Telegram 2-Way Confirmation Gate] Sending proposal to Telegram & awaiting confirmation...")
             print(f"   Contract: {trade['symbol']} | Side: {trade['side'].upper()} | Contracts: {trade['contracts']}")
             print(f"   Entry: ${trade['entry_price']:.2f} | Stop Loss: ${trade['stop_loss_price']:.2f} | Take Profit: ${trade['take_profit_price']:.2f}")
-            print(f"   Max Risk: ${trade['dollar_risk_usd']:.2f} | Reward/Risk: {trade['reward_to_risk_ratio']:.2f}:1")
+            print(f"   Max Risk: ${trade['dollar_risk_usd']:.2f} | Initial R:R: {trade['reward_to_risk_ratio']:.2f}:1")
 
-            execute_now = True
-            if self.interactive:
+            execute_now = False
+
+            # First priority: 2-way Telegram confirmation
+            if self.telegram_bot.is_configured:
+                print("   ⏳ Awaiting user approval on Telegram (tapping [Confirm] or [Reject])...")
+                execute_now = self.telegram_bot.request_trade_confirmation(trade, timeout_seconds=600)
+            elif self.interactive:
                 user_choice = input("\n   ❓ Confirm order execution on Delta Exchange? [y/N]: ").strip().lower()
-                if user_choice not in ["y", "yes"]:
-                    print("   ⏭️ Trade execution skipped by user.")
-                    execute_now = False
+                execute_now = user_choice in ["y", "yes"]
+            else:
+                print("   ⚠️ Neither Telegram nor interactive console is available. Execution halted for safety.")
+                execute_now = False
 
             if execute_now:
+                print("   🚀 User APPROVED! Executing bracket order on Delta Exchange...")
                 exec_res = self.execution_agent.execute_approved_trade(trade, order_type="limit_order")
                 if exec_res.get("success"):
                     print(f"   🎉 Order successfully placed! Trade ID: {exec_res['trade_id']} | Order ID: {exec_res.get('order_id')}")
-                    # Step 6: Journal execution into persistent memory (Agent 5)
+                    # Register into TrailingStopManager
+                    self.trailing_stop_manager.register_initial_trade(
+                        symbol=trade["symbol"],
+                        side=trade["side"],
+                        entry_price=trade["entry_price"],
+                        initial_sl=trade["stop_loss_price"],
+                        initial_tp=trade["take_profit_price"],
+                        contracts=trade["contracts"],
+                        sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
+                        tp_order_id=exec_res.get("take_profit_order_id"),
+                    )
+                    # Journal execution into persistent memory (Agent 5)
                     self.portfolio_monitor.journal_execution(exec_res, trade)
                     executed_records.append(exec_res)
                     # Instant Telegram execution receipt
                     self.telegram.notify_trade_execution(exec_res, trade)
                 else:
                     print(f"   ⚠️ Order execution failed: {exec_res.get('error')}")
+            else:
+                print("   ⏭️ Trade skipped or rejected by user. Capital protected.")
 
         # Update daily digest
         self.portfolio_monitor.generate_daily_digest()

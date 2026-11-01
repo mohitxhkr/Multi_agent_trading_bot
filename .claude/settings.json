@@ -1,5 +1,5 @@
 {
-  "model": "claude-opus-5-5",
+  "model": "agy/claude-sonnet-4-6",
   "description": "Delta Exchange Multi-Agent Trading Bot - Project Settings",
-  "defaultSubagentModel": "claude-sonnet-5-5"
+  "defaultSubagentModel": "agy/claude-sonnet-4-6"
 }

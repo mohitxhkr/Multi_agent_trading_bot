@@ -49,7 +49,7 @@ def main():
     print("\n" + "=" * 70)
     print(" 🚀 DELTA EXCHANGE 24/7 AUTONOMOUS MULTI-AGENT SCANNER")
     print("=" * 70)
-    print(f" • Mode: {'Semi-Automated (Confirmation Prompt)' if args.interactive else 'Full Autonomous (Telegram Alert & Execute)'}")
+    print(f" • Mode: 2-Way Telegram Confirmation (Zero trades execute without button click)")
     print(f" • Scan Interval: Every {args.interval} seconds")
     print(f" • Sizing: 75% to 100% Capital Allocation")
     print(f" • Leverage: 50x (BTC) | 25x (ETH, SOL, PAXG / Gold)")

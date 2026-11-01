@@ -35,3 +35,8 @@ wheels/
 
 # Local reference repo (cloned for inspection)
 reference_repo/
+
+# Runtime state and generated reports
+state/*.json
+state/*.log
+reports/*.md

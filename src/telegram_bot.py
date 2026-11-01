@@ -160,9 +160,13 @@ class TelegramConfirmationBot:
         conf_lines = ""
         if confluence:
             conf_lines = (
-                f"• <b>4H Macro Trend:</b> {confluence.get('macro_trend', 'Aligned')}\n"
-                f"• <b>1H Structure:</b> {confluence.get('structure_detail', 'Liquidity Sweep + MSS')}\n"
-                f"• <b>Volume & RSI:</b> {confluence.get('volume_rsi', 'Strong Confluence')}\n"
+                f"📊 <b>5-Timeframe Confluence Matrix (Score: {trade_spec.get('score', 80)}/100):</b>\n"
+                f"• <b>1M Monthly:</b> <code>{confluence.get('monthly', 'ALIGNED')}</code>\n"
+                f"• <b>1W Weekly:</b> <code>{confluence.get('weekly', 'ALIGNED')}</code>\n"
+                f"• <b>1D Daily:</b> <code>{confluence.get('daily', 'ALIGNED')}</code>\n"
+                f"• <b>4H Cycle:</b> <code>{confluence.get('macro_4h', 'ALIGNED')}</code>\n"
+                f"• <b>1H Trigger:</b> {confluence.get('structure_detail', 'Liquidity Sweep + MSS')}\n"
+                f"• <b>Momentum:</b> {confluence.get('volume_rsi', 'Aligned')}\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
             )
 
@@ -267,3 +271,4 @@ class TelegramConfirmationBot:
         self.edit_message_text(msg_id, timeout_text, reply_markup={"inline_keyboard": []})
         logger.info(f"Trade proposal {trade_id} timed out. Order cancelled.")
         return False
+

@@ -95,7 +95,11 @@ class MultiAgentTradingOrchestrator:
         for sym, d in scan_results.get("symbols_data", {}).items():
             liq = d.get("liquidity", {})
             liq_str = f"Sweep: {liq.get('sweep_type', 'NONE')} -> Bias: {liq.get('bias', 'NEUTRAL')}" if liq else ""
-            print(f"   • {sym:<8} Price: ${d.get('current_price', 0):<9.2f} | RSI: {d.get('rsi_14', 0):<5.1f} | Regime: {d.get('regime', 'NEUTRAL'):<16} | {liq_str}")
+            m_reg = d.get("macro_monthly", {}).get("regime", "N/A").replace("MONTHLY_", "")
+            w_reg = d.get("macro_weekly", {}).get("regime", "N/A").replace("WEEKLY_", "")
+            d_reg = d.get("macro_daily", {}).get("regime", "N/A").replace("DAILY_", "")
+            h4_reg = d.get("macro_4h", {}).get("regime", "N/A").replace("MACRO_", "")
+            print(f"   • {sym:<8} Price: ${d.get('current_price', 0):<9.2f} | 1M:{m_reg} 1W:{w_reg} 1D:{d_reg} 4H:{h4_reg} | {liq_str}")
             if liq and liq.get("sweep_detected"):
                 print(f"     🌊 [LIQUIDITY SWEEP] {liq.get('narrative')}")
 

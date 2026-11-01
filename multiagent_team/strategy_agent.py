@@ -32,6 +32,9 @@ class StrategyAgent:
             macro = hp_setup.get("macro_regime", "NEUTRAL")
             liq = analysis.get("liquidity", {})
             macro_4h = analysis.get("macro_4h", {})
+            macro_daily = analysis.get("macro_daily", {})
+            macro_weekly = analysis.get("macro_weekly", {})
+            macro_monthly = analysis.get("macro_monthly", {})
 
             stop_distance = abs(entry - sl)
             if stop_distance > 0 and entry > 0:
@@ -47,9 +50,12 @@ class StrategyAgent:
                     "score": score,
                     "thesis": thesis,
                     "confluence": {
-                        "macro_trend": f"{macro} (4H RSI: {macro_4h.get('rsi_14', 'N/A')})",
+                        "monthly": f"{macro_monthly.get('regime', 'NEUTRAL')} (M-Open: ${macro_monthly.get('monthly_open', 'N/A')})",
+                        "weekly": f"{macro_weekly.get('regime', 'NEUTRAL')} (W-RSI: {macro_weekly.get('rsi_14', 'N/A')})",
+                        "daily": f"{macro_daily.get('regime', 'NEUTRAL')} (EMA21: ${macro_daily.get('ema_21', 'N/A')} | RSI: {macro_daily.get('rsi_14', 'N/A')})",
+                        "macro_4h": f"{macro_4h.get('regime', 'NEUTRAL')} (4H RSI: {macro_4h.get('rsi_14', 'N/A')})",
                         "structure_detail": f"{liq.get('sweep_type', 'Structure Test')} | MSS: {'YES' if liq.get('mss_confirmed') else 'ALIGNED'}",
-                        "volume_rsi": f"1H RSI: {analysis.get('rsi_14', 50.0)} | Vol Confirmed: {'YES' if liq.get('volume_confirmed') else 'NORMAL'}"
+                        "volume_rsi": f"1H RSI: {analysis.get('rsi_14', 50.0)} | Vol: {'CONFIRMED' if liq.get('volume_confirmed') else 'NORMAL'}"
                     }
                 }
 

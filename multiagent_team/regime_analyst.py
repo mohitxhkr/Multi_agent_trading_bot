@@ -12,15 +12,19 @@ from src.technical_analysis import analyze_multi_timeframe
 logger = logging.getLogger("regime-analyst")
 
 
+import time
+
 class RegimeAnalystAgent:
     def __init__(self, client: DeltaExchangeClient):
         self.client = client
 
     def analyze_symbol(self, symbol: str, resolution: str = "60") -> Dict[str, Any]:
         """
-        Analyze price action, indicators, and market regime with multi-timeframe 1H + 4H confluence.
+        Analyze price action, indicators, and market regime with 5-timeframe confluence:
+        1-Hour, 4-Hour, 1-Day, 1-Week, and 1-Month.
         """
-        logger.info(f"RegimeAnalyst: Fetching 1H & 4H structure for {symbol}...")
+        logger.info(f"RegimeAnalyst: Fetching 1H, 4H, Daily & Weekly structure for {symbol}...")
+        now = int(time.time())
         candles_1h_res = self.client.get_candles(symbol, resolution="60")
         if not candles_1h_res.get("success"):
             return {
@@ -31,8 +35,14 @@ class RegimeAnalystAgent:
         candles_4h_res = self.client.get_candles(symbol, resolution="240")
         candles_4h = candles_4h_res.get("result", {}) if candles_4h_res.get("success") else None
 
+        candles_1d_res = self.client.get_candles(symbol, resolution="D", from_time=now - (86400 * 365), to_time=now)
+        candles_1d = candles_1d_res.get("result", {}) if candles_1d_res.get("success") else None
+
+        candles_1w_res = self.client.get_candles(symbol, resolution="W")
+        candles_1w = candles_1w_res.get("result", {}) if candles_1w_res.get("success") else None
+
         candles_1h = candles_1h_res.get("result", {})
-        analysis = analyze_multi_timeframe(candles_1h, candles_4h)
+        analysis = analyze_multi_timeframe(candles_1h, candles_4h, candles_1d, candles_1w)
         analysis["symbol"] = symbol.upper()
         analysis["resolution"] = resolution
 

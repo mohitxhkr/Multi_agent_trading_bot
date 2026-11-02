@@ -142,7 +142,8 @@ class MultiAgentTradingOrchestrator:
         # Step 5: Telegram 2-Way Execution Gate (Agent 4 + Telegram Bot)
         # -----------------------------------------------------------------
         executed_records = []
-        for trade in approved_trades:
+        # Propose the top-ranked approved trade (since capital sizing allocates 75%-100% margin)
+        for trade in approved_trades[:1]:
             print("\n📱 [Telegram 2-Way Confirmation Gate] Sending proposal to Telegram & awaiting confirmation...")
             print(f"   Contract: {trade['symbol']} | Side: {trade['side'].upper()} | Contracts: {trade['contracts']}")
             print(f"   Entry: ${trade['entry_price']:.2f} | Stop Loss: ${trade['stop_loss_price']:.2f} | Take Profit: ${trade['take_profit_price']:.2f}")
@@ -153,7 +154,7 @@ class MultiAgentTradingOrchestrator:
             # First priority: 2-way Telegram confirmation
             if self.telegram_bot.is_configured:
                 print("   ⏳ Awaiting user approval on Telegram (tapping [Confirm] or [Reject])...")
-                execute_now = self.telegram_bot.request_trade_confirmation(trade, timeout_seconds=600)
+                execute_now = self.telegram_bot.request_trade_confirmation(trade, timeout_seconds=300)
             elif self.interactive:
                 user_choice = input("\n   ❓ Confirm order execution on Delta Exchange? [y/N]: ").strip().lower()
                 execute_now = user_choice in ["y", "yes"]

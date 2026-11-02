@@ -5,6 +5,7 @@ Enforces non-negotiable risk limits, capital allocation, and circuit breakers.
 """
 
 from typing import Dict, Any, Optional
+import os
 import logging
 from src.risk_manager import RiskManager
 from src.delta_client import DeltaExchangeClient
@@ -145,6 +146,8 @@ class RiskGatekeeperAgent:
             "side": setup.get("side"),
             "strategy": setup.get("strategy_name"),
             "thesis": setup.get("thesis"),
+            "score": setup.get("score", 75),
+            "confluence": setup.get("confluence", {}),
             "contracts": contracts,
             "entry_price": entry,
             "stop_loss_price": stop,

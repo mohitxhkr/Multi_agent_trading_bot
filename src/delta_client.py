@@ -209,6 +209,35 @@ class DeltaExchangeClient:
         resolved = self.resolve_symbol(symbol)
         return self._product_id_map.get(resolved)
 
+    def get_tick_size(self, symbol: str) -> float:
+        """Get product minimum price tick size as float."""
+        pinfo = self.get_product_info(symbol)
+        if pinfo and pinfo.get("tick_size"):
+            try:
+                return float(pinfo["tick_size"])
+            except (ValueError, TypeError):
+                pass
+        return 0.01
+
+    def round_to_tick(self, symbol: str, price: float) -> float:
+        """
+        Round price strictly to the contract's tick size increments.
+        Guarantees orders are not rejected by Delta Exchange for tick size invalidity.
+        """
+        tick = self.get_tick_size(symbol)
+        if tick <= 0:
+            return round(price, 2)
+
+        tick_str = f"{tick:.8f}".rstrip("0")
+        if "." in tick_str:
+            decimals = len(tick_str.split(".")[1])
+        else:
+            decimals = 0
+
+        steps = round(price / tick)
+        rounded = steps * tick
+        return round(rounded, decimals)
+
     # -------------------------------------------------------------------------
     # Diagnostics & Connectivity
     # -------------------------------------------------------------------------

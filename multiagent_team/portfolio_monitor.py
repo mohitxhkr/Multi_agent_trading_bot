@@ -69,6 +69,58 @@ class PortfolioMonitorAgent:
             "positions": active
         }
 
+    def cancel_stale_orders(self, max_age_seconds: int = 5400) -> List[Dict[str, Any]]:
+        """
+        Scan open orders and automatically cancel unfilled limit entry orders older than max_age_seconds (default 90m).
+        Protects against stale fills after market structure has evolved.
+        Does NOT cancel active child stop loss or take profit orders.
+        """
+        cancelled = []
+        try:
+            orders_res = self.client.get_open_orders()
+            if not orders_res.get("success"):
+                return cancelled
+
+            open_orders = orders_res.get("result", [])
+            now = time.time()
+
+            for ord in open_orders:
+                # Ignore active child bracket orders (SL/TP)
+                s_type = ord.get("stop_order_type")
+                if s_type in ["stop_loss_order", "take_profit_order"]:
+                    continue
+
+                # Check creation time
+                created_str = ord.get("created_at")
+                if not created_str:
+                    continue
+
+                try:
+                    import datetime
+                    dt = datetime.datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                    age = now - dt.timestamp()
+                except Exception:
+                    age = 0
+
+                if age > max_age_seconds:
+                    oid = ord.get("id")
+                    sym = ord.get("product_symbol")
+                    logger.info(f"Cancelling stale unfilled entry order #{oid} on {sym} (age: {age/60:.1f}m)...")
+                    c_res = self.client.cancel_order(symbol=sym, order_id=oid)
+                    if c_res.get("success"):
+                        cancelled.append({
+                            "order_id": oid,
+                            "symbol": sym,
+                            "age_minutes": round(age / 60, 1),
+                            "side": ord.get("side", ""),
+                            "size": ord.get("size", 0),
+                            "limit_price": ord.get("limit_price")
+                        })
+        except Exception as e:
+            logger.error(f"Error checking stale orders: {e}")
+
+        return cancelled
+
     def journal_execution(
         self,
         execution_res: Dict[str, Any],

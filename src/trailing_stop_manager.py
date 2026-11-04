@@ -332,10 +332,10 @@ class TrailingStopManager:
                 }
                 self.state[symbol] = pos_state
 
-            # Update order IDs if missing
-            if sl_order and not pos_state.get("sl_order_id"):
+            # Always synchronize with the active open bracket child order IDs on Delta Exchange
+            if sl_order:
                 pos_state["sl_order_id"] = sl_order.get("id")
-            if tp_order and not pos_state.get("tp_order_id"):
+            if tp_order:
                 pos_state["tp_order_id"] = tp_order.get("id")
 
             # Notify Telegram when order transitions to FILLED on orderbook
@@ -386,11 +386,11 @@ class TrailingStopManager:
             if current_r >= 0.50 and current_stage < 1:
                 buffer = risk_per_unit * 0.05
                 if side == "buy":
-                    candidate_sl = round_price(entry_price + buffer, entry_price)
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price + buffer)
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                 else:
-                    candidate_sl = round_price(entry_price - buffer, entry_price)
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price - buffer)
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
 
@@ -410,11 +410,11 @@ class TrailingStopManager:
             # ---------------------------------------------------------
             elif current_r >= 0.80 and current_stage < 2:
                 if side == "buy":
-                    candidate_sl = round_price(entry_price + (0.35 * risk_per_unit), entry_price)
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (0.35 * risk_per_unit))
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                 else:
-                    candidate_sl = round_price(entry_price - (0.35 * risk_per_unit), entry_price)
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (0.35 * risk_per_unit))
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
 
@@ -434,11 +434,11 @@ class TrailingStopManager:
             # ---------------------------------------------------------
             elif current_r >= 1.20 and current_stage < 3:
                 if side == "buy":
-                    candidate_sl = round_price(entry_price + (0.75 * risk_per_unit), entry_price)
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (0.75 * risk_per_unit))
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                 else:
-                    candidate_sl = round_price(entry_price - (0.75 * risk_per_unit), entry_price)
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (0.75 * risk_per_unit))
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
 
@@ -458,11 +458,11 @@ class TrailingStopManager:
             # ---------------------------------------------------------
             elif current_r >= 1.60 and current_stage < 4:
                 if side == "buy":
-                    candidate_sl = round_price(entry_price + (1.25 * risk_per_unit), entry_price)
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (1.25 * risk_per_unit))
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                 else:
-                    candidate_sl = round_price(entry_price - (1.25 * risk_per_unit), entry_price)
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (1.25 * risk_per_unit))
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
 
@@ -481,14 +481,14 @@ class TrailingStopManager:
             # ---------------------------------------------------------
             elif current_r >= 2.00 and current_stage < 5:
                 if side == "buy":
-                    candidate_sl = round_price(entry_price + (1.60 * risk_per_unit), entry_price)
-                    candidate_tp = round_price(entry_price + (3.0 * risk_per_unit), entry_price)
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (1.60 * risk_per_unit))
+                    candidate_tp = self.client.round_to_tick(symbol, entry_price + (3.0 * risk_per_unit))
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
                 else:
-                    candidate_sl = round_price(entry_price - (1.60 * risk_per_unit), entry_price)
-                    candidate_tp = round_price(entry_price - (3.0 * risk_per_unit), entry_price)
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (1.60 * risk_per_unit))
+                    candidate_tp = self.client.round_to_tick(symbol, entry_price - (3.0 * risk_per_unit))
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp

@@ -150,7 +150,8 @@ The bot operates **100% silently** in the background, only pushing notifications
 2. ⚡ **Order Filled:** Fill price, contracts, margin, and orderbook status.
 3. 🛡️ **Micro-Trailing Activated:** Stops moved to Breakeven (+0.50R) or profits locked (+0.80R, +1.20R, +1.60R).
 4. 💰 **Take Profit / Stop Loss Hit:** Full exit report with realized profit ($), % return, and updated wallet balance.
-5. 📱 **On-Demand Slash Commands:** Real-time responses to `/positions`, `/status`, `/scan`, `/orders`.
+5. 🧹 **Stale Order Expiry:** Automatically cancels unfilled limit entry orders older than 90m to eliminate stale fills if market structure shifts.
+6. 📱 **On-Demand Slash Commands:** Real-time responses to `/positions`, `/trade`, `/status`, `/scan`, `/orders`.
 
 ### Trade Proposal Preview:
 ```text
@@ -172,6 +173,7 @@ The bot operates **100% silently** in the background, only pushing notifications
 ### Supported In-Chat Slash Commands:
 | Command | Action |
 | :--- | :--- |
+| `/trade` | Triggers an on-demand scalp scan for A+ setups; sends proposal or confirms: *"No perfect trade or setup found in the market right now. Capital is protected."* |
 | `/positions` | Displays active positions: direction, contracts, entry, current mark price, SL, TP, and unrealized PnL ($ and %). |
 | `/status` | Returns 24/7 cloud health, active positions, open orders, and available wallet balance. |
 | `/scan` | Triggers an immediate multi-timeframe scan across all primary and secondary assets. |

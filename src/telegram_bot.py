@@ -428,10 +428,48 @@ class TelegramConfirmationBot:
                         lines.append(f"  ↳ Unrealized PnL: <b>{pnl_badge}</b>")
                         lines.append("")
                     lines.append("━━━━━━━━━━━━━━━━━━━━━━")
-                    lines.append("🛡️ <i>Actively monitored by Trailing Stop Manager (+0.70R BE Shield).</i>")
+                    lines.append("🛡️ <i>Actively monitored by Trailing Stop Manager (+0.50R BE Shield).</i>")
                     self.send_message("\n".join(lines))
             except Exception as e:
                 self.send_message(f"⚠️ Error fetching positions: {e}")
+
+        elif cmd in ["/trade", "/findtrade", "/find_trade"]:
+            try:
+                self.send_message("🎯 <i>Running institutional scalp scan for A+ setups on BTC, ETH, and XAU...</i>")
+                scan_res = orchestrator.regime_analyst.scan_universe(orchestrator.symbols, resolution="60")
+                candidates = orchestrator.strategy_agent.find_best_candidates(scan_res)
+                if not candidates:
+                    self.send_message(
+                        "🛡️ <b>[ON-DEMAND SCALP SCAN RESULT]</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "• <b>Status:</b> <b>No perfect trade or setup found in the market right now.</b>\n"
+                        "• <b>Reason:</b> No asset currently meets the strict \u2265 75 institutional confluence score and 0.20%-0.40% tight scalp bounds.\n"
+                        "• <b>Discipline Rule:</b> Capital is 100% protected. Zero forced trades.\n"
+                        "⚡ <i>The 24/7 background engine will immediately alert you when an A+ setup triggers!</i>"
+                    )
+                else:
+                    top_setup = candidates[0]
+                    sym = top_setup.get("symbol")
+                    score = top_setup.get("score")
+                    side = top_setup.get("side", "").upper()
+                    ent = top_setup.get("entry_price")
+                    sl = top_setup.get("stop_loss_price")
+                    tp = top_setup.get("take_profit_price")
+                    rr = top_setup.get("planned_rr_ratio")
+                    self.send_message(
+                        f"🎯 <b>[A+ HIGH-CONVICTION SCALP SETUP FOUND]</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"• Asset: <b>{sym}</b> ({side})\n"
+                        f"• Confluence Score: <b>{score}/100</b> (A+ Edge)\n"
+                        f"• Entry: <code>${ent:,.2f}</code>\n"
+                        f"• Tight Stop Loss: <code>${sl:,.2f}</code>\n"
+                        f"• Take Profit: <code>${tp:,.2f}</code> (R:R: {rr}:1)\n"
+                        f"• Thesis: <i>{top_setup.get('thesis', '')}</i>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"⚡ <i>Wait for the confirmation prompt to execute with isolated leverage!</i>"
+                    )
+            except Exception as e:
+                self.send_message(f"⚠️ Error running scalp scan: {e}")
 
         elif cmd in ["/orders", "/orderbook"]:
             try:
@@ -460,6 +498,7 @@ class TelegramConfirmationBot:
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "You can command your trading bot anytime directly in this chat:\n\n"
                 "• <code>/status</code> — View 24/7 cloud health, available equity & open count\n"
+                "• <code>/trade</code> — Run scalp scan; suggest trade only if A+ setup exists\n"
                 "• <code>/scan</code> — Trigger on-demand 5-timeframe scan of BTC, ETH & XAU\n"
                 "• <code>/positions</code> — View currently active positions & PnL\n"
                 "• <code>/orders</code> — Inspect pending limit/bracket orders\n"

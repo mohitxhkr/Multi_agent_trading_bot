@@ -136,6 +136,19 @@ class MultiAgentTradingOrchestrator:
         if trailing_updates:
             print(f"   🛡️ Trailing Stop Manager applied {len(trailing_updates)} stop update(s).")
 
+        # Stale Unfilled Limit Order Cleaner (> 90m old)
+        stale_cancelled = self.portfolio_monitor.cancel_stale_orders(max_age_seconds=5400)
+        if stale_cancelled:
+            for sc in stale_cancelled:
+                print(f"   🧹 [STALE ORDER CANCELLED] #{sc['order_id']} {sc['symbol']} ({sc['age_minutes']}m old)")
+                if self.telegram_bot.is_configured:
+                    self.telegram.send_message(
+                        f"🧹 <b>[STALE ENTRY ORDER CANCELLED]</b>\n"
+                        f"• Order <b>#{sc['order_id']}</b> ({sc['symbol']} {sc['side'].upper()})\n"
+                        f"• Age: <b>{sc['age_minutes']} minutes</b> unfilled\n"
+                        f"• Removed from orderbook to protect capital from outdated market levels."
+                    )
+
         # -----------------------------------------------------------------
         # Step 2: Market Regime Analysis (Agent 1)
         # -----------------------------------------------------------------

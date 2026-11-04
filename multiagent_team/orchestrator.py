@@ -88,16 +88,15 @@ class MultiAgentTradingOrchestrator:
             if not d:
                 continue
             price = d.get("current_price", 0.0)
-            m_reg = d.get("macro_monthly", {}).get("regime", "N/A").replace("MONTHLY_", "")
-            w_reg = d.get("macro_weekly", {}).get("regime", "N/A").replace("WEEKLY_", "")
-            d_reg = d.get("macro_daily", {}).get("regime", "N/A").replace("DAILY_", "")
+            m15 = d.get("macro_15m", {})
+            m15_reg = m15.get("regime", "NEUTRAL")
+            m15_rsi = m15.get("rsi_14", 50.0)
             h4_reg = d.get("macro_4h", {}).get("regime", "N/A").replace("MACRO_", "")
-            liq = d.get("liquidity", {})
-            sweep = liq.get("sweep_type", "NONE")
-            sweep_txt = f"Sweep: {sweep}" if liq.get("sweep_detected") else "Consolidating (No Sweep)"
+            hp = d.get("high_probability_setup", {})
+            setup_status = f"🎯 <b>Ready:</b> {hp.get('strategy', 'Scalp Setup')} ({hp.get('side', '').upper()})" if hp.get("qualified") else "Scanning for 15m trigger..."
 
-            lines.append(f"• <b>{sym}:</b> <code>${price:,.2f}</code> | 1M:{m_reg} 1W:{w_reg} 1D:{d_reg} 4H:{h4_reg}")
-            lines.append(f"  ↳ <i>{sweep_txt}</i>")
+            lines.append(f"• <b>{sym}:</b> <code>${price:,.2f}</code> | 15m:{m15_reg} (RSI:{m15_rsi}) | 4H:{h4_reg}")
+            lines.append(f"  ↳ <i>{setup_status}</i>")
 
         lines.append("━━━━━━━━━━━━━━━━━━━━━━")
         lines.append("⚪ <b>SECONDARY ASSETS (LESS IMPORTANT):</b>")

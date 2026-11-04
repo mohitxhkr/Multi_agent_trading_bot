@@ -20,11 +20,16 @@ class RegimeAnalystAgent:
 
     def analyze_symbol(self, symbol: str, resolution: str = "60") -> Dict[str, Any]:
         """
-        Analyze price action, indicators, and market regime with 5-timeframe confluence:
-        1-Hour, 4-Hour, 1-Day, 1-Week, and 1-Month.
+        Analyze price action, indicators, and market regime with 6-timeframe confluence:
+        15-Minute (Intraday execution/scalp), 1-Hour, 4-Hour, 1-Day, 1-Week, and 1-Month.
         """
-        logger.info(f"RegimeAnalyst: Fetching 1H, 4H, Daily & Weekly structure for {symbol}...")
+        logger.info(f"RegimeAnalyst: Fetching 15m, 1H, 4H, Daily & Weekly structure for {symbol}...")
         now = int(time.time())
+
+        # 15-Minute Candles (Primary Intraday Scalp Execution Trigger)
+        candles_15m_res = self.client.get_candles(symbol, resolution="15")
+        candles_15m = candles_15m_res.get("result", {}) if candles_15m_res.get("success") else None
+
         candles_1h_res = self.client.get_candles(symbol, resolution="60")
         if not candles_1h_res.get("success"):
             return {
@@ -42,7 +47,14 @@ class RegimeAnalystAgent:
         candles_1w = candles_1w_res.get("result", {}) if candles_1w_res.get("success") else None
 
         candles_1h = candles_1h_res.get("result", {})
-        analysis = analyze_multi_timeframe(candles_1h, candles_4h, candles_1d, candles_1w)
+        analysis = analyze_multi_timeframe(
+            candles_1h=candles_1h,
+            candles_4h=candles_4h,
+            candles_1d=candles_1d,
+            candles_1w=candles_1w,
+            candles_15m=candles_15m,
+            symbol=symbol
+        )
         analysis["symbol"] = symbol.upper()
         analysis["resolution"] = resolution
 

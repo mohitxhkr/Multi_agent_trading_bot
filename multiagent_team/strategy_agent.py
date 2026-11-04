@@ -42,10 +42,12 @@ class StrategyAgent:
                 priority_tag = "PRIMARY" if is_primary else "SECONDARY"
                 adjusted_score = score + (10 if is_primary else 0)
                 formatted_thesis = f"🌟 [PRIMARY FOCUS ASSET] {thesis}" if is_primary else f"⚪ [SECONDARY ASSET] {thesis}"
+                raw_strat = hp_setup.get("strategy") or f"Institutional_SMC_{priority_tag}_{side.upper()}"
+                macro_15m = analysis.get("macro_15m", {})
 
                 return {
                     "symbol": symbol,
-                    "strategy_name": f"Institutional_SMC_{priority_tag}_{side.upper()}_{adjusted_score}pts",
+                    "strategy_name": f"{raw_strat}_{adjusted_score}pts",
                     "side": side,
                     "entry_price": entry,
                     "stop_loss_price": sl,
@@ -57,6 +59,7 @@ class StrategyAgent:
                     "priority_tier": 1 if is_primary else 2,
                     "thesis": formatted_thesis,
                     "confluence": {
+                        "execution_15m": f"{macro_15m.get('regime', 'NEUTRAL')} (RSI: {macro_15m.get('rsi_14', 'N/A')} | ATR: {macro_15m.get('atr_14', 'N/A')})",
                         "monthly": f"{macro_monthly.get('regime', 'NEUTRAL')} (M-Open: ${macro_monthly.get('monthly_open', 'N/A')})",
                         "weekly": f"{macro_weekly.get('regime', 'NEUTRAL')} (W-RSI: {macro_weekly.get('rsi_14', 'N/A')})",
                         "daily": f"{macro_daily.get('regime', 'NEUTRAL')} (EMA21: ${macro_daily.get('ema_21', 'N/A')} | RSI: {macro_daily.get('rsi_14', 'N/A')})",

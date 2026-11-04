@@ -134,10 +134,10 @@ The system divides trading responsibilities into **10 specialized autonomous age
   2. **Aggregate Derivatives Funding Sentiment:** Evaluates average Delta Exchange perpetual funding rates to gauge market froth or aggressive short crowding.
   3. **Market Health Score (0–100):** Synthesizes BTC macro order flow (35 pts), cross-asset breadth (45 pts), and funding alignment (20 pts).
   4. **Global Market Posture Classification:**
-     * **`AGGRESSIVE_EXPANSION` (Health $\ge 75$):** 100% risk budget, up to 3 concurrent positions permitted.
-     * **`MODERATE_SELECTIVE` (Health $50–74$):** 75% risk budget, focus on Tier-1 core assets (`BTC`, `ETH`, `XAU`).
-     * **`DEFENSIVE_CAUTION` (Health $32–49$):** 50% risk budget, max 1 active position, secondary alts completely disabled.
-     * **`CASH_PRIORITY` (Health $< 32$):** **0% risk budget. All new entries blocked.** Capital is 100% safeguarded in cash USD.
+     * **`AGGRESSIVE_EXPANSION` (Health >= 75):** 100% risk budget, up to 3 concurrent positions permitted.
+     * **`MODERATE_SELECTIVE` (Health 50-74):** 75% risk budget, focus on Tier-1 core assets (`BTC`, `ETH`, `XAU`).
+     * **`DEFENSIVE_CAUTION` (Health 32-49):** 50% risk budget, max 1 active position, secondary alts completely disabled.
+     * **`CASH_PRIORITY` (Health below 32):** **0% risk budget. All new entries blocked.** Capital is 100% safeguarded in cash USD.
 
 ---
 
@@ -146,10 +146,10 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Execution Timing:** Triggered when Market Posture authorizes trading.
 * **Core Responsibilities:**
   1. **Mandatory Market Structure Shift (MSS):** Rejects unconfirmed wicks. Requires a confirmed candle body close breaking prior swing structure.
-  2. **Liquidity Absorption Wick Filter:** The sweep candle must demonstrate a rejection wick spanning $\ge 25\%$ of its total high-to-low range.
-  3. **Optimal Trade Entry (OTE) Retest Pricing:** If the expansion candle exceeds $1.0\times\text{ATR}$, places a limit entry order at the **0.382 Fibonacci retracement** rather than market chasing.
+  2. **Liquidity Absorption Wick Filter:** The sweep candle must demonstrate a rejection wick spanning at least 25% of its total high-to-low range.
+  3. **Optimal Trade Entry (OTE) Retest Pricing:** If the expansion candle exceeds 1.0x ATR, places a limit entry order at the **0.382 Fibonacci retracement** rather than market chasing.
   4. **Institutional Killzone Timing:** Grants a **+5 confluence score boost** during high-volume London Open (07:00–10:00 UTC) and New York Open (12:00–17:00 UTC).
-  5. **Precision Bounds:** Calculates micro stop losses clamped between **0.20% and 0.40%** of price, and targets a minimum planned Reward-to-Risk ratio of **$\ge 2.20:1$**.
+  5. **Precision Bounds:** Calculates micro stop losses clamped between **0.20% and 0.40%** of price, and targets a minimum planned Reward-to-Risk ratio of **2.20:1 or higher**.
   6. **Institutional Score Floor:** Discards any setup scoring below **80 / 100**.
 
 ---
@@ -164,10 +164,10 @@ The system divides trading responsibilities into **10 specialized autonomous age
      * Did the trade hit Stop Loss first (**LOSS**)?
      * What was the intra-trade Maximum Adverse Excursion (**MAE Drawdown**)?
   3. **Expectancy Calculation:**
-     $$\text{Win Rate \%} = \frac{\text{Wins}}{\text{Wins} + \text{Losses}} \times 100\%$$
-     $$\text{Expected Value (EV)} = (\text{Win Rate} \times \text{RR}) - (\text{Loss Rate} \times 1.0)$$
+     $$\text{Win Rate} = \left(\frac{\text{Wins}}{\text{Wins} + \text{Losses}}\right) \times 100$$
+     $$\text{Expected Value (EV)} = (\text{Win Rate} \times \text{RR}) - ((1 - \text{Win Rate}) \times 1.0)$$
   4. **The Strict Time Machine Veto Gate:**
-     * If historical simulation produces **$< 68\%$ win rate** or negative Expected Value: **THE TRADE IS DISQUALIFIED & BLOCKED**.
+     * If historical simulation produces **win rate under 68%** or negative Expected Value: **THE TRADE IS DISQUALIFIED & BLOCKED**.
      * Zero trades without proven mathematical edge can reach the trader.
 
 ---
@@ -177,9 +177,9 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Execution Timing:** Sizes approved setups and verifies account-level safety rules.
 * **Core Responsibilities:**
   1. **Institutional Fixed Dollar Risk Model:** Eliminates catastrophic liquidation risks by strictly capping dollar loss:
-     $$\text{Contracts} = \left\lfloor \frac{\text{Target Dollar Risk (\$2.00 – \$4.00)}}{\text{Contract Value} \times \text{Stop Loss Distance}} \right\rfloor$$
+     $$\text{Contracts} = \left\lfloor \frac{\text{Target Dollar Risk}}{\text{Contract Value} \times \text{Stop Loss Distance}} \right\rfloor$$
      * **Primary Assets (BTC, ETH, XAU):** Fixed dollar risk bounded between **$2.00 and $4.00 USD** (maximum 2% account equity).
-     * **Secondary Altcoins:** Hard ceiling at **$2.00 USD maximum risk** and **$\le 10\%$ margin**.
+     * **Secondary Altcoins:** Hard ceiling at **$2.00 USD maximum risk** and **up to 10% margin**.
   2. **Anti-Tilt / Anti-Churn Cooling-Off Breaker:** If 2 consecutive stop losses occur within a 2-hour window, automatically engages a **2-Hour Cooling-Off Halt** to protect capital during abnormal market shocks.
   3. **Daily Account Drawdown Circuit Breaker:** Hard halt engaged if realized daily losses hit **5%**, locking all bot execution until next session.
   4. **Concurrency & Correlation Limits:** Maximum 3 simultaneous positions with **0 duplicate asset exposure**.
@@ -236,7 +236,7 @@ The system divides trading responsibilities into **10 specialized autonomous age
   2. **Institutional Letter Grade:** Assigns A+ (90–100), A (80–89), B (70–79), C (60–69), or F (< 60).
   3. **Root Cause Attribution:** Diagnoses why the trade won (e.g. *"Clean London Open BSL sweep with strong MSS displacement"*) or lost (e.g. *"Choppy session sweep with high adverse excursion"*).
   4. **Dynamic Pattern Reinforcement & Blacklisting:**
-     * **Reinforced Patterns ($\ge 75\%$ Win Rate, EV $\ge +0.50R$):** Granted **+8 pts confluence bonus** in future cycles.
+     * **Reinforced Patterns (Win Rate >= 75%, EV >= +0.50R):** Granted **+8 pts confluence bonus** in future cycles.
      * **Penalized Patterns (< 50% Win Rate):** Penalized **-15 pts**.
      * **Blacklisted Setups (< 35% Win Rate or heavy drawdown):** Penalized **-30 pts / Auto-Vetoed**.
   5. **Telegram Post-Trade Reflection Alert:** Immediately pushes a detailed self-reflection card to Telegram with grade, lessons learned, and updated scorecard statistics.
@@ -263,16 +263,16 @@ The system is engineered specifically for **rapid intraday scalp resolutions (30
 
 | Tier | Assets | Leverage | Minimum Score | Primary Focus & Execution Rules |
 | :--- | :--- | :--- | :--- | :--- |
-| **Tier 1 (PRIMARY)** | **`BTCUSD`**, **`ETHUSD`**, **`XAUUSD` (Gold)** | **50x (BTC)<br/>25x (ETH/XAU)** | **$\ge$ 80** (+10 Priority Boost) | **Core Focus.** Deep institutional liquidity, tight spreads, and clean 15-minute microstructure sweeps. Capped at $2.00–$4.00 max risk per trade. |
-| **Tier 2 (SECONDARY)** | `SOLUSD`, `ADAUSD`, `DOGEUSD`, `XRPUSD` | **25x Isolated** | **$\ge$ 85** | Secondary alts evaluated only in prime setups. **Strict Safety Cap:** Max $2.00 risk, max 10% equity margin to prevent outsized volatility drag. |
+| **Tier 1 (PRIMARY)** | **`BTCUSD`**, **`ETHUSD`**, **`XAUUSD` (Gold)** | **50x (BTC)<br/>25x (ETH/XAU)** | **Score >= 80** (+10 Priority Boost) | **Core Focus.** Deep institutional liquidity, tight spreads, and clean 15-minute microstructure sweeps. Capped at $2.00 - $4.00 max risk per trade. |
+| **Tier 2 (SECONDARY)** | `SOLUSD`, `ADAUSD`, `DOGEUSD`, `XRPUSD` | **25x Isolated** | **Score >= 85** | Secondary alts evaluated only in prime setups. **Strict Safety Cap:** Max $2.00 USD risk, max 10% equity margin to prevent outsized volatility drag. |
 
 ### 🛑 The Core Discipline Mandate
 * **Target:** Seek up to **~1 to 2 high-conviction trades daily** on primary focus assets (`BTC`, `ETH`, `XAU`).
 * **Non-Negotiable Rule:** A trade is **ONLY** proposed if verified by:
-  1. 6-Timeframe Regime Analyst ($\ge 80$ score)
-  2. Exposure Coach (Market Health $\ge 32$)
-  3. Time Machine Simulation ($\ge 68\%$ past win rate, $+0.30R$ minimum EV)
-  4. Risk Gatekeeper (Dollar risk capped at $2.00–$4.00)
+  1. 6-Timeframe Regime Analyst (Score >= 80)
+  2. Exposure Coach (Market Health >= 32)
+  3. Time Machine Simulation (Past Win Rate >= 68%, +0.30R minimum EV)
+  4. Risk Gatekeeper (Dollar risk capped at $2.00 - $4.00)
   5. User explicit confirmation in Telegram
 * **Capital Preservation Above All:** If the market is choppy, noisy, or consolidating without clean liquidity sweeps, **TAKE ZERO TRADES**. Capital preservation is priority #1.
 

@@ -57,6 +57,8 @@ class RegimeAnalystAgent:
         )
         analysis["symbol"] = symbol.upper()
         analysis["resolution"] = resolution
+        analysis["_raw_candles_15m"] = candles_15m
+        analysis["_raw_candles_1h"] = candles_1h
 
         # Fetch live ticker for open interest and mark price
         ticker_res = self.client.get_ticker(symbol)

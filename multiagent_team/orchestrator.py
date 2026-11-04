@@ -19,6 +19,7 @@ from src.delta_client import DeltaExchangeClient
 from src.risk_manager import RiskManager
 from multiagent_team.regime_analyst import RegimeAnalystAgent
 from multiagent_team.strategy_agent import StrategyAgent
+from multiagent_team.time_machine_agent import TimeMachineAgent
 from multiagent_team.risk_gatekeeper import RiskGatekeeperAgent
 from multiagent_team.execution_agent import ExecutionAgent
 from multiagent_team.portfolio_monitor import PortfolioMonitorAgent
@@ -51,6 +52,7 @@ class MultiAgentTradingOrchestrator:
         # Team of agents + Telegram Confirmation Bot + Trailing Stop Manager
         self.regime_analyst = RegimeAnalystAgent(self.client)
         self.strategy_agent = StrategyAgent(target_rr_ratio=target_rr_ratio)
+        self.time_machine = TimeMachineAgent(self.client)
         self.risk_gatekeeper = RiskGatekeeperAgent(self.client, self.risk_manager)
         self.execution_agent = ExecutionAgent(self.client)
         self.portfolio_monitor = PortfolioMonitorAgent(self.client)
@@ -181,6 +183,32 @@ class MultiAgentTradingOrchestrator:
             print(f"   [{i}] {c['symbol']} {c['side'].upper()} | Strategy: {c['strategy_name']} | R:R: {c['planned_rr_ratio']}:1")
 
         # -----------------------------------------------------------------
+        # Step 3.5: Time Machine Historical Simulation & Probability Engine (Agent 2.5)
+        # -----------------------------------------------------------------
+        print("\n⏳ [Agent 2.5: Time Machine Probability Engine] Simulating candidate setups against historical data...")
+        tm_qualified_candidates = []
+        for c in candidates:
+            sym = c.get("symbol", "")
+            raw_data = scan_results.get("symbols_data", {}).get(sym, {})
+            candles_15m = raw_data.get("_raw_candles_15m")
+            candles_1h = raw_data.get("_raw_candles_1h")
+
+            tm_res = self.time_machine.simulate_setup(c, candles_15m=candles_15m, candles_1h=candles_1h)
+            c["time_machine"] = tm_res
+
+            if tm_res.get("passed"):
+                print(f"   🟢 [TIME MACHINE CONFIRMED] {sym} {c['side'].upper()}: {tm_res['win_rate_pct']}% Win Rate ({tm_res['wins']}W/{tm_res['losses']}L) | EV: +{tm_res['expected_value_r']}R | PF: {tm_res['profit_factor']}x")
+                tm_qualified_candidates.append(c)
+            else:
+                print(f"   🔴 [TIME MACHINE VETO] {sym} {c['side'].upper()}: {tm_res.get('reason')}")
+
+        if not tm_qualified_candidates:
+            print("\n   All prospective setups rejected by Time Machine Simulation (insufficient historical edge). Capital protected.")
+            return {"status": "REJECTED_BY_TIME_MACHINE", "reason": "No setup met >= 68% historical win-rate edge with positive EV.", "regime": market_regime, "scan_results": scan_results}
+
+        candidates = tm_qualified_candidates
+
+        # -----------------------------------------------------------------
         # Step 4: Pre-Trade Discipline & Sizing Gate (Agent 3)
         # -----------------------------------------------------------------
         print("\n🛡️ [Agent 3: Risk Gatekeeper] Running Pre-Trade Discipline Gates...")
@@ -193,8 +221,9 @@ class MultiAgentTradingOrchestrator:
             status = decision.get("gate_decision")
             if status == "APPROVED":
                 print(f"   ✅ [APPROVED] {sym} ({decision.get('leverage', asset_leverage)}x): {decision['contracts']} contracts | Risk: ${decision['dollar_risk_usd']} ({decision['risk_pct']}%) | Margin: ${decision['required_margin_usd']}")
-                # Propagate confluence details into trade spec
+                # Propagate confluence & time machine details into trade spec
                 decision["confluence"] = c.get("confluence", {})
+                decision["time_machine"] = c.get("time_machine", {})
                 approved_trades.append(decision)
             else:
                 print(f"   ❌ [REJECTED] {sym}: {decision.get('reason')}")

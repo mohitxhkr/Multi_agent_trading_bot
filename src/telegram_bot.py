@@ -184,6 +184,21 @@ class TelegramConfirmationBot:
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
             )
 
+        tm = trade_spec.get("time_machine", {})
+        tm_lines = ""
+        if tm:
+            tm_status = "🟢 HIGH MATHEMATICAL PROBABILITY" if tm.get("passed") else "🟡 STATISTICAL EDGE"
+            tm_lines = (
+                f"⏳ <b>Time Machine Historical Backtest Simulation:</b>\n"
+                f"• <b>Historical Lookback:</b> <code>{tm.get('sample_size', 0)} identical setups tested</code>\n"
+                f"• <b>Empirical Win Rate:</b> <b>{tm.get('win_rate_pct', 0.0)}%</b> ({tm.get('wins', 0)} Wins / {tm.get('losses', 0)} Losses)\n"
+                f"• <b>Expected Value (EV):</b> <b>+{tm.get('expected_value_r', 0.0)}R</b> per trade\n"
+                f"• <b>Profit Factor:</b> <code>{tm.get('profit_factor', 0.0)}x</code>\n"
+                f"• <b>Avg Max Adverse (MAE):</b> <code>{tm.get('avg_mae_pct', 0.0)}%</code>\n"
+                f"• <b>Simulation Status:</b> {tm_status}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            )
+
         proposal_text = (
             f"🎯 <b>[NEW TRADE PROPOSAL — AWAITING YOUR CONFIRMATION]</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -192,6 +207,7 @@ class TelegramConfirmationBot:
             f"• <b>Strategy:</b> <i>{strategy}</i>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"{conf_lines}"
+            f"{tm_lines}"
             f"📍 <b>Entry Price:</b> <code>{fmt_p(entry)}</code>\n"
             f"🛑 <b>Stop Loss:</b> <code>{fmt_p(sl)}</code> (Risk: ${risk_usd:,.2f})\n"
             f"🎯 <b>Target 1 (1:2 R:R):</b> <code>{fmt_p(tp)}</code> (Initial TP)\n"

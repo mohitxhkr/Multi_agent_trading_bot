@@ -191,6 +191,134 @@ def find_support_resistance(highs: List[float], lows: List[float], lookback: int
     }
 
 
+def calculate_adx(highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> Dict[str, Any]:
+    """Calculate Average Directional Index (ADX), +DI, and -DI."""
+    n = len(closes)
+    if n < period * 2:
+        return {"adx": 20.0, "plus_di": 20.0, "minus_di": 20.0, "trend_strength": "RANGING"}
+
+    tr = [0.0] * n
+    plus_dm = [0.0] * n
+    minus_dm = [0.0] * n
+
+    for i in range(1, n):
+        up_move = highs[i] - highs[i - 1]
+        down_move = lows[i - 1] - lows[i]
+        plus_dm[i] = up_move if (up_move > down_move and up_move > 0) else 0.0
+        minus_dm[i] = down_move if (down_move > up_move and down_move > 0) else 0.0
+
+        hl = highs[i] - lows[i]
+        hc = abs(highs[i] - closes[i - 1])
+        lc = abs(lows[i] - closes[i - 1])
+        tr[i] = max(hl, hc, lc)
+
+    smoothed_tr = sum(tr[1:period + 1])
+    smoothed_plus_dm = sum(plus_dm[1:period + 1])
+    smoothed_minus_dm = sum(minus_dm[1:period + 1])
+
+    dx_list = []
+    adx = 20.0
+    plus_di = 20.0
+    minus_di = 20.0
+
+    for i in range(period + 1, n):
+        smoothed_tr = smoothed_tr - (smoothed_tr / period) + tr[i]
+        smoothed_plus_dm = smoothed_plus_dm - (smoothed_plus_dm / period) + plus_dm[i]
+        smoothed_minus_dm = smoothed_minus_dm - (smoothed_minus_dm / period) + minus_dm[i]
+
+        if smoothed_tr > 0:
+            plus_di = (smoothed_plus_dm / smoothed_tr) * 100.0
+            minus_di = (smoothed_minus_dm / smoothed_tr) * 100.0
+        else:
+            plus_di = 0.0
+            minus_di = 0.0
+
+        di_sum = plus_di + minus_di
+        dx = (abs(plus_di - minus_di) / di_sum * 100.0) if di_sum > 0 else 0.0
+        dx_list.append(dx)
+
+    if dx_list:
+        if len(dx_list) >= period:
+            adx = sum(dx_list[-period:]) / period
+        else:
+            adx = sum(dx_list) / len(dx_list)
+
+    trend_strength = "STRONG_TREND" if adx >= 25.0 else ("WEAK_TREND" if adx >= 20.0 else "RANGING")
+    return {
+        "adx": round(adx, 2),
+        "plus_di": round(plus_di, 2),
+        "minus_di": round(minus_di, 2),
+        "trend_strength": trend_strength
+    }
+
+
+def calculate_vwap(highs: List[float], lows: List[float], closes: List[float], volumes: List[float]) -> float:
+    """Calculate Volume-Weighted Average Price (VWAP) across available series."""
+    n = len(closes)
+    if n == 0:
+        return 0.0
+    if not volumes or len(volumes) < n or sum(volumes) <= 0:
+        return round(sum(closes) / n, 4)
+
+    cum_pv = 0.0
+    cum_vol = 0.0
+    for i in range(n):
+        typ_price = (highs[i] + lows[i] + closes[i]) / 3.0
+        vol = max(0.0, volumes[i])
+        cum_pv += typ_price * vol
+        cum_vol += vol
+
+    return round(cum_pv / cum_vol, 4) if cum_vol > 0 else round(closes[-1], 4)
+
+
+def calculate_volatility_state(closes: List[float], atrs: List[float]) -> Dict[str, Any]:
+    """Detect volatility expansion and contraction using Bollinger Band Width and ATR trend."""
+    if len(closes) < 20 or not atrs:
+        return {"state": "NORMAL", "bb_width_pct": 2.0, "atr_expansion_ratio": 1.0}
+
+    window = closes[-20:]
+    mean = sum(window) / 20.0
+    variance = sum((x - mean) ** 2 for x in window) / 20.0
+    std_dev = math.sqrt(variance)
+    upper_band = mean + (2.0 * std_dev)
+    lower_band = mean - (2.0 * std_dev)
+    bb_width_pct = ((upper_band - lower_band) / mean * 100.0) if mean > 0 else 0.0
+
+    current_atr = atrs[-1] if atrs else 0.0
+    avg_atr = (sum(atrs[-30:]) / len(atrs[-30:])) if len(atrs) >= 30 else current_atr
+    atr_ratio = (current_atr / avg_atr) if avg_atr > 0 else 1.0
+
+    if bb_width_pct < 1.2 or atr_ratio < 0.75:
+        state = "CONTRACTION"
+    elif bb_width_pct > 3.5 or atr_ratio > 1.5:
+        state = "EXPANSION"
+    else:
+        state = "NORMAL"
+
+    return {
+        "state": state,
+        "bb_width_pct": round(bb_width_pct, 2),
+        "atr_expansion_ratio": round(atr_ratio, 2)
+    }
+
+
+def detect_news_or_abnormal_volatility(current_atr: float, avg_atr: float) -> Tuple[bool, str]:
+    """Avoid trading during abnormal volatility spikes or high-impact macro news windows."""
+    if avg_atr > 0 and (current_atr / avg_atr) > 2.5:
+        return True, f"Abnormal volatility spike: 15m ATR is {current_atr/avg_atr:.1f}x historical average"
+
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    if now_utc.weekday() < 5:
+        hour, minute = now_utc.hour, now_utc.minute
+        if hour == 12 and 28 <= minute <= 45:
+            return True, "Major economic news release window (US 12:30 UTC economic data release)"
+        if hour == 18 and 0 <= minute <= 30:
+            return True, "FOMC rate decision / high-impact macro announcement window"
+
+    return False, ""
+
+
+
 def analyze_liquidity_pools_and_sweeps(
     highs: List[float],
     lows: List[float],
@@ -419,9 +547,37 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
         regime = "NEUTRAL_RANGEBOUND"
         bias = "NEUTRAL"
         
-    # Volatility Assessment
+    # Volatility Assessment & Expansion/Contraction Detection
+    all_atrs = calculate_atr(highs, lows, closes, 14)
+    atr_14 = all_atrs[-1] if all_atrs else 0.0
     atr_pct = (atr_14 / current_price * 100.0) if current_price > 0 else 0.0
-    volatility_posture = "HIGH" if atr_pct > 3.0 else ("NORMAL" if atr_pct >= 1.0 else "LOW")
+    vol_state = calculate_volatility_state(closes, all_atrs)
+    volatility_posture = "HIGH" if (atr_pct > 3.0 or vol_state["state"] == "EXPANSION") else ("LOW" if vol_state["state"] == "CONTRACTION" else "NORMAL")
+
+    # ADX Trend vs Range Filter
+    adx_info = calculate_adx(highs, lows, closes, 14)
+
+    # Volume Profile / VWAP Institutional Anchor
+    vwap_val = calculate_vwap(highs, lows, closes, volumes)
+
+    # Regime Confidence Scoring (0 - 100)
+    conf_score = 50
+    if adx_info["adx"] >= 25.0:
+        conf_score += 15  # Solid directional momentum
+    elif adx_info["adx"] < 18.0:
+        conf_score -= 10  # Chop / rangebound
+    if "STRONG" in regime:
+        conf_score += 20
+    elif "MILD" in regime:
+        conf_score += 10
+    if (regime.startswith("STRONG_BULLISH") and current_price > vwap_val) or (regime.startswith("STRONG_BEARISH") and current_price < vwap_val):
+        conf_score += 15  # VWAP alignment
+
+    conf_score = max(10, min(100, conf_score))
+
+    # Abnormal Volatility / Macro News Window Check
+    avg_atr_30 = (sum(all_atrs[-30:]) / len(all_atrs[-30:])) if len(all_atrs) >= 30 else atr_14
+    news_blocked, news_reason = detect_news_or_abnormal_volatility(atr_14, avg_atr_30)
 
     # Smart Money Concepts (SMC) & Liquidity Sweep Engine
     liquidity_data = analyze_liquidity_pools_and_sweeps(highs, lows, closes, opens=opens, volumes=volumes)
@@ -434,6 +590,13 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
         "atr_14": round(atr_14, 4),
         "atr_pct": round(atr_pct, 2),
         "volatility": volatility_posture,
+        "volatility_state": vol_state["state"],
+        "adx_14": adx_info["adx"],
+        "trend_strength": adx_info["trend_strength"],
+        "vwap": vwap_val,
+        "regime_confidence": conf_score,
+        "news_blocked": news_blocked,
+        "news_reason": news_reason,
         "ema_9": round(ema_9, 2),
         "ema_21": round(ema_21, 2),
         "ema_50": round(ema_50, 2),

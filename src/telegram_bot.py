@@ -34,6 +34,7 @@ class TelegramConfirmationBot:
         self.chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID") or "123456789").strip()
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
         self.last_update_id = 0
+        self._confirmed_trade_ids = set()
         self._sync_update_offset()
 
     @property
@@ -124,12 +125,13 @@ class TelegramConfirmationBot:
     def request_trade_confirmation(
         self,
         trade_spec: Dict[str, Any],
-        timeout_seconds: int = 600
+        timeout_seconds: int = 600,
+        client: Optional[Any] = None
     ) -> bool:
         """
         Send trade analysis with confirmation buttons and BLOCK until the user taps
         [Confirm] or [Reject], or until timeout.
-        Returns True ONLY if user explicitly clicked Confirm!
+        Returns True ONLY if user explicitly clicked Confirm and pre-execution validation passes!
         """
         if not self.is_configured:
             logger.error("❌ Telegram is not configured! Refusing to trade without user permission.")
@@ -137,6 +139,10 @@ class TelegramConfirmationBot:
 
         trade_id = trade_spec.get("trade_id") or f"trade_{uuid.uuid4().hex[:8]}"
         trade_spec["trade_id"] = trade_id
+
+        if trade_id in self._confirmed_trade_ids:
+            logger.warning(f"Trade {trade_id} already confirmed! Preventing duplicate execution.")
+            return False
 
         symbol = trade_spec.get("symbol", "N/A")
         side = trade_spec.get("side", "").upper()
@@ -149,6 +155,8 @@ class TelegramConfirmationBot:
         leverage = trade_spec.get("leverage", 25)
         margin = trade_spec.get("required_margin_usd", 0.0)
         risk_usd = trade_spec.get("dollar_risk_usd", 0.0)
+        risk_pct = trade_spec.get("risk_pct", 1.5)
+        est_liq = trade_spec.get("estimated_liquidation_price", 0.0)
         strategy = trade_spec.get("strategy", "High-Probability Edge")
         thesis = trade_spec.get("thesis", "Market structure alignment verified.")
         confluence = trade_spec.get("confluence", {})
@@ -264,8 +272,34 @@ class TelegramConfirmationBot:
                         cb_id = cb.get("id")
 
                         if cb_data == f"confirm_{trade_id}":
+                            if trade_id in self._confirmed_trade_ids:
+                                self.answer_callback(cb_id, "⚠️ Already confirmed! Processing order...")
+                                continue
+                            self._confirmed_trade_ids.add(trade_id)
+
+                            # Immediate Pre-Execution Revalidation Gate
+                            if client:
+                                try:
+                                    t_res = client.get_ticker(symbol)
+                                    if t_res.get("success"):
+                                        cur_mark = float(t_res.get("result", {}).get("mark_price") or entry)
+                                        price_drift_pct = abs(cur_mark - entry) / entry * 100.0 if entry > 0 else 0.0
+                                        if price_drift_pct > 0.40:
+                                            self.answer_callback(cb_id, "⚠️ Execution aborted: Price drifted > 0.40%!")
+                                            drift_text = (
+                                                proposal_text.replace(
+                                                    "⚠️ <b>NO TRADE EXECUTES WITHOUT YOUR CLICK.</b>\n<i>Tap below to approve or decline",
+                                                    f"🛑 <b>ABORTED: PRICE DRIFTED ({price_drift_pct:.2f}% shift).</b>\n"
+                                                    f"<i>Mark moved to ${cur_mark:.4f} while awaiting confirmation. Capital protected."
+                                                )
+                                            )
+                                            self.edit_message_text(msg_id, drift_text, reply_markup={"inline_keyboard": []})
+                                            logger.warning(f"Trade {trade_id} aborted before execution: Mark price drifted {price_drift_pct:.2f}%")
+                                            return False
+                                except Exception as drift_err:
+                                    logger.warning(f"Pre-execution price check skipped: {drift_err}")
+
                             self.answer_callback(cb_id, "✅ Confirmed! Executing on Delta Exchange...")
-                            # Update message to show confirmed state
                             confirmed_text = (
                                 proposal_text.replace(
                                     "⚠️ <b>NO TRADE EXECUTES WITHOUT YOUR CLICK.</b>\n<i>Tap below to approve or decline",
@@ -322,6 +356,27 @@ class TelegramConfirmationBot:
 
             for update in data.get("result", []):
                 self.last_update_id = max(self.last_update_id, update["update_id"] + 1)
+
+                cb = update.get("callback_query")
+                if cb:
+                    cb_data = cb.get("data", "")
+                    cb_id = cb.get("id")
+                    if cb_data == "execute_emergency_closeall":
+                        self.answer_callback(cb_id, "🚨 Flattening all positions now...")
+                        if orchestrator:
+                            from src.emergency_controller import EmergencyController
+                            ec = EmergencyController(client=orchestrator.client)
+                            res = ec.emergency_flatten_all(authorized=True)
+                            self.send_message(
+                                f"🛑 <b>[EMERGENCY FLATTEN COMPLETE]</b>\n"
+                                f"• Flattened <b>{len(res.get('closed_positions', []))}</b> active positions.\n"
+                                f"• Cancelled all open orders. Account is 100% in cash USD."
+                            )
+                        continue
+                    elif cb_data == "cancel_emergency_closeall":
+                        self.answer_callback(cb_id, "Cancelled.")
+                        self.send_message("✅ Emergency close cancelled. Protective trailing stops remain active.")
+                        continue
 
                 msg = update.get("message")
                 if not msg:
@@ -551,26 +606,51 @@ class TelegramConfirmationBot:
             except Exception as e:
                 self.send_message(f"⚠️ Error fetching orders: {e}")
 
-        elif cmd in ["/closeall", "/panic"]:
+        elif cmd in ["/pause", "/halt"]:
             try:
-                self.send_message("🚨 <i>Emergency Close All initiated... Flattening positions and cancelling orders.</i>")
-                pos_res = client.get_positions()
-                active = [p for p in pos_res.get("result", []) if int(p.get("size", 0)) != 0] if pos_res.get("success") else []
-                closed_count = 0
-                for p in active:
-                    sym = p.get("product_symbol")
-                    client.close_position(sym)
-                    client.cancel_all_orders(symbol=sym)
-                    closed_count += 1
-                client.cancel_all_orders()
+                from src.emergency_controller import EmergencyController
+                ec = EmergencyController(client=client)
+                res = ec.engage_emergency_halt("User requested pause via Telegram")
                 self.send_message(
-                    f"🛑 <b>[EMERGENCY CLOSE COMPLETE]</b>\n"
-                    f"• Flattened <b>{closed_count}</b> active position(s).\n"
-                    f"• Cancelled all open orders on Delta Exchange.\n"
-                    f"• Portfolio is 100% in cash USD."
+                    f"🛑 <b>[TRADING BOT PAUSED BY USER]</b>\n"
+                    f"• <b>Status:</b> All new scan entries BLOCKED.\n"
+                    f"• <b>Pending Entries Cancelled:</b> {res.get('cancelled_entry_orders_count', 0)}\n"
+                    f"• <b>Protection:</b> Active positions Stop Loss verified.\n"
+                    f"• <i>Send <code>/resume</code> to re-enable automated scanning.</i>"
                 )
             except Exception as e:
-                self.send_message(f"⚠️ Error executing closeall: {e}")
+                self.send_message(f"⚠️ Error pausing bot: {e}")
+
+        elif cmd in ["/resume", "/unpause"]:
+            try:
+                from src.emergency_controller import EmergencyController
+                ec = EmergencyController(client=client)
+                ec.release_emergency_halt("User via Telegram")
+                self.send_message(
+                    "🟢 <b>[TRADING BOT RESUMED]</b>\n"
+                    "• <b>Status:</b> 24/7 Scanning & Trade Evaluation ACTIVE.\n"
+                    "• Capital allocation and risk gates re-engaged."
+                )
+            except Exception as e:
+                self.send_message(f"⚠️ Error resuming bot: {e}")
+
+        elif cmd in ["/closeall", "/panic"]:
+            try:
+                confirm_markup = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "🚨 YES, FLATTEN ALL NOW", "callback_data": "execute_emergency_closeall"},
+                            {"text": "❌ Cancel", "callback_data": "cancel_emergency_closeall"}
+                        ]
+                    ]
+                }
+                self.send_message(
+                    "⚠️ <b>CRITICAL CONFIRMATION REQUIRED:</b>\n"
+                    "Are you sure you want to market close ALL active positions and cancel all orders on Delta Exchange?",
+                    reply_markup=confirm_markup
+                )
+            except Exception as e:
+                self.send_message(f"⚠️ Error initiating closeall: {e}")
 
         elif cmd == "/close":
             parts = full_text.split()

@@ -1,10 +1,11 @@
 """
-Agent 3: Risk & Discipline Gatekeeper (Pre-Trade Discipline Gate).
-Inspired by drawdown-circuit-breaker and pre-trade-discipline-gate from claude-trading-skills.
-Enforces non-negotiable risk limits, capital allocation, and circuit breakers.
+Agent 5: Risk & Discipline Gatekeeper (Pre-Trade Discipline Gate).
+Enforces institutional fixed dollar risk ($2-$4 USD), dynamic drawdown scaling,
+friction (fees + slippage) deduction, liquidation buffer verification (>= 3x SL distance),
+portfolio correlation limits, and maximum cumulative open-risk constraints.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import os
 import logging
 from src.risk_manager import RiskManager
@@ -14,25 +15,32 @@ logger = logging.getLogger("risk-gatekeeper")
 
 
 class RiskGatekeeperAgent:
-    def __init__(self, client: DeltaExchangeClient, risk_manager: RiskManager):
+    def __init__(
+        self,
+        client: DeltaExchangeClient,
+        risk_manager: RiskManager,
+        max_portfolio_open_risk_usd: float = 8.00
+    ):
         self.client = client
         self.risk_manager = risk_manager
+        self.max_portfolio_open_risk_usd = max_portfolio_open_risk_usd
 
     def evaluate_candidate(
         self,
         setup: Dict[str, Any],
-        leverage: int = 5,
+        leverage: int = 25,
         risk_pct_override: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         Run setup through the mandatory Pre-Trade Discipline Gate.
         """
-        symbol = setup.get("symbol")
-        entry = setup.get("entry_price", 0.0)
-        stop = setup.get("stop_loss_price", 0.0)
-        tp = setup.get("take_profit_price", 0.0)
+        symbol = setup.get("symbol", "")
+        side = setup.get("side", "buy").lower()
+        entry = float(setup.get("entry_price", 0.0))
+        stop = float(setup.get("stop_loss_price", 0.0))
+        tp = float(setup.get("take_profit_price", 0.0))
 
-        # 1. Fetch live account balances and open positions
+        # 1. Fetch live account balances
         balances_res = self.client.get_wallet_balances()
         if not balances_res.get("success"):
             return {
@@ -64,10 +72,36 @@ class RiskGatekeeperAgent:
                 "reason": "Account USD/USDT balance is zero or depleted."
             }
 
-        # 2. Check open positions count
+        # 2. Check open positions and portfolio correlation
         pos_res = self.client.get_positions()
         raw_positions = pos_res.get("result", []) if pos_res.get("success") else []
         active_positions = [p for p in raw_positions if float(p.get("size", 0)) != 0]
+
+        # Duplicate symbol check
+        for p in active_positions:
+            if p.get("symbol") == symbol or p.get("product_symbol") == symbol:
+                return {
+                    "gate_decision": "REJECTED",
+                    "reason": f"Active position already exists for symbol {symbol}."
+                }
+
+        # Correlated Exposure Limit (max 2 concurrent directional crypto positions)
+        crypto_symbols = ["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA"]
+        is_crypto = any(c in symbol.upper() for c in crypto_symbols)
+        if is_crypto:
+            same_side_crypto = 0
+            for p in active_positions:
+                p_sym = p.get("symbol", "")
+                p_size = float(p.get("size", 0))
+                p_side = "buy" if p_size > 0 else "sell"
+                if any(c in p_sym.upper() for c in crypto_symbols) and p_side == side:
+                    same_side_crypto += 1
+
+            if same_side_crypto >= 2:
+                return {
+                    "gate_decision": "REJECTED",
+                    "reason": f"Correlated exposure limit reached ({same_side_crypto} active {side.upper()} crypto positions)."
+                }
 
         # 3. Check Account Circuit Breaker
         cb_res = self.risk_manager.check_circuit_breaker(
@@ -82,21 +116,12 @@ class RiskGatekeeperAgent:
                 "circuit_breaker_status": cb_res
             }
 
-        # 4. Check if already positioned in this symbol
-        for p in active_positions:
-            if p.get("product_symbol") == symbol:
-                return {
-                    "gate_decision": "REJECTED",
-                    "reason": f"Active position already exists for symbol {symbol}."
-                }
-
-        # 5. Discover product specs for exact contract multiplier
+        # 4. Product Specs & Precision
         pinfo = self.client.get_product_info(symbol)
         contract_value = float(pinfo.get("contract_value", "0.001")) if pinfo else 0.001
+        lot_size = int(pinfo.get("lot_size", 1)) if pinfo else 1
 
-        # 6. Sizing Engine: Institutional Fixed Dollar Risk Model
-        # Strictly caps dollar loss per trade to preserve capital (typically 1-3% or $2-$5 max).
-        # Eliminates catastrophic drawdowns from high-beta altcoins.
+        # 5. Sizing Engine: Fixed Dollar Risk Model ($2.00 - $4.00 USD)
         usable_capital = max(available_usdt, 0.0)
         if usable_capital < 3.0:
             return {
@@ -104,7 +129,7 @@ class RiskGatekeeperAgent:
                 "reason": f"Available capital (${usable_capital:.2f}) is too low to open a new position."
             }
 
-        is_primary = any(p in (symbol or "").upper() for p in ["BTC", "ETH", "XAU", "GOLD"])
+        is_primary = any(p in symbol.upper() for p in ["BTC", "ETH", "XAU", "GOLD"])
         stop_distance = abs(entry - stop)
         if stop_distance <= 0:
             return {"gate_decision": "REJECTED", "reason": "Invalid stop loss distance (zero or negative)."}
@@ -113,37 +138,59 @@ class RiskGatekeeperAgent:
         if per_contract_notional <= 0:
             return {"gate_decision": "REJECTED", "reason": "Invalid entry price or contract value."}
 
-        # Dollar risk ceiling per trade
-        # For primary assets (BTC/ETH/XAU): target 2% of equity, capped between $1.50 and $5.00
-        # For secondary alts: strictly capped at $2.00 max to eliminate outsized volatility drag
-        max_dollar_risk_cap = float(os.getenv("MAX_DOLLAR_RISK_PER_TRADE", "4.00" if is_primary else "2.00"))
-        target_risk_pct = 0.02 if is_primary else 0.015
+        # Dynamic Drawdown Scaling:
+        # If in minor drawdown (> 2%), scale risk down to protect equity
+        current_dd_pct = cb_res.get("current_drawdown_pct", 0.0)
+        dd_risk_scalar = 0.70 if current_dd_pct > 0.02 else 1.0
+
+        max_dollar_risk_cap = float(os.getenv("MAX_DOLLAR_RISK_PER_TRADE", "4.00" if is_primary else "2.00")) * dd_risk_scalar
+        target_risk_pct = (0.02 if is_primary else 0.015) * dd_risk_scalar
         calculated_dollar_risk = min(max(total_usdt * target_risk_pct, 1.50), max_dollar_risk_cap)
 
-        # Risk-based contract sizing: contracts = dollar_risk / (contract_value * stop_distance)
-        risk_per_contract = contract_value * stop_distance
-        contracts = int(calculated_dollar_risk / risk_per_contract) if risk_per_contract > 0 else 1
-        if contracts < 1:
-            contracts = 1
+        # Include estimated round-trip taker fees (0.10%) + slippage (0.06%) into risk unit
+        friction_per_contract = per_contract_notional * 0.0016
+        risk_per_contract = (contract_value * stop_distance) + friction_per_contract
 
-        # Margin guardrails:
-        # Max margin allowed: 25% of usable equity for primary, 10% for secondary alts
+        raw_contracts = int(calculated_dollar_risk / risk_per_contract) if risk_per_contract > 0 else 1
+        # Align with lot size
+        contracts = max(lot_size, (raw_contracts // lot_size) * lot_size)
+
+        # 6. Pre-Check Liquidation Buffer (Isolated Leverage)
+        # Estimated liquidation distance should be safely >= 3.0x stop loss distance
+        est_liq_distance = (entry / leverage) * 0.90  # 90% bankruptcy buffer
+        if est_liq_distance < (2.5 * stop_distance):
+            # Safe de-leverage if liquidation is too close to Stop Loss
+            safe_leverage = max(5, int((entry * 0.90) / (3.0 * stop_distance)))
+            if safe_leverage < leverage:
+                logger.info(f"RiskGatekeeper: Clamping leverage on {symbol} from {leverage}x to {safe_leverage}x for liquidation safety.")
+                leverage = safe_leverage
+
+        # Margin guardrails
         max_margin_pct = 0.25 if is_primary else 0.10
         max_allowed_margin = min(usable_capital * max_margin_pct, 30.0 if is_primary else 10.0)
         
         req_margin = (contracts * per_contract_notional) / leverage
         if req_margin > max_allowed_margin:
-            contracts = int((max_allowed_margin * leverage) / per_contract_notional)
+            contracts = max(lot_size, (int((max_allowed_margin * leverage) / per_contract_notional) // lot_size) * lot_size)
             req_margin = (contracts * per_contract_notional) / leverage
 
-        if contracts < 1 or req_margin > usable_capital:
+        if contracts < lot_size or req_margin > usable_capital:
             return {
                 "gate_decision": "REJECTED",
                 "reason": f"Required margin (${req_margin:.2f}) exceeds risk ceiling or available balance (${usable_capital:.2f})."
             }
 
-        dollar_risk = contracts * contract_value * stop_distance
-        risk_pct = (dollar_risk / total_usdt) * 100.0 if total_usdt > 0 else 0.0
+        # 7. Check Portfolio Total Open Risk Limit
+        current_open_risk = sum(float(p.get("dollar_risk", 2.0)) for p in active_positions)
+        total_risk_with_trade = current_open_risk + (contracts * risk_per_contract)
+        if total_risk_with_trade > self.max_portfolio_open_risk_usd:
+            return {
+                "gate_decision": "REJECTED",
+                "reason": f"Portfolio cumulative open risk (${total_risk_with_trade:.2f}) exceeds max allowed ceiling (${self.max_portfolio_open_risk_usd:.2f})."
+            }
+
+        dollar_risk = round(contracts * risk_per_contract, 2)
+        risk_pct = round((dollar_risk / total_usdt) * 100.0, 2) if total_usdt > 0 else 0.0
         profit_distance = abs(tp - entry)
         rr_ratio = round((profit_distance / stop_distance), 2) if stop_distance > 0 else 2.0
 
@@ -153,23 +200,26 @@ class RiskGatekeeperAgent:
                 "reason": f"Reward-to-Risk ratio {rr_ratio:.2f}:1 is below required minimum of {self.risk_manager.min_reward_to_risk:.1f}:1"
             }
 
-        # Passed all gates
+        est_liq_price = round(entry * (1.0 - (1.0 / leverage)), 2) if side == "buy" else round(entry * (1.0 + (1.0 / leverage)), 2)
+
         return {
             "gate_decision": "APPROVED",
             "symbol": symbol,
-            "side": setup.get("side"),
+            "side": side,
             "strategy": setup.get("strategy_name"),
             "thesis": setup.get("thesis"),
             "score": setup.get("score", 75),
             "confluence": setup.get("confluence", {}),
+            "time_machine": setup.get("time_machine", {}),
             "contracts": contracts,
             "entry_price": entry,
             "stop_loss_price": stop,
             "take_profit_price": tp,
             "reward_to_risk_ratio": rr_ratio,
-            "dollar_risk_usd": round(dollar_risk, 2),
-            "risk_pct": round(risk_pct, 2),
+            "dollar_risk_usd": dollar_risk,
+            "risk_pct": risk_pct,
             "required_margin_usd": round(req_margin, 2),
+            "estimated_liquidation_price": est_liq_price,
             "leverage": leverage,
             "account_equity": total_usdt,
             "available_usdt": available_usdt,

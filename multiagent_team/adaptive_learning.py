@@ -277,21 +277,45 @@ class AdaptiveLearningEngine:
         win_rate = round((pat_data["wins"] / resolved * 100.0), 1) if resolved > 0 else 50.0
         pat_data["win_rate_pct"] = win_rate
 
-        # Adaptive Algorithm Feedback Rules:
-        # If pattern has >= 70% win rate -> REINFORCE (+5 to +10 bonus points)
-        # If pattern has >= 2 consecutive losses or win rate < 45% -> PENALIZE / BLACKLIST
-        if resolved >= 2 and win_rate >= 70.0:
+        # Maintain Rolling Performance Window (last 20 outcomes per pattern)
+        if "recent_trades" not in pat_data:
+            pat_data["recent_trades"] = []
+        
+        pat_data["recent_trades"].append({
+            "timestamp": time.time(),
+            "outcome": "WIN" if is_win else ("BE" if is_be else "LOSS"),
+            "realized_pnl": realized_pnl,
+            "r_multiple": r_multiple
+        })
+        if len(pat_data["recent_trades"]) > 20:
+            pat_data["recent_trades"].pop(0)
+
+        rolling_wins = sum(1 for t in pat_data["recent_trades"] if t["outcome"] == "WIN")
+        rolling_losses = sum(1 for t in pat_data["recent_trades"] if t["outcome"] == "LOSS")
+        rolling_resolved = rolling_wins + rolling_losses
+        rolling_win_rate = round((rolling_wins / rolling_resolved * 100.0), 1) if rolling_resolved > 0 else 50.0
+        pat_data["rolling_win_rate_pct"] = rolling_win_rate
+        pat_data["rolling_sample_size"] = rolling_resolved
+
+        # Adaptive Algorithm Feedback Rules with Minimum Sample Constraints:
+        # Require at least 5 resolved trades before granting full REINFORCED bonus (+8 pts).
+        # Require at least 5 resolved trades before hard blacklisting; otherwise mark NEEDS_REVIEW.
+        if rolling_resolved >= 5 and rolling_win_rate >= 70.0:
             pat_data["status"] = "REINFORCED"
             pat_data["score_adjustment"] = +8
-            pat_data["last_action"] = "Reinforced: Added +8 confluence boost for future candidate setups."
-        elif pat_data["consecutive_losses"] >= 2 or (resolved >= 3 and win_rate < 40.0):
-            pat_data["status"] = "VETOED_BLACKLISTED"
-            pat_data["score_adjustment"] = -30
-            pat_data["last_action"] = "Blacklisted: Pattern banned due to repeated failure in live market conditions."
-        elif resolved >= 2 and win_rate < 55.0:
+            pat_data["last_action"] = f"Reinforced: +8 confluence boost verified across rolling sample ({rolling_resolved} trades, {rolling_win_rate}% Win Rate)."
+        elif rolling_resolved >= 2 and rolling_win_rate >= 70.0:
+            pat_data["status"] = "EMERGING_EDGE"
+            pat_data["score_adjustment"] = +2
+            pat_data["last_action"] = f"Emerging: Small +2 preliminary bonus (awaiting 5-trade sample size, currently {rolling_resolved} trades)."
+        elif pat_data["consecutive_losses"] >= 3 or (rolling_resolved >= 6 and rolling_win_rate < 35.0):
+            pat_data["status"] = "NEEDS_REVIEW_PENALIZED"
+            pat_data["score_adjustment"] = -25
+            pat_data["last_action"] = f"Penalized: -25 deduction. Flagged for review due to {pat_data['consecutive_losses']} consecutive losses or low rolling win rate."
+        elif rolling_resolved >= 3 and rolling_win_rate < 50.0:
             pat_data["status"] = "PENALIZED"
-            pat_data["score_adjustment"] = -15
-            pat_data["last_action"] = "Penalized: -15 point deduction applied to require higher confluence."
+            pat_data["score_adjustment"] = -12
+            pat_data["last_action"] = f"Penalized: -12 deduction applied to demand higher confluence in future cycles."
         else:
             pat_data["status"] = "NEUTRAL"
             pat_data["score_adjustment"] = 0

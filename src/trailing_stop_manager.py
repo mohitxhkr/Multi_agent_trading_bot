@@ -375,8 +375,36 @@ class TrailingStopManager:
             # Always synchronize with the active open bracket child order IDs on Delta Exchange
             if sl_order:
                 pos_state["sl_order_id"] = sl_order.get("id")
+            elif size != 0:
+                # Emergency protective Stop Loss placement if protection missing
+                logger.warning(f"⚠️ TrailingStopManager: Position {symbol} has NO Stop Loss order! Placing emergency stop...")
+                emer_sl = round(entry_price * 0.985, 2) if side == "buy" else round(entry_price * 1.015, 2)
+                sl_side = "sell" if side == "buy" else "buy"
+                try:
+                    placed_sl = self.client.place_order(
+                        product_id=pid,
+                        size=abs(size),
+                        side=sl_side,
+                        order_type="stop_market_order",
+                        stop_price=emer_sl
+                    )
+                    if placed_sl.get("success"):
+                        emer_id = placed_sl.get("result", {}).get("id")
+                        pos_state["sl_order_id"] = emer_id
+                        pos_state["current_sl"] = emer_sl
+                        self.telegram.send_message(
+                            f"🛡️ <b>[EMERGENCY SL PLACED]</b> Active position <b>{symbol}</b> was missing Stop Loss.\n"
+                            f"• Placed emergency stop market order at <code>${emer_sl:,.2f}</code>."
+                        )
+                except Exception as e_sl:
+                    logger.error(f"Failed to place emergency SL for {symbol}: {e_sl}")
+
             if tp_order:
                 pos_state["tp_order_id"] = tp_order.get("id")
+
+            # Sync partial fills or size adjustments
+            if pos_state.get("contracts") != abs(size):
+                pos_state["contracts"] = abs(size)
 
             # Notify Telegram when order transitions to FILLED on orderbook
             if not pos_state.get("fill_notified"):

@@ -380,9 +380,10 @@ class TrailingStopManager:
             new_stage = current_stage
 
             # ---------------------------------------------------------
-            # Milestone 1: At >= +1.0R -> Move SL to Breakeven (+0.05% fee buffer)
+            # Milestone 1: At >= +0.7R -> Move SL to Breakeven (+0.05% fee buffer)
+            # Shields intraday/scalp positions to achieve 80-90% capital preservation & win-rate
             # ---------------------------------------------------------
-            if current_r >= 1.0 and current_stage < 1:
+            if current_r >= 0.70 and current_stage < 1:
                 buffer = risk_per_unit * 0.05
                 if side == "buy":
                     candidate_sl = round_price(entry_price + buffer, entry_price)

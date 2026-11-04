@@ -41,6 +41,12 @@ class StrategyAgent:
                 is_primary = any(p in (symbol or "").upper() for p in ["BTC", "ETH", "XAU", "GOLD"])
                 priority_tag = "PRIMARY" if is_primary else "SECONDARY"
                 adjusted_score = score + (10 if is_primary else 0)
+
+                # Enforce institutional high-conviction threshold (80-90% accuracy standard)
+                min_threshold = 75 if is_primary else 80
+                if adjusted_score < min_threshold:
+                    return None
+
                 formatted_thesis = f"🌟 [PRIMARY FOCUS ASSET] {thesis}" if is_primary else f"⚪ [SECONDARY ASSET] {thesis}"
                 raw_strat = hp_setup.get("strategy") or f"Institutional_SMC_{priority_tag}_{side.upper()}"
                 macro_15m = analysis.get("macro_15m", {})

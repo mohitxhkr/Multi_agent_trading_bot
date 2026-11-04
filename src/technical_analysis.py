@@ -10,6 +10,24 @@ import time
 import datetime
 
 
+def round_price(val: float, ref_price: Optional[float] = None) -> float:
+    """Round price with dynamic precision based on asset magnitude."""
+    ref = abs(ref_price if ref_price is not None else val)
+    if ref < 0.001:
+        return round(val, 7)
+    elif ref < 0.1:
+        return round(val, 6)
+    elif ref < 1.0:
+        return round(val, 5)
+    elif ref < 10.0:
+        return round(val, 4)
+    elif ref < 100.0:
+        return round(val, 3)
+    else:
+        return round(val, 2)
+
+
+
 def aggregate_monthly_candles(daily_candles: Dict[str, Any]) -> Dict[str, Any]:
     """
     Aggregate daily OHLCV candlestick data into true calendar Monthly bars.
@@ -637,15 +655,15 @@ def analyze_multi_timeframe(
                     setup_score += 10  # Monthly aligned
 
                 if setup_score >= 70:
-                    setup_qualified = True
-                    setup_side = "buy"
-                    invalidation_sl = round(min(sweep_wick, current_price - (0.8 * atr)) - (0.15 * atr), 2)
+                    invalidation_sl = round_price(min(sweep_wick, current_price - (0.8 * atr)) - (0.15 * atr), current_price)
                     risk_dist = current_price - invalidation_sl
                     if risk_dist > 0:
-                        target_tp = round(current_price + (2.0 * risk_dist), 2)
+                        setup_qualified = True
+                        setup_side = "buy"
+                        target_tp = round_price(current_price + (2.0 * risk_dist), current_price)
                         thesis = (
                             f"Multi-Timeframe Bullish SSL Sweep (Score {setup_score}/100): 1H swept Sell-Side Liquidity "
-                            f"(${liq.get('swept_level'):.2f}) with wick rejection. "
+                            f"(${liq.get('swept_level'):.4f}) with wick rejection. "
                             f"HTF Confluence: 1M: {monthly_regime} | 1W: {weekly_regime} | 1D: {daily_regime} | 4H: {macro_4h_regime}."
                         )
 
@@ -671,15 +689,15 @@ def analyze_multi_timeframe(
                     setup_score += 10
 
                 if setup_score >= 70:
-                    setup_qualified = True
-                    setup_side = "sell"
-                    invalidation_sl = round(max(sweep_wick, current_price + (0.8 * atr)) + (0.15 * atr), 2)
+                    invalidation_sl = round_price(max(sweep_wick, current_price + (0.8 * atr)) + (0.15 * atr), current_price)
                     risk_dist = invalidation_sl - current_price
                     if risk_dist > 0:
-                        target_tp = round(current_price - (2.0 * risk_dist), 2)
+                        setup_qualified = True
+                        setup_side = "sell"
+                        target_tp = round_price(current_price - (2.0 * risk_dist), current_price)
                         thesis = (
                             f"Multi-Timeframe Bearish BSL Sweep (Score {setup_score}/100): 1H swept Buy-Side Liquidity "
-                            f"(${liq.get('swept_level'):.2f}) with wick rejection. "
+                            f"(${liq.get('swept_level'):.4f}) with wick rejection. "
                             f"HTF Confluence: 1M: {monthly_regime} | 1W: {weekly_regime} | 1D: {daily_regime} | 4H: {macro_4h_regime}."
                         )
 
@@ -696,16 +714,16 @@ def analyze_multi_timeframe(
             and 45.0 <= rsi_1h <= 65.0
         ):
             if current_price >= ema_21_1h * 0.995:
-                setup_score = 85
-                setup_qualified = True
-                setup_side = "buy"
-                invalidation_sl = round(ema_21_1h - (1.0 * atr), 2)
+                invalidation_sl = round_price(ema_21_1h - (1.0 * atr), current_price)
                 risk_dist = current_price - invalidation_sl
                 if risk_dist > 0:
-                    target_tp = round(current_price + (2.0 * risk_dist), 2)
+                    setup_score = 85
+                    setup_qualified = True
+                    setup_side = "buy"
+                    target_tp = round_price(current_price + (2.0 * risk_dist), current_price)
                     thesis = (
                         f"5-Timeframe Trend Expansion Long (Score 85/100): 1M, 1W, 1D, 4H, and 1H all solidly BULLISH. "
-                        f"Holding dynamic EMA support above ${ema_21_1h:.2f}."
+                        f"Holding dynamic EMA support above ${ema_21_1h:.4f}."
                     )
 
         elif (
@@ -716,17 +734,19 @@ def analyze_multi_timeframe(
             and 35.0 <= rsi_1h <= 55.0
         ):
             if current_price <= ema_21_1h * 1.005:
-                setup_score = 85
-                setup_qualified = True
-                setup_side = "sell"
-                invalidation_sl = round(ema_21_1h + (1.0 * atr), 2)
+                invalidation_sl = round_price(ema_21_1h + (1.0 * atr), current_price)
                 risk_dist = invalidation_sl - current_price
                 if risk_dist > 0:
-                    target_tp = round(current_price - (2.0 * risk_dist), 2)
+                    setup_score = 85
+                    setup_qualified = True
+                    setup_side = "sell"
+                    target_tp = round_price(current_price - (2.0 * risk_dist), current_price)
                     thesis = (
                         f"5-Timeframe Trend Expansion Short (Score 85/100): 1M, 1W, 1D, 4H, and 1H all solidly BEARISH. "
-                        f"Capped under dynamic EMA resistance below ${ema_21_1h:.2f}."
+                        f"Capped under dynamic EMA resistance below ${ema_21_1h:.4f}."
                     )
+
+    real_rr = round(abs(target_tp - current_price) / abs(current_price - invalidation_sl), 2) if (setup_qualified and abs(current_price - invalidation_sl) > 0) else 0.0
 
     analysis_1h["high_probability_setup"] = {
         "qualified": setup_qualified,
@@ -735,7 +755,7 @@ def analyze_multi_timeframe(
         "entry_price": current_price,
         "stop_loss_price": invalidation_sl,
         "take_profit_price": target_tp,
-        "planned_rr_ratio": 2.0 if setup_qualified else 0.0,
+        "planned_rr_ratio": real_rr,
         "thesis": thesis,
         "rejection_reason": rejection_reason,
         "macro_regime": macro_4h_regime

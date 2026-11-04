@@ -16,6 +16,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from src.delta_client import DeltaExchangeClient
 from src.telegram_notifier import TelegramNotifier
+from src.technical_analysis import round_price
 
 logger = logging.getLogger("trailing-stop-manager")
 
@@ -212,11 +213,11 @@ class TrailingStopManager:
             if current_r >= 1.0 and current_stage < 1:
                 buffer = risk_per_unit * 0.05
                 if side == "buy":
-                    candidate_sl = round(entry_price + buffer, 2)
+                    candidate_sl = round_price(entry_price + buffer, entry_price)
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                 else:
-                    candidate_sl = round(entry_price - buffer, 2)
+                    candidate_sl = round_price(entry_price - buffer, entry_price)
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
 
@@ -235,14 +236,14 @@ class TrailingStopManager:
             # ---------------------------------------------------------
             if current_r >= 2.0 and current_stage < 2:
                 if side == "buy":
-                    candidate_sl = round(entry_price + (1.0 * risk_per_unit), 2)
-                    candidate_tp = round(entry_price + (3.0 * risk_per_unit), 2)
+                    candidate_sl = round_price(entry_price + (1.0 * risk_per_unit), entry_price)
+                    candidate_tp = round_price(entry_price + (3.0 * risk_per_unit), entry_price)
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
                 else:
-                    candidate_sl = round(entry_price - (1.0 * risk_per_unit), 2)
-                    candidate_tp = round(entry_price - (3.0 * risk_per_unit), 2)
+                    candidate_sl = round_price(entry_price - (1.0 * risk_per_unit), entry_price)
+                    candidate_tp = round_price(entry_price - (3.0 * risk_per_unit), entry_price)
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
@@ -262,14 +263,14 @@ class TrailingStopManager:
             # ---------------------------------------------------------
             if current_r >= 3.0 and current_stage < 3:
                 if side == "buy":
-                    candidate_sl = round(entry_price + (2.0 * risk_per_unit), 2)
-                    candidate_tp = round(entry_price + (5.0 * risk_per_unit), 2)
+                    candidate_sl = round_price(entry_price + (2.0 * risk_per_unit), entry_price)
+                    candidate_tp = round_price(entry_price + (5.0 * risk_per_unit), entry_price)
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
                 else:
-                    candidate_sl = round(entry_price - (2.0 * risk_per_unit), 2)
-                    candidate_tp = round(entry_price - (5.0 * risk_per_unit), 2)
+                    candidate_sl = round_price(entry_price - (2.0 * risk_per_unit), entry_price)
+                    candidate_tp = round_price(entry_price - (5.0 * risk_per_unit), entry_price)
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp

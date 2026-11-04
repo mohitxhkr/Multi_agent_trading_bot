@@ -13,6 +13,8 @@ import logging
 import requests
 from dotenv import load_dotenv
 
+from src.technical_analysis import round_price
+
 load_dotenv()
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -150,12 +152,23 @@ class TelegramConfirmationBot:
         thesis = trade_spec.get("thesis", "Market structure alignment verified.")
         confluence = trade_spec.get("confluence", {})
 
+        # Dynamic price formatter for multi-asset magnitude
+        def fmt_p(p: float) -> str:
+            if p < 0.1:
+                return f"${p:,.6f}"
+            elif p < 1.0:
+                return f"${p:,.5f}"
+            elif p < 10.0:
+                return f"${p:,.4f}"
+            else:
+                return f"${p:,.2f}"
+
         # Trailing roadmap calculation
         risk_per_unit = abs(entry - sl)
-        be_price = round(entry + (risk_per_unit * 0.05) if side == "BUY" else entry - (risk_per_unit * 0.05), 2)
-        r2_sl = round(entry + risk_per_unit if side == "BUY" else entry - risk_per_unit, 2)
-        r3_tp = round(entry + (3.0 * risk_per_unit) if side == "BUY" else entry - (3.0 * risk_per_unit), 2)
-        r5_tp = round(entry + (5.0 * risk_per_unit) if side == "BUY" else entry - (5.0 * risk_per_unit), 2)
+        be_price = round_price(entry + (risk_per_unit * 0.05) if side == "BUY" else entry - (risk_per_unit * 0.05), entry)
+        r2_sl = round_price(entry + risk_per_unit if side == "BUY" else entry - risk_per_unit, entry)
+        r3_tp = round_price(entry + (3.0 * risk_per_unit) if side == "BUY" else entry - (3.0 * risk_per_unit), entry)
+        r5_tp = round_price(entry + (5.0 * risk_per_unit) if side == "BUY" else entry - (5.0 * risk_per_unit), entry)
 
         conf_lines = ""
         if confluence:
@@ -178,15 +191,15 @@ class TelegramConfirmationBot:
             f"• <b>Strategy:</b> <i>{strategy}</i>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"{conf_lines}"
-            f"📍 <b>Entry Price:</b> <code>${entry:,.2f}</code>\n"
-            f"🛑 <b>Stop Loss:</b> <code>${sl:,.2f}</code> (Risk: ${risk_usd:,.2f})\n"
-            f"🎯 <b>Target 1 (1:2 R:R):</b> <code>${tp:,.2f}</code> (Initial TP)\n"
+            f"📍 <b>Entry Price:</b> <code>{fmt_p(entry)}</code>\n"
+            f"🛑 <b>Stop Loss:</b> <code>{fmt_p(sl)}</code> (Risk: ${risk_usd:,.2f})\n"
+            f"🎯 <b>Target 1 (1:2 R:R):</b> <code>{fmt_p(tp)}</code> (Initial TP)\n"
             f"⚖️ <b>Initial R:R:</b> <b>{rr:.2f} : 1</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📈 <b>Trailing Stop Roadmap:</b>\n"
-            f"  1️⃣ <b>At +1.0R:</b> SL moves to Breakeven (<code>${be_price:,.2f}</code> — Zero Risk)\n"
-            f"  2️⃣ <b>At +2.0R:</b> SL locks +1.0R (<code>${r2_sl:,.2f}</code>), TP trails to 1:3 (<code>${r3_tp:,.2f}</code>)\n"
-            f"  3️⃣ <b>At +3.0R:</b> SL locks +2.0R, TP trails to 1:5 (<code>${r5_tp:,.2f}</code>)\n"
+            f"  1️⃣ <b>At +1.0R:</b> SL moves to Breakeven (<code>{fmt_p(be_price)}</code> — Zero Risk)\n"
+            f"  2️⃣ <b>At +2.0R:</b> SL locks +1.0R (<code>{fmt_p(r2_sl)}</code>), TP trails to 1:3 (<code>{fmt_p(r3_tp)}</code>)\n"
+            f"  3️⃣ <b>At +3.0R:</b> SL locks +2.0R, TP trails to 1:5 (<code>{fmt_p(r5_tp)}</code>)\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"⚡ <b>Leverage:</b> <code>{leverage}x Isolated</code>\n"
             f"💼 <b>Size:</b> <code>{contracts} contracts</code> (Margin: ~${margin:,.2f})\n"

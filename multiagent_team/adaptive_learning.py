@@ -457,3 +457,4 @@ class AdaptiveLearningEngine:
         lines.append("⚡ <i>Self-learning loop complete. Weights persisted to memory.</i>")
 
         return "\n".join(lines)
+

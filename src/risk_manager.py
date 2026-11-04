@@ -122,6 +122,37 @@ class RiskManager:
                 "open_positions": open_positions_count
             }
 
+        # Consecutive Loss Cooling-Off Gate (Anti-Churn / Anti-Tilt Safeguard)
+        try:
+            from src.journal import load_journal
+            j = load_journal()
+            closed_trades = [t for t in j.get("trades", []) if t.get("status") == "CLOSED"]
+            if len(closed_trades) >= 2:
+                last_two = closed_trades[-2:]
+                both_losses = all((float(t.get("realized_pnl_usd") or 0.0) < -0.05) for t in last_two)
+                if both_losses:
+                    last_exit_str = last_two[-1].get("exit_time", "")
+                    if last_exit_str:
+                        import datetime
+                        t_clean = last_exit_str.replace(" UTC", "")
+                        exit_dt = datetime.datetime.strptime(t_clean, "%Y-%m-%d %H:%M:%S")
+                        now_dt = datetime.datetime.utcnow()
+                        diff_sec = (now_dt - exit_dt).total_seconds()
+                        cooling_period_sec = 7200  # 2 hours cooling-off
+                        if 0 <= diff_sec < cooling_period_sec:
+                            remaining_min = int((cooling_period_sec - diff_sec) / 60)
+                            return {
+                                "decision": "HALT_COOLING_OFF",
+                                "can_trade": False,
+                                "reason": f"Cooling-Off Circuit Breaker: 2 consecutive losses hit recently. Paused for {remaining_min} more minutes to protect capital during abnormal volatility shock.",
+                                "daily_drawdown_pct": round(daily_drawdown_pct * 100, 2),
+                                "peak_drawdown_pct": round(peak_drawdown_pct * 100, 2),
+                                "current_equity": current_equity,
+                                "open_positions": open_positions_count
+                            }
+        except Exception:
+            pass
+
         save_circuit_breaker_state(state)
         return {
             "decision": "TRADING_ALLOWED",

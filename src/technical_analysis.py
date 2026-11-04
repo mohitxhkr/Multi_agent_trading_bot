@@ -664,14 +664,23 @@ def analyze_multi_timeframe(
     st_tf = "15m" if sweep_15 else ("1H" if sweep_1h else "None")
 
     is_primary = any(p in (symbol or "").upper() for p in ["BTC", "ETH", "XAU", "GOLD"])
-    min_sl_dist = current_price * (0.0020 if is_primary else 0.0030)  # 0.20% - 0.30% minimum tight risk
-    max_sl_dist = current_price * (0.0040 if is_primary else 0.0060)  # 0.40% - 0.60% strict scalp ceiling (resolves in hours, never days)
+    min_sl_dist = current_price * (0.0018 if is_primary else 0.0028)  # 0.18% - 0.28% minimum tight risk
+    max_sl_dist = current_price * (0.0038 if is_primary else 0.0055)  # 0.38% - 0.55% strict scalp ceiling
+
+    # High-Liquidity Institutional Killzones:
+    # London Open: 07:00 - 10:00 UTC | New York Open: 12:00 - 17:00 UTC
+    import datetime
+    utc_now = datetime.datetime.utcnow()
+    utc_hour = utc_now.hour
+    is_killzone = (7 <= utc_hour <= 10) or (12 <= utc_hour <= 17)
+    session_label = "London Open Killzone" if (7 <= utc_hour <= 10) else ("New York Open Killzone" if (12 <= utc_hour <= 17) else "Inter-Session")
 
     setup_qualified = False
     setup_side = None
     setup_score = 0
     invalidation_sl = 0.0
     target_tp = 0.0
+    calc_entry = current_price
     thesis = ""
     rejection_reason = ""
     strategy_label = ""
@@ -680,7 +689,8 @@ def analyze_multi_timeframe(
     # Institutional Rules:
     # 1. Macro Trend Alignment: NEVER trade against dominant 1H & 4H momentum.
     # 2. Market Structure Shift (MSS): MANDATORY confirmation (no entering on unconfirmed wicks).
-    # 3. Strict Confluence: High precision setup targeting 80-90% win rate.
+    # 3. Optimal Trade Entry (OTE): Retest limit entry to maximize R:R (>= 2.4:1).
+    # 4. Strict Confluence: High precision setup targeting 80-90% win rate.
     if sweep_detected:
         if sweep_type == "BULLISH_SSL_SWEEP":
             # STRICT VETO 1: Cannot go long if 1H or 4H is strongly bearish
@@ -701,22 +711,31 @@ def analyze_multi_timeframe(
                     setup_score += 10  # Daily aligned or oversold bounce
                 if is_primary:
                     setup_score += 10  # Priority asset boost
+                if is_killzone:
+                    setup_score += 5   # Peak liquidity session boost
 
                 qual_threshold = 80 if is_primary else 85
                 if setup_score >= qual_threshold:
-                    raw_sl = min(sweep_wick, current_price - (0.6 * atr_15m)) - (0.10 * atr_15m)
-                    raw_risk = current_price - raw_sl
+                    # Optimal Trade Entry (OTE): If candle expanded > 1 ATR, wait for 0.382 pullback limit
+                    displacement = current_price - sweep_wick
+                    if displacement > (1.0 * atr_15m):
+                        calc_entry = round_price(current_price - (0.382 * displacement), current_price)
+                    else:
+                        calc_entry = current_price
+
+                    raw_sl = min(sweep_wick, calc_entry - (0.5 * atr_15m)) - (0.08 * atr_15m)
+                    raw_risk = calc_entry - raw_sl
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
-                    invalidation_sl = round_price(current_price - sl_dist, current_price)
-                    target_tp = round_price(current_price + (2.2 * sl_dist), current_price)
+                    invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
+                    target_tp = round_price(calc_entry + (2.4 * sl_dist), calc_entry)
                     
                     setup_qualified = True
                     setup_side = "buy"
                     strategy_label = f"Institutional_SSL_Sweep_{st_tf}"
                     thesis = (
-                        f"High-Precision {st_tf} Bullish SSL Sweep (Score {setup_score}/100): Confirmed liquidity absorption "
-                        f"at ${active_liq.get('swept_level', 0):.4f} with verified MSS & higher-timeframe trend alignment. "
-                        f"Calculated Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.2:1."
+                        f"High-Precision {st_tf} Bullish SSL Sweep (Score {setup_score}/100 · {session_label}): Confirmed liquidity absorption "
+                        f"at ${active_liq.get('swept_level', 0):.4f} with verified MSS & HTF alignment. "
+                        f"OTE Limit Entry: ${calc_entry:.4f}, Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned R:R: 2.4:1."
                     )
 
         elif sweep_type == "BEARISH_BSL_SWEEP":
@@ -738,22 +757,31 @@ def analyze_multi_timeframe(
                     setup_score += 10  # Daily aligned or overbought rejection
                 if is_primary:
                     setup_score += 10  # Priority asset boost
+                if is_killzone:
+                    setup_score += 5   # Peak liquidity session boost
 
                 qual_threshold = 80 if is_primary else 85
                 if setup_score >= qual_threshold:
-                    raw_sl = max(sweep_wick, current_price + (0.6 * atr_15m)) + (0.10 * atr_15m)
-                    raw_risk = raw_sl - current_price
+                    # Optimal Trade Entry (OTE): If candle expanded > 1 ATR, wait for 0.382 pullback limit
+                    displacement = sweep_wick - current_price
+                    if displacement > (1.0 * atr_15m):
+                        calc_entry = round_price(current_price + (0.382 * displacement), current_price)
+                    else:
+                        calc_entry = current_price
+
+                    raw_sl = max(sweep_wick, calc_entry + (0.5 * atr_15m)) + (0.08 * atr_15m)
+                    raw_risk = raw_sl - calc_entry
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
-                    invalidation_sl = round_price(current_price + sl_dist, current_price)
-                    target_tp = round_price(current_price - (2.2 * sl_dist), current_price)
+                    invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
+                    target_tp = round_price(calc_entry - (2.4 * sl_dist), calc_entry)
 
                     setup_qualified = True
                     setup_side = "sell"
                     strategy_label = f"Institutional_BSL_Sweep_{st_tf}"
                     thesis = (
-                        f"High-Precision {st_tf} Bearish BSL Sweep (Score {setup_score}/100): Confirmed liquidity absorption "
-                        f"at ${active_liq.get('swept_level', 0):.4f} with verified MSS & higher-timeframe trend alignment. "
-                        f"Calculated Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.2:1."
+                        f"High-Precision {st_tf} Bearish BSL Sweep (Score {setup_score}/100 · {session_label}): Confirmed liquidity absorption "
+                        f"at ${active_liq.get('swept_level', 0):.4f} with verified MSS & HTF alignment. "
+                        f"OTE Limit Entry: ${calc_entry:.4f}, Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned R:R: 2.4:1."
                     )
 
     # Priority B: 15m High-Momentum Trend Pullback / EMA Re-test Scalp
@@ -800,14 +828,14 @@ def analyze_multi_timeframe(
                 f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.0:1."
             )
 
-    real_rr = round(abs(target_tp - current_price) / abs(current_price - invalidation_sl), 2) if (setup_qualified and abs(current_price - invalidation_sl) > 0) else 0.0
+    real_rr = round(abs(target_tp - calc_entry) / abs(calc_entry - invalidation_sl), 2) if (setup_qualified and abs(calc_entry - invalidation_sl) > 0) else 0.0
 
     analysis_1h["high_probability_setup"] = {
         "qualified": setup_qualified,
         "side": setup_side,
         "strategy": strategy_label,
         "score": setup_score,
-        "entry_price": current_price,
+        "entry_price": calc_entry,
         "stop_loss_price": invalidation_sl,
         "take_profit_price": target_tp,
         "planned_rr_ratio": real_rr,

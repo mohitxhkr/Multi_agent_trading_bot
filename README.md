@@ -276,6 +276,9 @@ Multi Agent Trading Bot/
 ├── server.py                         # 24/7 Cloud Health Responder & Silent Scanner Daemon
 ├── render.yaml                       # Cloud deployment specification
 ├── requirements.txt                  # Minimal Python dependencies
+├── workflow_architecture_diagram.png # High-Resolution PNG Architecture Diagram
+├── workflow_architecture_diagram.svg # Scalable Vector Architecture Diagram
+├── workflow_architecture.html        # Interactive HTML Architecture Viewer
 └── README.md                         # Documentation
 ```
 

@@ -11,6 +11,7 @@ import time
 import uuid
 import logging
 import requests
+# pyrefly: ignore[missing-import]
 from dotenv import load_dotenv
 
 from src.technical_analysis import round_price

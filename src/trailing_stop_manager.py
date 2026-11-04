@@ -244,6 +244,14 @@ class TrailingStopManager:
                 )
 
             logger.info(f"Position closed for {sym}: {exit_reason} @ ${exit_price} (PnL: ${pnl:.2f})")
+
+            # Clean up any leftover open bracket orders for this symbol so nothing is orphaned
+            try:
+                self.client.cancel_all_orders(symbol=sym)
+                logger.info(f"Cleaned up any orphaned bracket orders for {sym}")
+            except Exception as e:
+                logger.warning(f"Error cancelling leftover orders for {sym}: {e}")
+
             self._save_state()
 
         if not active_positions:

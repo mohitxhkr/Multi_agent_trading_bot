@@ -493,6 +493,44 @@ class TelegramConfirmationBot:
             except Exception as e:
                 self.send_message(f"⚠️ Error fetching orders: {e}")
 
+        elif cmd.startswith("/closeall") or cmd.startswith("/panic"):
+            try:
+                self.send_message("🚨 <i>Emergency Close All initiated... Flattening positions and cancelling orders.</i>")
+                pos_res = client.get_positions()
+                active = [p for p in pos_res.get("result", []) if int(p.get("size", 0)) != 0] if pos_res.get("success") else []
+                closed_count = 0
+                for p in active:
+                    sym = p.get("product_symbol")
+                    client.close_position(sym)
+                    client.cancel_all_orders(symbol=sym)
+                    closed_count += 1
+                client.cancel_all_orders()
+                self.send_message(
+                    f"🛑 <b>[EMERGENCY CLOSE COMPLETE]</b>\n"
+                    f"• Flattened <b>{closed_count}</b> active position(s).\n"
+                    f"• Cancelled all open orders on Delta Exchange.\n"
+                    f"• Portfolio is 100% in cash USD."
+                )
+            except Exception as e:
+                self.send_message(f"⚠️ Error executing closeall: {e}")
+
+        elif cmd.startswith("/close"):
+            parts = cmd.split()
+            if len(parts) < 2:
+                self.send_message("⚠️ Please specify symbol to close, e.g.: <code>/close BTCUSD</code> or use <code>/closeall</code>")
+            else:
+                sym = parts[1].upper()
+                try:
+                    self.send_message(f"🛑 <i>Closing position on {sym}...</i>")
+                    res = client.close_position(sym)
+                    client.cancel_all_orders(symbol=sym)
+                    if res.get("success"):
+                        self.send_message(f"✅ <b>Position on {sym} closed successfully at market.</b> Open bracket orders cancelled.")
+                    else:
+                        self.send_message(f"⚠️ Could not close {sym}: {res.get('error', 'Unknown error')}")
+                except Exception as e:
+                    self.send_message(f"⚠️ Error closing {sym}: {e}")
+
         elif cmd in ["/help", "/start"]:
             help_msg = (
                 "📖 <b>[DELTA BOT COMMAND CENTER]</b>\n"
@@ -503,6 +541,8 @@ class TelegramConfirmationBot:
                 "• <code>/scan</code> — Trigger on-demand 5-timeframe scan of BTC, ETH & XAU\n"
                 "• <code>/positions</code> — View currently active positions & PnL\n"
                 "• <code>/orders</code> — Inspect pending limit/bracket orders\n"
+                "• <code>/close &lt;symbol&gt;</code> — Market close a specific position (e.g. /close BTCUSD)\n"
+                "• <code>/closeall</code> — Emergency flatten all positions & cancel all orders\n"
                 "• <code>/help</code> — Show this help manual\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "🎯 <b>Primary Focus:</b> BTC, ETH, XAU (Gold)\n"

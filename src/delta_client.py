@@ -117,41 +117,49 @@ class DeltaExchangeClient:
             headers["timestamp"] = timestamp
             headers["signature"] = signature
 
-        try:
-            response = self.session.request(
-                method=method,
-                url=endpoint_url,
-                headers=headers,
-                data=body if (method in ["POST", "PUT", "DELETE"] and body) else None,
-                timeout=self.timeout
-            )
-            
+        for attempt in range(2):
             try:
-                data = response.json()
-            except ValueError:
-                return {
-                    "success": False,
-                    "status_code": response.status_code,
-                    "error": {"code": "INVALID_JSON", "message": response.text}
-                }
-                
-            if response.status_code >= 400:
-                return {
-                    "success": False,
-                    "status_code": response.status_code,
-                    "error": data.get("error", data)
-                }
-                
-            return data
+                response = self.session.request(
+                    method=method,
+                    url=endpoint_url,
+                    headers=headers,
+                    data=body if (method in ["POST", "PUT", "DELETE"] and body) else None,
+                    timeout=self.timeout
+                )
 
-        except requests.exceptions.RequestException as e:
-            return {
-                "success": False,
-                "error": {
-                    "code": "NETWORK_ERROR",
-                    "message": str(e)
+                if response.status_code == 429 and attempt == 0:
+                    time.sleep(1.5)
+                    continue
+
+                try:
+                    data = response.json()
+                except ValueError:
+                    return {
+                        "success": False,
+                        "status_code": response.status_code,
+                        "error": {"code": "INVALID_JSON", "message": response.text}
+                    }
+
+                if response.status_code >= 400:
+                    return {
+                        "success": False,
+                        "status_code": response.status_code,
+                        "error": data.get("error", data)
+                    }
+
+                return data
+
+            except requests.exceptions.RequestException as e:
+                if attempt == 0:
+                    time.sleep(1.0)
+                    continue
+                return {
+                    "success": False,
+                    "error": {
+                        "code": "NETWORK_ERROR",
+                        "message": str(e)
+                    }
                 }
-            }
 
     # -------------------------------------------------------------------------
     # Product Discovery & Cache

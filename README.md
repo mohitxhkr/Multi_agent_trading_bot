@@ -178,6 +178,8 @@ The bot operates **100% silently** in the background, only pushing notifications
 | `/status` | Returns 24/7 cloud health, active positions, open orders, and available wallet balance. |
 | `/scan` | Triggers an immediate multi-timeframe scan across all primary and secondary assets. |
 | `/orders` | Displays active bracket Stop-Loss and Take-Profit orders on Delta Exchange. |
+| `/close <symbol>` | Instantly market-closes a specific active position and cancels its bracket orders (e.g. `/close BTCUSD`). |
+| `/closeall` | Emergency panic switch: market-flattens all active positions and cancels all open orders. |
 | `/help` | Displays command usage and help manual. |
 
 ---

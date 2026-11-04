@@ -262,3 +262,4 @@ class TimeMachineAgent:
             "avg_bars_to_target": avg_bars,
             "reason": reason
         }
+

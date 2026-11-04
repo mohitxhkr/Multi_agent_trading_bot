@@ -569,18 +569,54 @@ class TelegramConfirmationBot:
                 except Exception as e:
                     self.send_message(f"⚠️ Error closing {sym}: {e}")
 
+        elif cmd in ["/scorecard", "/learning", "/performance", "/audit"]:
+            try:
+                from multiagent_team.adaptive_learning import AdaptiveLearningEngine
+                learner = AdaptiveLearningEngine()
+                sc = learner.memory.get("scorecard", {})
+                patterns = learner.memory.get("patterns", {})
+
+                lines = [
+                    "🧠 <b>[ALGORITHM SELF-LEARNING SCORECARD &amp; PATTERN AUDIT]</b>",
+                    "━━━━━━━━━━━━━━━━━━━━━━",
+                    f"• <b>Total Trades Evaluated:</b> <b>{sc.get('total_completed_trades', 0)}</b>",
+                    f"• <b>Realized Performance:</b> <b>{sc.get('winning_trades', 0)} Wins</b> | <b>{sc.get('losing_trades', 0)} Losses</b> | <b>{sc.get('breakeven_trades', 0)} BE</b>",
+                    f"• <b>Live Win Rate:</b> <b>{sc.get('win_rate_pct', 0.0)}%</b>",
+                    f"• <b>Cumulative Realized PnL:</b> <b>{'+' if sc.get('cumulative_pnl_usd', 0) >= 0 else ''}${sc.get('cumulative_pnl_usd', 0.0):,.2f} USD</b>",
+                    f"• <b>Average Self-Score:</b> <b>{sc.get('average_trade_score', 0.0)}/100</b>",
+                    "━━━━━━━━━━━━━━━━━━━━━━",
+                    "🌟 <b>LEARNED PATTERNS &amp; STATUS:</b>"
+                ]
+
+                if not patterns:
+                    lines.append("<i>No closed trades in active memory yet. Engine will automatically learn after next position exit.</i>")
+                else:
+                    for pkey, pdata in list(patterns.items())[:6]:
+                        stat_badge = "🟢 REINFORCED" if pdata.get("status") == "REINFORCED" else ("🔴 BANNED" if pdata.get("status") == "VETOED_BLACKLISTED" else "🟡 EVALUATING")
+                        adj = pdata.get("score_adjustment", 0)
+                        adj_str = f"+{adj}pts" if adj > 0 else (f"{adj}pts" if adj < 0 else "0pts")
+                        lines.append(f"• <code>{pkey}</code>: {stat_badge} ({adj_str})")
+                        lines.append(f"  ↳ Win Rate: {pdata.get('win_rate_pct', 0)}% ({pdata.get('wins', 0)}W/{pdata.get('losses', 0)}L) | PnL: ${pdata.get('cumulative_pnl', 0):.2f}")
+
+                lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+                lines.append("⚡ <i>Algorithm automatically repeats winning patterns and bans failing setups.</i>")
+                self.send_message("\n".join(lines))
+            except Exception as e:
+                self.send_message(f"⚠️ Error fetching scorecard: {e}")
+
         elif cmd in ["/help", "/start"]:
             help_msg = (
                 "📖 <b>[DELTA BOT COMMAND CENTER]</b>\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "You can command your trading bot anytime directly in this chat:\n\n"
-                "• <code>/status</code> — View 24/7 cloud health, available equity & open count\n"
+                "• <code>/status</code> — View 24/7 cloud health, available equity &amp; open count\n"
                 "• <code>/trade</code> — Run scalp scan; suggest trade only if A+ setup exists\n"
-                "• <code>/scan</code> — Trigger on-demand 5-timeframe scan of BTC, ETH & XAU\n"
-                "• <code>/positions</code> — View currently active positions & PnL\n"
+                "• <code>/scan</code> — Trigger on-demand 5-timeframe scan of BTC, ETH &amp; XAU\n"
+                "• <code>/positions</code> — View currently active positions &amp; PnL\n"
                 "• <code>/orders</code> — Inspect pending limit/bracket orders\n"
+                "• <code>/scorecard</code> — View algorithm self-learning audit, win rate &amp; learned patterns\n"
                 "• <code>/close &lt;symbol&gt;</code> — Market close a specific position (e.g. /close BTCUSD)\n"
-                "• <code>/closeall</code> — Emergency flatten all positions & cancel all orders\n"
+                "• <code>/closeall</code> — Emergency flatten all positions &amp; cancel all orders\n"
                 "• <code>/help</code> — Show this help manual\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "🎯 <b>Primary Focus:</b> BTC, ETH, XAU (Gold)\n"

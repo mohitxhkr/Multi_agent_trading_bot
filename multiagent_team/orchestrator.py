@@ -23,6 +23,7 @@ from multiagent_team.time_machine_agent import TimeMachineAgent
 from multiagent_team.risk_gatekeeper import RiskGatekeeperAgent
 from multiagent_team.execution_agent import ExecutionAgent
 from multiagent_team.portfolio_monitor import PortfolioMonitorAgent
+from multiagent_team.adaptive_learning import AdaptiveLearningEngine
 from src.telegram_notifier import TelegramNotifier
 from src.telegram_bot import TelegramConfirmationBot
 from src.trailing_stop_manager import TrailingStopManager
@@ -56,6 +57,7 @@ class MultiAgentTradingOrchestrator:
         self.risk_gatekeeper = RiskGatekeeperAgent(self.client, self.risk_manager)
         self.execution_agent = ExecutionAgent(self.client)
         self.portfolio_monitor = PortfolioMonitorAgent(self.client)
+        self.adaptive_learner = AdaptiveLearningEngine()
         self.telegram = TelegramNotifier()
         self.telegram_bot = TelegramConfirmationBot()
         self.trailing_stop_manager = TrailingStopManager(client=self.client, telegram=self.telegram)
@@ -80,10 +82,15 @@ class MultiAgentTradingOrchestrator:
             "📡 <b>[DELTA 24/7 LIVE SCANNER PULSE]</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",
             "• <b>Status:</b> 🟢 <b>SCANNING 24/7 ON CLOUD</b>",
-            f"• <b>Active Positions:</b> <b>{len(active_pos)}</b> | <b>Open Orders:</b> <b>{len(open_orders)}</b>",
-            "━━━━━━━━━━━━━━━━━━━━━━",
-            "🌟 <b>PRIMARY ASSETS (CORE FOCUS):</b>"
+            f"• <b>Active Positions:</b> <b>{len(active_pos)}</b> | <b>Open Orders:</b> <b>{len(open_orders)}</b>"
         ]
+
+        sc = self.adaptive_learner.memory.get("scorecard", {})
+        if sc.get("total_completed_trades", 0) > 0:
+            lines.append(f"• <b>Self-Scorecard:</b> <b>{sc.get('winning_trades', 0)}W / {sc.get('losing_trades', 0)}L</b> ({sc.get('win_rate_pct', 0)}% Win Rate | {sc.get('average_trade_score', 0)}/100 Grade)")
+
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append("🌟 <b>PRIMARY ASSETS (CORE FOCUS):</b>")
 
         for sym in ["BTCUSD", "ETHUSD", "XAUUSD"]:
             d = symbols_data.get(sym)

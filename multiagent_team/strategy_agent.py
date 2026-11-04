@@ -6,6 +6,7 @@ with explicit Entry, Stop Loss, and Take Profit targets.
 
 from typing import Dict, Any, List, Optional
 import logging
+from multiagent_team.adaptive_learning import AdaptiveLearningEngine
 
 logger = logging.getLogger("strategy-agent")
 
@@ -13,6 +14,7 @@ logger = logging.getLogger("strategy-agent")
 class StrategyAgent:
     def __init__(self, target_rr_ratio: float = 2.0):
         self.target_rr_ratio = target_rr_ratio
+        self.adaptive_learner = AdaptiveLearningEngine()
 
     def evaluate_setup(self, analysis: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -42,13 +44,36 @@ class StrategyAgent:
                 priority_tag = "PRIMARY" if is_primary else "SECONDARY"
                 adjusted_score = score + (10 if is_primary else 0)
 
+                # Consult Adaptive Learning Engine (Reinforce Success / Avoid Failure)
+                raw_strat = hp_setup.get("strategy") or f"Institutional_SMC_{priority_tag}_{side.upper()}"
+                confluence_summary = {
+                    "macro_4h": macro_4h.get("regime", "NEUTRAL"),
+                    "macro_daily": macro_daily.get("regime", "NEUTRAL")
+                }
+                pat_check = self.adaptive_learner.get_pattern_adjustment(
+                    symbol=symbol,
+                    side=side,
+                    strategy=raw_strat,
+                    confluence=confluence_summary
+                )
+
+                if not pat_check.get("can_trade", True):
+                    logger.warning(f"StrategyAgent VETO: {pat_check.get('reason')}")
+                    return None
+
+                pat_adj = pat_check.get("score_adjustment", 0)
+                adjusted_score += pat_adj
+                if pat_adj > 0:
+                    thesis = f"⚡ [REINFORCED PATTERN +{pat_adj}pts] {thesis}"
+                elif pat_adj < 0:
+                    thesis = f"⚠️ [PENALIZED PATTERN {pat_adj}pts] {thesis}"
+
                 # Enforce institutional high-conviction threshold (80-90% accuracy standard)
                 min_threshold = 80 if is_primary else 85
                 if adjusted_score < min_threshold:
                     return None
 
                 formatted_thesis = f"🌟 [PRIMARY FOCUS ASSET] {thesis}" if is_primary else f"⚪ [SECONDARY ASSET] {thesis}"
-                raw_strat = hp_setup.get("strategy") or f"Institutional_SMC_{priority_tag}_{side.upper()}"
                 macro_15m = analysis.get("macro_15m", {})
 
                 return {

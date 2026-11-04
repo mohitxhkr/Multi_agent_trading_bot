@@ -245,6 +245,28 @@ class TrailingStopManager:
 
             logger.info(f"Position closed for {sym}: {exit_reason} @ ${exit_price} (PnL: ${pnl:.2f})")
 
+            # ---------------------------------------------------------
+            # Agent 6: Adaptive Learning, Pattern Diagnosis & Self-Audit
+            # ---------------------------------------------------------
+            try:
+                from multiagent_team.adaptive_learning import AdaptiveLearningEngine
+                learner = AdaptiveLearningEngine()
+                reflection_res = learner.reflect_and_learn(
+                    symbol=sym,
+                    side=side,
+                    entry_price=entry_p,
+                    exit_price=exit_price,
+                    realized_pnl=pnl,
+                    r_multiple=r_achieved,
+                    exit_reason=exit_reason,
+                    trade_spec=pos_state
+                )
+                reflection_msg = learner.format_telegram_reflection(reflection_res)
+                self.telegram.send_message(reflection_msg)
+                logger.info(f"✅ Dispatched automated post-trade reflection for {sym} to Telegram.")
+            except Exception as e:
+                logger.error(f"Error during adaptive learning reflection: {e}")
+
             # Clean up any leftover open bracket orders for this symbol so nothing is orphaned
             try:
                 self.client.cancel_all_orders(symbol=sym)

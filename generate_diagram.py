@@ -29,7 +29,7 @@ def generate_diagram():
     d.rounded_rectangle([(60, 40), (72, 160)], radius=4, fill="#06b6d4")
     
     d.text((95, 62), "⚡ DELTA EXCHANGE MULTI-AGENT QUANTITATIVE TRADING WORKFLOW", fill="#ffffff", font=f_title)
-    d.text((95, 118), "Autonomous Cloud Operation  •  6-Timeframe SMC  •  ⏳ Time Machine Backtest Simulator  •  Fixed Dollar Risk  •  2-Way Telegram Gate", fill="#8b949e", font=f_sub)
+    d.text((95, 118), "Autonomous Cloud Operation  •  6-Timeframe SMC  •  ⏳ Time Machine Backtest  •  Fixed Dollar Risk  •  🧠 Adaptive Self-Learning", fill="#8b949e", font=f_sub)
 
     # Top Status Pill
     d.rounded_rectangle([(w - 420, 68), (w - 90, 132)], radius=12, fill="#1f2937", outline="#10b981", width=2)
@@ -197,27 +197,27 @@ def generate_diagram():
     d.text((col2_x + 25, by + 78), "• User Discretion: Trader retains 100% final authority over portfolio actions.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
-    # CARD 6: AGENTS 4 & 5 (EXECUTION & TRAILING SENTINEL)
+    # CARD 6: AGENTS 4, 5 & 6 (EXECUTION, TRAILING & SELF-LEARNING)
     # -------------------------------------------------------------
-    draw_card_base(col3_x, row2_y, "⚡ AGENTS 4 & 5: EXECUTION & TRAILING SENTINEL", "EXECUTION", "#10b981", "#064e3b", "#059669")
+    draw_card_base(col3_x, row2_y, "⚡ AGENTS 4, 5 & 6: EXECUTION & ADAPTIVE LEARNING", "EXECUTE & LEARN", "#10b981", "#064e3b", "#059669")
     cy = row2_y + 80
-    d.text((col3_x + 25, cy), "Delta Exchange Execution & Multi-Stage Trailing:", fill="#34d399", font=f_sec_title)
+    d.text((col3_x + 25, cy), "Delta Execution, Trailing Stop Sentinel & Self-Audit:", fill="#34d399", font=f_sec_title)
 
     box_y = cy + 30
     d.rounded_rectangle([(col3_x + 25, box_y), (col3_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col3_x + 40, box_y + 12), "Atomic Limit Bracket Order Placement (Agent 4)", fill="#34d399", font=f_box_title)
-    d.text((col3_x + 460, box_y + 13), "Simultaneous Entry + SL + TP", fill="#8b949e", font=f_box_sub)
+    d.text((col3_x + 40, box_y + 12), "Atomic Bracket Orders & 15s Trailing Sentinel", fill="#34d399", font=f_box_title)
+    d.text((col3_x + 445, box_y + 13), "+0.50R Breakeven Shield to +2.2R TP", fill="#8b949e", font=f_box_sub)
 
     box_y += 52
     d.rounded_rectangle([(col3_x + 25, box_y), (col3_x + card_w - 25, box_y + 60)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col3_x + 40, box_y + 10), "Multi-Stage Scalper Trailing Stop Roadmap (Agent 5 Sentinel):", fill="#34d399", font=f_box_title)
-    d.text((col3_x + 40, box_y + 35), "+0.50R -> Breakeven Shield | +0.80R -> Lock +0.35R | +1.20R -> Lock +0.75R | +2.20R -> Full TP", fill="#c9d1d9", font=f_box_sub)
+    d.text((col3_x + 40, box_y + 10), "Agent 6: Adaptive Learning & Post-Trade Self-Reflection:", fill="#34d399", font=f_box_title)
+    d.text((col3_x + 40, box_y + 35), "Self-Scores (0-100, Grade A+-F) · Diagnoses Win/Loss · Reinforces/Bans Patterns", fill="#c9d1d9", font=f_box_sub)
 
     by = box_y + 70
-    d.text((col3_x + 25, by), "• High-Frequency Sentinel: 15-second loop checks positions and ratchets stops.", fill="#8b949e", font=f_body)
-    d.text((col3_x + 25, by + 26), "• Breakeven Shield (+0.50R): Moves stop to Entry + fee buffer (Zero Downside).", fill="#8b949e", font=f_body)
-    d.text((col3_x + 25, by + 52), "• Stale Order Cleaner: Auto-cancels unfilled entry orders older than 90 mins.", fill="#8b949e", font=f_body)
-    d.text((col3_x + 25, by + 78), "• Trade Journaling: Persists fill prices, PnL, and timestamps to state/journal.", fill="#8b949e", font=f_body)
+    d.text((col3_x + 25, by), "• Pattern Reinforcement: Winning patterns receive +8 pts confluence boost.", fill="#8b949e", font=f_body)
+    d.text((col3_x + 25, by + 26), "• Pattern Avoidance / Blacklist: Failing patterns penalized (-15) or banned.", fill="#8b949e", font=f_body)
+    d.text((col3_x + 25, by + 52), "• Telegram Post-Trade Audit: Sends reflection card with root cause analysis.", fill="#8b949e", font=f_body)
+    d.text((col3_x + 25, by + 78), "• Continuous Evolution: Memory persists across cycles, repeating success only.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
     # FOOTER: INFRASTRUCTURE & LIFECYCLE SUMMARY
@@ -282,3 +282,4 @@ def generate_diagram():
 
 if __name__ == "__main__":
     generate_diagram()
+

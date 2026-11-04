@@ -111,7 +111,7 @@ class MultiAgentTradingOrchestrator:
             lines.append(f"• <code>{sym}</code>: ${price:.4f} ({sweep_tag})")
 
         lines.append("━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("⚡ <i>Send /scan or /status anytime to get instant updates!</i>")
+        lines.append("⚡ <i>Send /positions, /trade, or /scan anytime!</i>")
         return "\n".join(lines)
 
     def run_trading_cycle(self) -> Dict[str, Any]:

@@ -274,11 +274,14 @@ class TrailingStopManager:
             if not symbol or entry_price <= 0 or mark_price <= 0:
                 continue
 
-            # Find matching SL order
+            # Find matching SL and TP orders by product symbol or product ID
             sl_order = None
             tp_order = None
             for ord in open_orders:
-                if ord.get("product_id") == pid:
+                ord_pid = ord.get("product_id")
+                ord_sym = ord.get("product_symbol")
+                matches_prod = (ord_sym and ord_sym == symbol) or (ord_pid and pid and int(ord_pid) == int(pid))
+                if matches_prod:
                     s_type = ord.get("stop_order_type", "")
                     if s_type == "stop_loss_order":
                         sl_order = ord

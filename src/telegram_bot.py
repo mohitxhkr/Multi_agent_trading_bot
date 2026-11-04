@@ -493,6 +493,26 @@ class TelegramConfirmationBot:
                         "• <b>Discipline Rule:</b> Capital is 100% protected. Zero forced trades.\n"
                         "⚡ <i>The 24/7 background engine will immediately alert you when an A+ setup triggers!</i>"
                     )
+                elif status == "CASH_PRIORITY_HALT":
+                    reason = res.get("reason", "Market participation collapsed.")
+                    posture_info = res.get("posture", {})
+                    self.send_message(
+                        f"🛑 <b>[CASH PRIORITY ENGAGED — ZERO TRADES]</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"• <b>Status:</b> Market Posture has engaged 100% Cash Priority.\n"
+                        f"• <b>Health Score:</b> <b>{posture_info.get('health_score', 0)}/100</b> | Breadth: <b>{posture_info.get('breadth_pct', 0)}%</b>\n"
+                        f"• <b>Reason:</b> {reason}\n"
+                        f"• <b>Discipline Rule:</b> When market breadth is broken, capital is 100% preserved in cash USD. No trades permitted."
+                    )
+                elif status == "REJECTED_BY_TIME_MACHINE":
+                    reason = res.get("reason", "No setup met >= 68% historical win-rate edge with positive EV.")
+                    self.send_message(
+                        f"⏳ <b>[REJECTED BY TIME MACHINE SIMULATION]</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"• <b>Status:</b> Prospective setup failed historical simulation.\n"
+                        f"• <b>Reason:</b> {reason}\n"
+                        f"• <b>Discipline Rule:</b> Capital is protected from negative-EV setups."
+                    )
                 elif status == "REJECTED_BY_RISK_GATE":
                     reason = res.get("reason", "Risk limits or margin constraints exceeded.")
                     self.send_message(
@@ -604,12 +624,32 @@ class TelegramConfirmationBot:
             except Exception as e:
                 self.send_message(f"⚠️ Error fetching scorecard: {e}")
 
+        elif cmd in ["/posture", "/regime", "/marketposture"]:
+            try:
+                from multiagent_team.exposure_coach import ExposureCoachAgent
+                coach = ExposureCoachAgent()
+                msg = coach.format_telegram_posture()
+                self.send_message(msg)
+            except Exception as e:
+                self.send_message(f"⚠️ Error fetching market posture: {e}")
+
+        elif cmd in ["/rules", "/discipline", "/operatingrules"]:
+            try:
+                from multiagent_team.performance_coach import PerformanceCoachAgent
+                coach = PerformanceCoachAgent()
+                msg = coach.format_telegram_rules()
+                self.send_message(msg)
+            except Exception as e:
+                self.send_message(f"⚠️ Error fetching operating rules: {e}")
+
         elif cmd in ["/help", "/start"]:
             help_msg = (
                 "📖 <b>[DELTA BOT COMMAND CENTER]</b>\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "You can command your trading bot anytime directly in this chat:\n\n"
                 "• <code>/status</code> — View 24/7 cloud health, available equity &amp; open count\n"
+                "• <code>/posture</code> — View Market Posture, Breadth % &amp; Exposure Ceiling\n"
+                "• <code>/rules</code> — Inspect dynamic Next-Session Operating Rules\n"
                 "• <code>/trade</code> — Run scalp scan; suggest trade only if A+ setup exists\n"
                 "• <code>/scan</code> — Trigger on-demand 5-timeframe scan of BTC, ETH &amp; XAU\n"
                 "• <code>/positions</code> — View currently active positions &amp; PnL\n"

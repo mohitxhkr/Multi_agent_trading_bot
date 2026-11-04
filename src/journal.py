@@ -87,9 +87,11 @@ def record_trade_exit(
     exit_price: float,
     realized_pnl_usd: float,
     exit_reason: str,
-    postmortem_notes: str = ""
+    postmortem_notes: str = "",
+    mfe_r: float = 0.0,
+    mae_r: float = 0.0
 ) -> Optional[Dict[str, Any]]:
-    """Record a trade closure and update overall performance stats."""
+    """Record a trade closure and update overall performance stats with MFE/MAE tracking."""
     journal = load_journal()
     found = None
     
@@ -101,6 +103,8 @@ def record_trade_exit(
             t["realized_pnl_usd"] = round(realized_pnl_usd, 2)
             t["exit_reason"] = exit_reason
             t["postmortem_notes"] = postmortem_notes
+            t["mfe_r"] = round(mfe_r, 2)
+            t["mae_r"] = round(mae_r, 2)
             found = t
             break
             

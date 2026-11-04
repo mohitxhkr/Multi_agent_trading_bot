@@ -29,7 +29,7 @@ def generate_diagram():
     d.rounded_rectangle([(60, 40), (72, 160)], radius=4, fill="#06b6d4")
     
     d.text((95, 62), "⚡ DELTA EXCHANGE MULTI-AGENT QUANTITATIVE TRADING WORKFLOW", fill="#ffffff", font=f_title)
-    d.text((95, 118), "Autonomous Cloud Operation  •  6-Timeframe SMC  •  ⏳ Time Machine Backtest  •  Fixed Dollar Risk  •  🧠 Adaptive Self-Learning", fill="#8b949e", font=f_sub)
+    d.text((95, 118), "Autonomous Cloud Operation  •  Market Posture & Breadth  •  ⏳ Time Machine Backtest  •  Fixed Dollar Risk  •  🧠 Adaptive Self-Learning", fill="#8b949e", font=f_sub)
 
     # Top Status Pill
     d.rounded_rectangle([(w - 420, 68), (w - 90, 132)], radius=12, fill="#1f2937", outline="#10b981", width=2)
@@ -58,34 +58,34 @@ def generate_diagram():
         d.text((x + card_w - 155, y + 20), badge_text, fill="#ffffff", font=f_card_tag)
 
     # -------------------------------------------------------------
-    # CARD 1: AGENT 1 (REGIME ANALYST)
+    # CARD 1: AGENT 1 & 1.5 (REGIME ANALYST & EXPOSURE COACH)
     # -------------------------------------------------------------
-    draw_card_base(col1_x, row1_y, "🔍 AGENT 1: 6-TIMEFRAME REGIME ANALYST", "MULTI-TIMEFRAME", "#388bfd", "#1e3a5f", "#0284c7")
+    draw_card_base(col1_x, row1_y, "🔍 AGENTS 1 & 1.5: REGIME & EXPOSURE COACH", "POSTURE & BREADTH", "#388bfd", "#1e3a5f", "#0284c7")
     cy = row1_y + 80
-    d.text((col1_x + 25, cy), "Macro Order Flow & Market Structure Alignment:", fill="#38bdf8", font=f_sec_title)
+    d.text((col1_x + 25, cy), "Macro Order Flow & Market Posture Engine:", fill="#38bdf8", font=f_sec_title)
     
     # 3 mini boxes
     box_y = cy + 30
     d.rounded_rectangle([(col1_x + 25, box_y), (col1_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col1_x + 40, box_y + 12), "1M & 1W:", fill="#38bdf8", font=f_box_title)
-    d.text((col1_x + 130, box_y + 13), "Monthly Open Bias + Weekly Momentum Anchor (No counter-trend)", fill="#c9d1d9", font=f_box_sub)
+    d.text((col1_x + 40, box_y + 12), "1M, 1W & 1D:", fill="#38bdf8", font=f_box_title)
+    d.text((col1_x + 160, box_y + 13), "Higher-TF Trend Anchor (Mandatory trend veto: no counter-trend)", fill="#c9d1d9", font=f_box_sub)
 
     box_y += 52
     d.rounded_rectangle([(col1_x + 25, box_y), (col1_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col1_x + 40, box_y + 12), "1D & 4H:", fill="#38bdf8", font=f_box_title)
-    d.text((col1_x + 130, box_y + 13), "EMA Stack (21/50/200) + Mandatory Higher-TF Trend Veto Guard", fill="#c9d1d9", font=f_box_sub)
+    d.text((col1_x + 40, box_y + 12), "Agent 1.5 Exposure Coach:", fill="#38bdf8", font=f_box_title)
+    d.text((col1_x + 270, box_y + 13), "Market Breadth (% > EMA21) + Health Score (0-100)", fill="#c9d1d9", font=f_box_sub)
 
     box_y += 52
     d.rounded_rectangle([(col1_x + 25, box_y), (col1_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col1_x + 40, box_y + 12), "15m & 1H:", fill="#38bdf8", font=f_box_title)
-    d.text((col1_x + 135, box_y + 13), "Execution Trigger (BSL/SSL Sweeps + Mandatory MSS Candle Close)", fill="#c9d1d9", font=f_box_sub)
+    d.text((col1_x + 40, box_y + 12), "15m Trigger & MSS:", fill="#38bdf8", font=f_box_title)
+    d.text((col1_x + 215, box_y + 13), "BSL/SSL Sweeps + Mandatory MSS Candle Body Close", fill="#c9d1d9", font=f_box_sub)
 
     # Bullet points
     by = box_y + 55
-    d.text((col1_x + 25, by), "• Mandatory Trend Veto: If 1H/4H is Bullish, ONLY Longs allowed. Zero Shorts.", fill="#8b949e", font=f_body)
-    d.text((col1_x + 25, by + 26), "• Market Structure Shift (MSS): Strict candle body close confirmation required.", fill="#8b949e", font=f_body)
-    d.text((col1_x + 25, by + 52), "• Liquidity Absorption Wick: Rejection wick must cover >= 25% of candle range.", fill="#8b949e", font=f_body)
-    d.text((col1_x + 25, by + 78), "• Core Universe: BTCUSD, ETHUSD, XAUUSD (+10 Priority) & Secondary Alts.", fill="#8b949e", font=f_body)
+    d.text((col1_x + 25, by), "• Cash Priority Gate: If Market Health < 32/100, blocks ALL trades (Cash 100%).", fill="#8b949e", font=f_body)
+    d.text((col1_x + 25, by + 26), "• Defensive Caution: Restricts candidate universe strictly to Tier-1 (BTC/ETH/XAU).", fill="#8b949e", font=f_body)
+    d.text((col1_x + 25, by + 52), "• Optimal Trade Entry (OTE): Retest limit entry at 0.382 retracement (No chasing).", fill="#8b949e", font=f_body)
+    d.text((col1_x + 25, by + 78), "• Institutional Killzones: Confluence boost during London & New York Open.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
     # CARD 2: AGENT 2 (STRATEGY GENERATOR)
@@ -197,11 +197,11 @@ def generate_diagram():
     d.text((col2_x + 25, by + 78), "• User Discretion: Trader retains 100% final authority over portfolio actions.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
-    # CARD 6: AGENTS 4, 5 & 6 (EXECUTION, TRAILING & SELF-LEARNING)
+    # CARD 6: AGENTS 4, 5, 6 & 7 (EXECUTION, LEARNING & PERFORMANCE COACH)
     # -------------------------------------------------------------
-    draw_card_base(col3_x, row2_y, "⚡ AGENTS 4, 5 & 6: EXECUTION & ADAPTIVE LEARNING", "EXECUTE & LEARN", "#10b981", "#064e3b", "#059669")
+    draw_card_base(col3_x, row2_y, "⚡ AGENTS 4, 5, 6 & 7: EXECUTION & PERFORMANCE COACH", "EXECUTE & LEARN", "#10b981", "#064e3b", "#059669")
     cy = row2_y + 80
-    d.text((col3_x + 25, cy), "Delta Execution, Trailing Stop Sentinel & Self-Audit:", fill="#34d399", font=f_sec_title)
+    d.text((col3_x + 25, cy), "Delta Execution, Trailing Sentinel & Performance Coach:", fill="#34d399", font=f_sec_title)
 
     box_y = cy + 30
     d.rounded_rectangle([(col3_x + 25, box_y), (col3_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
@@ -210,14 +210,14 @@ def generate_diagram():
 
     box_y += 52
     d.rounded_rectangle([(col3_x + 25, box_y), (col3_x + card_w - 25, box_y + 60)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col3_x + 40, box_y + 10), "Agent 6: Adaptive Learning & Post-Trade Self-Reflection:", fill="#34d399", font=f_box_title)
-    d.text((col3_x + 40, box_y + 35), "Self-Scores (0-100, Grade A+-F) · Diagnoses Win/Loss · Reinforces/Bans Patterns", fill="#c9d1d9", font=f_box_sub)
+    d.text((col3_x + 40, box_y + 10), "Agent 6 & 7: Adaptive Learning & Performance Coach:", fill="#34d399", font=f_box_title)
+    d.text((col3_x + 40, box_y + 35), "0-100 Self-Scorecard · Pattern Memory · Binding Operating Rules (/rules)", fill="#c9d1d9", font=f_box_sub)
 
     by = box_y + 70
     d.text((col3_x + 25, by), "• Pattern Reinforcement: Winning patterns receive +8 pts confluence boost.", fill="#8b949e", font=f_body)
-    d.text((col3_x + 25, by + 26), "• Pattern Avoidance / Blacklist: Failing patterns penalized (-15) or banned.", fill="#8b949e", font=f_body)
-    d.text((col3_x + 25, by + 52), "• Telegram Post-Trade Audit: Sends reflection card with root cause analysis.", fill="#8b949e", font=f_body)
-    d.text((col3_x + 25, by + 78), "• Continuous Evolution: Memory persists across cycles, repeating success only.", fill="#8b949e", font=f_body)
+    d.text((col3_x + 25, by + 26), "• Pattern Avoidance: Failing patterns penalized (-15) or permanently blacklisted.", fill="#8b949e", font=f_body)
+    d.text((col3_x + 25, by + 52), "• MFE & MAE Postmortem: Tracks peak potential vs adverse excursion on every exit.", fill="#8b949e", font=f_body)
+    d.text((col3_x + 25, by + 78), "• Continuous Evolution: Dynamic rules update each session (/rules, /scorecard).", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
     # FOOTER: INFRASTRUCTURE & LIFECYCLE SUMMARY

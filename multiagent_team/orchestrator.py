@@ -18,12 +18,14 @@ if hasattr(sys.stderr, "reconfigure"):
 from src.delta_client import DeltaExchangeClient
 from src.risk_manager import RiskManager
 from multiagent_team.regime_analyst import RegimeAnalystAgent
+from multiagent_team.exposure_coach import ExposureCoachAgent
 from multiagent_team.strategy_agent import StrategyAgent
 from multiagent_team.time_machine_agent import TimeMachineAgent
 from multiagent_team.risk_gatekeeper import RiskGatekeeperAgent
 from multiagent_team.execution_agent import ExecutionAgent
 from multiagent_team.portfolio_monitor import PortfolioMonitorAgent
 from multiagent_team.adaptive_learning import AdaptiveLearningEngine
+from multiagent_team.performance_coach import PerformanceCoachAgent
 from src.telegram_notifier import TelegramNotifier
 from src.telegram_bot import TelegramConfirmationBot
 from src.trailing_stop_manager import TrailingStopManager
@@ -52,12 +54,14 @@ class MultiAgentTradingOrchestrator:
         
         # Team of agents + Telegram Confirmation Bot + Trailing Stop Manager
         self.regime_analyst = RegimeAnalystAgent(self.client)
+        self.exposure_coach = ExposureCoachAgent()
         self.strategy_agent = StrategyAgent(target_rr_ratio=target_rr_ratio)
         self.time_machine = TimeMachineAgent(self.client)
         self.risk_gatekeeper = RiskGatekeeperAgent(self.client, self.risk_manager)
         self.execution_agent = ExecutionAgent(self.client)
         self.portfolio_monitor = PortfolioMonitorAgent(self.client)
         self.adaptive_learner = AdaptiveLearningEngine()
+        self.performance_coach = PerformanceCoachAgent()
         self.telegram = TelegramNotifier()
         self.telegram_bot = TelegramConfirmationBot()
         self.trailing_stop_manager = TrailingStopManager(client=self.client, telegram=self.telegram)
@@ -84,6 +88,14 @@ class MultiAgentTradingOrchestrator:
             "• <b>Status:</b> 🟢 <b>SCANNING 24/7 ON CLOUD</b>",
             f"• <b>Active Positions:</b> <b>{len(active_pos)}</b> | <b>Open Orders:</b> <b>{len(open_orders)}</b>"
         ]
+
+        posture_state = self.exposure_coach.load_cached_posture() or {}
+        if posture_state:
+            posture_title = posture_state.get("posture", "MODERATE_SELECTIVE")
+            health_sc = posture_state.get("health_score", 50)
+            breadth_val = posture_state.get("breadth_pct", 50.0)
+            cash_badge = " [CASH PRIORITY]" if posture_state.get("cash_priority") else ""
+            lines.append(f"• <b>Market Posture:</b> <b>{posture_title}{cash_badge}</b> (Health: {health_sc}/100 | Breadth: {breadth_val:.0f}%)")
 
         sc = self.adaptive_learner.memory.get("scorecard", {})
         if sc.get("total_completed_trades", 0) > 0:
@@ -177,10 +189,45 @@ class MultiAgentTradingOrchestrator:
                 print(f"     🌊 [LIQUIDITY SWEEP] {liq.get('narrative')}")
 
         # -----------------------------------------------------------------
+        # Step 2.5: Exposure Coach & Market Posture Gate (Agent 1.5)
+        # -----------------------------------------------------------------
+        print("\n🧭 [Agent 1.5: Exposure Coach] Evaluating multi-asset breadth & market posture...")
+        posture_data = self.exposure_coach.evaluate_market_posture(
+            scan_results=scan_results,
+            active_positions_count=active_cnt
+        )
+        print(f"   Market Health: {posture_data['health_score']}/100 | Posture: {posture_data['posture']} | Breadth: {posture_data['breadth_pct']}%")
+        print(f"   Guidance: {posture_data['rationale']}")
+
+        # Audit and refresh Next-Session Operating Rules
+        try:
+            self.performance_coach.audit_and_update_rules()
+        except Exception as pe:
+            logger.debug(f"Operating rules audit skipped: {pe}")
+
+        if posture_data.get("cash_priority"):
+            print(f"\n   🛑 [CASH PRIORITY HALT] Market breadth broken ({posture_data['breadth_pct']}%). All new trades blocked.")
+            return {
+                "status": "CASH_PRIORITY_HALT",
+                "reason": posture_data.get("rationale"),
+                "posture": posture_data,
+                "regime": market_regime,
+                "scan_results": scan_results
+            }
+
+        # -----------------------------------------------------------------
         # Step 3: Setup & Alpha Generation (Agent 2)
         # -----------------------------------------------------------------
         print("\n💡 [Agent 2: Strategy Agent] Evaluating trade candidate setups...")
         candidates = self.strategy_agent.find_best_candidates(scan_results)
+
+        # In Defensive Caution, strictly filter out secondary altcoins to protect capital
+        if posture_data.get("posture") == "DEFENSIVE_CAUTION" and candidates:
+            tier1_only = [c for c in candidates if c.get("symbol") in ["BTCUSD", "ETHUSD", "XAUUSD"]]
+            if len(tier1_only) < len(candidates):
+                print(f"   🛡️ [DEFENSIVE CAUTION] Filtered out {len(candidates) - len(tier1_only)} altcoin setup(s). Focusing strictly on Tier-1 Core.")
+            candidates = tier1_only
+
         if not candidates:
             print("   No qualified setups found matching strict edge criteria this cycle.")
             return {"status": "NO_SETUPS_FOUND", "regime": market_regime, "scan_results": scan_results}

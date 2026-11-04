@@ -74,6 +74,7 @@ class TrailingStopManager:
             "risk_per_unit": float(risk),
             "contracts": int(contracts),
             "highest_r_reached": 0.0,
+            "lowest_r_reached": 0.0,
             "stage": 0,
             "sl_order_id": sl_order_id,
             "tp_order_id": tp_order_id,
@@ -187,7 +188,10 @@ class TrailingStopManager:
             gain_per_unit = (exit_price - entry_p) if side == "buy" else (entry_p - exit_price)
             r_achieved = round(gain_per_unit / risk_unit, 2) if risk_unit > 0 else 0.0
 
-            # Record in persistent trade journal
+            mfe_r = pos_state.get("highest_r_reached", max(r_achieved, 0.0))
+            mae_r = pos_state.get("lowest_r_reached", min(r_achieved, 0.0))
+
+            # Record in persistent trade journal with MFE/MAE
             from src.journal import record_trade_exit, get_performance_summary
             exit_reason = "TAKE_PROFIT" if is_tp else ("BREAKEVEN" if is_be else "STOP_LOSS")
             trade_id = pos_state.get("trade_id") or f"trade_{sym}"
@@ -196,7 +200,9 @@ class TrailingStopManager:
                 exit_price=exit_price,
                 realized_pnl_usd=pnl,
                 exit_reason=exit_reason,
-                postmortem_notes=f"Exited at stage {pos_state.get('stage', 0)} ({r_achieved:+.2f}R)"
+                postmortem_notes=f"Exited at stage {pos_state.get('stage', 0)} ({r_achieved:+.2f}R | MFE: +{mfe_r}R | MAE: {mae_r}R)",
+                mfe_r=mfe_r,
+                mae_r=mae_r
             )
 
             # Get fresh wallet metrics & updated stats
@@ -358,6 +364,7 @@ class TrailingStopManager:
                     "risk_per_unit": risk,
                     "contracts": abs(size),
                     "highest_r_reached": 0.0,
+                    "lowest_r_reached": 0.0,
                     "stage": 0,
                     "sl_order_id": sl_order.get("id") if sl_order else None,
                     "tp_order_id": tp_order.get("id") if tp_order else None,
@@ -401,6 +408,10 @@ class TrailingStopManager:
             current_r = gain / risk_per_unit
             if current_r > pos_state.get("highest_r_reached", 0.0):
                 pos_state["highest_r_reached"] = round(current_r, 2)
+            if "lowest_r_reached" not in pos_state:
+                pos_state["lowest_r_reached"] = 0.0
+            if current_r < pos_state.get("lowest_r_reached", 0.0):
+                pos_state["lowest_r_reached"] = round(current_r, 2)
 
             current_sl = pos_state.get("current_sl", pos_state["initial_sl"])
             current_stage = pos_state.get("stage", 0)

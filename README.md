@@ -47,9 +47,11 @@ flowchart TD
     end
 
     subgraph StrategyRisk ["🛡️ Alpha, Simulation & Discipline Gates (Agents 2, 2.5 & 3)"]
+        ExposureCoach["Agent 1.5: 🧭 Exposure Coach & Market Posture<br/>• Cross-Asset Breadth (% > 21 EMA)<br/>• Market Health Score (0-100)<br/>• Cash Priority Gate (< 32/100 blocks all trades)"]
         Strategy["Agent 2: Strategy Generator<br/>• Institutional Score Threshold >= 80<br/>• Tight Invalidation Stop: 0.20% - 0.40%<br/>• Planned Reward-to-Risk: >= 2.20:1"]
         TimeMachine["Agent 2.5: ⏳ Time Machine Simulator<br/>• 350+ Candle Lookback Pattern Matching<br/>• 48-Bar Walk-Forward Backtesting<br/>• Strict Veto: Discards setups with Win Rate < 68% or EV < +0.30R"]
         Risk["Agent 3: Risk Gatekeeper<br/>• Fixed Dollar Risk Model: $2.00 - $4.00 max risk (Max 2% Equity)<br/>• Altcoin Safety Cap: Max $2.00 risk · Max 10% margin<br/>• Drawdown Circuit Breaker (< 5% max daily)"]
+        Performance["Agents 6 & 7: 🧠 Adaptive Learning & Performance Coach<br/>• Post-trade self-reflection & 0-100 Scorecard<br/>• Dynamic Next-Session Operating Rules (/rules)<br/>• Reinforces winning patterns; bans failing setups"]
     end
 
     subgraph TelegramGate ["📱 Telegram 2-Way Human Gate"]
@@ -71,7 +73,9 @@ flowchart TD
     end
 
     Scanner --> Analyst
-    Analyst --> Strategy
+    Analyst --> ExposureCoach
+    ExposureCoach -->|Cash Priority: Health < 32| CashHalt["100% Cash Protected · Zero Trades"]
+    ExposureCoach -->|Normal Posture| Strategy
     Strategy --> TimeMachine
     TimeMachine -->|Passed: Win Rate >= 68% & EV >= +0.30R| Risk
     TimeMachine -->|Failed: Low Historical Probability| Cancelled["Zero Risk · Trade Vetoed"]
@@ -86,6 +90,7 @@ flowchart TD
     M2 --> M3
     M3 --> M4
     M4 --> M5
+    Sentinel --> Performance
 ```
 
 ---
@@ -167,12 +172,15 @@ Stop losses ratchet forward step-by-step behind every micro impulse move:
 | Agent | Module | Role & Core Responsibilities |
 | :--- | :--- | :--- |
 | **Agent 1: Regime Analyst** | `multiagent_team/regime_analyst.py` | 6-timeframe analysis (15m, 1H, 4H, 1D, 1W, 1M). Computes EMA stacks (21/50/200), RSI, ATR, and Smart Money Concepts liquidity pools with macro trend veto. |
+| **Agent 1.5: Exposure Coach** | `multiagent_team/exposure_coach.py` | Market Posture Engine. Evaluates multi-asset breadth (% > 21 EMA) and funding rates. Enforces Cash Priority Gate (< 32/100 blocks all new trades) to preserve capital. |
 | **Agent 2: Strategy Generator** | `multiagent_team/strategy_agent.py` | Generates candidate trade setups, enforces mandatory MSS confirmation, scores setups ($\ge 80$), and calculates tight SL and $\ge 2.2:1$ R:R TP targets. |
 | **Agent 2.5: Time Machine Simulator** | `multiagent_team/time_machine_agent.py` | Walk-forward simulation engine. Looks back across 350+ historical candles, matches past regimes, verifies empirical win rate ($\ge 68\%$) and EV ($+R$), vetoing low-edge setups. |
 | **Agent 3: Risk Gatekeeper** | `multiagent_team/risk_gatekeeper.py` | Pre-Trade Discipline Gate. Enforces fixed dollar risk model ($2.00–$4.00 max risk, altcoin cap), 5% daily circuit breaker, and 2.0:1 R:R floor. |
 | **Agent 4: Telegram Two-Way Gate** | `src/telegram_bot.py` | Sends rich proposal cards with 5-TF confluence & Time Machine simulation metrics. Requires explicit user button tap (`[Confirm]` / `[Reject]`). |
 | **Agent 5: Execution Engine** | `multiagent_team/execution_agent.py` | Signs HMAC-SHA256 authenticated requests. Sets isolated leverage and places native 3-in-1 atomic bracket orders on Delta Exchange. |
 | **Agent 6: Trailing Stop Sentinel** | `src/trailing_stop_manager.py` | 15-second background loop. Ratchets stops through the 5 scalper stages (+0.50R BE, +0.80R lock, +1.20R lock, +1.60R lock) and manages stale order expiry. |
+| **Agent 6.5: Adaptive Learning Engine** | `multiagent_team/adaptive_learning.py` | Automatically triggered upon trade exit. Assigns a 0–100 Self-Scorecard (Discipline, Confluence, Edge), diagnoses root cause, reinforces winning patterns (+8 pts) and bans failing setups. |
+| **Agent 7: Trade Performance Coach** | `multiagent_team/performance_coach.py` | Audits closed trade cohort journals, tracks MFE/MAE excursions, and synthesizes dynamic, binding Next-Session Operating Rules for the Strategy and Risk agents. |
 
 ---
 
@@ -217,6 +225,9 @@ The bot operates **100% silently** in the background, only pushing notifications
 | Command | Action |
 | :--- | :--- |
 | `/trade` | Triggers an on-demand scalp scan for A+ setups; sends proposal or confirms: *"No perfect trade or setup found in the market right now. Capital is protected."* |
+| `/posture` | Displays live Market Posture, Market Health Score (0-100), Participation Breadth (% > EMA21), and Cash Priority State. |
+| `/rules` | Displays dynamic Next-Session Operating Rules synthesized by Agent 7: Performance Coach from closed trade audits. |
+| `/scorecard` | Displays the algorithm's self-learning audit, live win rate %, average trade score (/100), and active reinforced vs blacklisted patterns. |
 | `/positions` | Displays active positions: direction, contracts, entry, current mark price, SL, TP, and unrealized PnL ($ and %). |
 | `/status` | Returns 24/7 cloud health, active positions, open orders, and available wallet balance. |
 | `/scan` | Triggers an immediate multi-timeframe scan across all primary and secondary assets. |

@@ -664,8 +664,8 @@ def analyze_multi_timeframe(
     st_tf = "15m" if sweep_15 else ("1H" if sweep_1h else "None")
 
     is_primary = any(p in (symbol or "").upper() for p in ["BTC", "ETH", "XAU", "GOLD"])
-    min_sl_dist = current_price * (0.0020 if is_primary else 0.0035)  # 0.20% - 0.35% minimum
-    max_sl_dist = current_price * (0.0055 if is_primary else 0.0080)  # 0.55% - 0.80% maximum
+    min_sl_dist = current_price * (0.0020 if is_primary else 0.0030)  # 0.20% - 0.30% minimum tight risk
+    max_sl_dist = current_price * (0.0040 if is_primary else 0.0060)  # 0.40% - 0.60% strict scalp ceiling (resolves in hours, never days)
 
     setup_qualified = False
     setup_side = None

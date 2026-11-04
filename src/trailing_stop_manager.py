@@ -405,36 +405,59 @@ class TrailingStopManager:
                     )
 
             # ---------------------------------------------------------
-            # Milestone 2: At >= +2.0R -> Lock +1.0R profit & trail TP towards 1:3
+            # Milestone 2: At >= +1.3R -> Lock +0.6R Profit (Intraday Scalp Capital Protection)
             # ---------------------------------------------------------
-            if current_r >= 2.0 and current_stage < 2:
+            elif current_r >= 1.30 and current_stage < 2:
                 if side == "buy":
-                    candidate_sl = round_price(entry_price + (1.0 * risk_per_unit), entry_price)
+                    candidate_sl = round_price(entry_price + (0.60 * risk_per_unit), entry_price)
+                    if candidate_sl > current_sl:
+                        new_sl = candidate_sl
+                else:
+                    candidate_sl = round_price(entry_price - (0.60 * risk_per_unit), entry_price)
+                    if candidate_sl < current_sl:
+                        new_sl = candidate_sl
+
+                if new_sl:
+                    new_stage = 2
+                    stage_narrative = (
+                        f"🔒 <b>[INTRADAY SCALP PROFIT LOCKED — +0.60R IN THE BANK]</b>\n"
+                        f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
+                        f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
+                        f"• Stop Loss secured at <b>${new_sl:,.2f}</b> (+0.60R guaranteed profit)\n"
+                        f"• Guaranteed green trade even if market suddenly pulls back!"
+                    )
+
+            # ---------------------------------------------------------
+            # Milestone 3: At >= +2.0R -> Lock +1.2R profit & trail TP towards 1:3
+            # ---------------------------------------------------------
+            elif current_r >= 2.00 and current_stage < 3:
+                if side == "buy":
+                    candidate_sl = round_price(entry_price + (1.20 * risk_per_unit), entry_price)
                     candidate_tp = round_price(entry_price + (3.0 * risk_per_unit), entry_price)
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
                 else:
-                    candidate_sl = round_price(entry_price - (1.0 * risk_per_unit), entry_price)
+                    candidate_sl = round_price(entry_price - (1.20 * risk_per_unit), entry_price)
                     candidate_tp = round_price(entry_price - (3.0 * risk_per_unit), entry_price)
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
 
                 if new_sl:
-                    new_stage = 2
+                    new_stage = 3
                     stage_narrative = (
-                        f"💰 <b>[TRAILING STOP UPDATE — +1.0R PROFIT LOCKED]</b>\n"
+                        f"💰 <b>[TRAILING STOP UPDATE — +1.20R PROFIT LOCKED]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (Locking +1.0R pure profit)\n"
+                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (Locking +1.20R profit)\n"
                         f"• Take Profit extended to <b>${new_tp:,.2f}</b> (Targeting 1:3 R:R runner expansion)!"
                     )
 
             # ---------------------------------------------------------
-            # Milestone 3: At >= +3.0R -> Lock +2.0R profit & trail TP towards 1:5
+            # Milestone 4: At >= +3.0R -> Lock +2.0R profit & trail TP towards 1:5
             # ---------------------------------------------------------
-            if current_r >= 3.0 and current_stage < 3:
+            elif current_r >= 3.0 and current_stage < 4:
                 if side == "buy":
                     candidate_sl = round_price(entry_price + (2.0 * risk_per_unit), entry_price)
                     candidate_tp = round_price(entry_price + (5.0 * risk_per_unit), entry_price)
@@ -449,7 +472,7 @@ class TrailingStopManager:
                         new_tp = candidate_tp
 
                 if new_sl:
-                    new_stage = 3
+                    new_stage = 4
                     stage_narrative = (
                         f"🚀 <b>[TRAILING STOP UPDATE — +2.0R PROFIT LOCKED]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
@@ -459,20 +482,20 @@ class TrailingStopManager:
                     )
 
             # ---------------------------------------------------------
-            # Milestone 4: At >= +5.0R -> Lock +4.0R profit
+            # Milestone 5: At >= +5.0R -> Lock +4.0R profit
             # ---------------------------------------------------------
-            if current_r >= 5.0 and current_stage < 4:
+            elif current_r >= 5.0 and current_stage < 5:
                 if side == "buy":
-                    candidate_sl = round(entry_price + (4.0 * risk_per_unit), 2)
+                    candidate_sl = round_price(entry_price + (4.0 * risk_per_unit), entry_price)
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                 else:
-                    candidate_sl = round(entry_price - (4.0 * risk_per_unit), 2)
+                    candidate_sl = round_price(entry_price - (4.0 * risk_per_unit), entry_price)
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
 
                 if new_sl:
-                    new_stage = 4
+                    new_stage = 5
                     stage_narrative = (
                         f"🏆 <b>[MEGA RUNNER — +4.0R PROFIT LOCKED]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"

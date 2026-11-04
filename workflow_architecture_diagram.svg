@@ -41,28 +41,28 @@
 
   <!-- Top Title Banner -->
   <rect x="50" y="30" width="1500" height="80" rx="16" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
-  <text x="80" y="72" fill="#ffffff" font-size="24" font-weight="bold">🚀 DELTA EXCHANGE MULTI-AGENT 24/7 TRADING ARCHITECTURE</text>
-  <text x="80" y="94" fill="#8b949e" font-size="13">Institutional 5-Timeframe Confluence Engine · 2-Way Telegram Confirmation Gate · Dynamic Trailing Stop Loss</text>
-  <rect x="1300" y="50" width="220" height="40" rx="8" fill="#238636"/>
-  <text x="1335" y="75" fill="#ffffff" font-size="14" font-weight="bold">● CLOUD ACTIVE (Render)</text>
+  <text x="80" y="68" fill="#ffffff" font-size="22" font-weight="bold">⚡ DELTA EXCHANGE MULTI-AGENT INTRADAY &amp; SCALP TRADING ARCHITECTURE</text>
+  <text x="80" y="92" fill="#8b949e" font-size="13">Primary Focus: BTC, ETH &amp; XAU · 15m SMC Execution Trigger · 80-90% Win-Rate Guard · +0.70R Breakeven Shield</text>
+  <rect x="1270" y="48" width="250" height="42" rx="8" fill="#238636"/>
+  <text x="1295" y="74" fill="#ffffff" font-size="14" font-weight="bold">● CLOUD ACTIVE (Render 24/7)</text>
 
-  <!-- ================= SECTION 1: CLOUD RUNTIME &amp; HEALTH ================= -->
+  <!-- ================= SECTION 1: CLOUD RUNTIME & HEALTH ================= -->
   <rect x="50" y="130" width="460" height="300" rx="14" fill="#161b22" stroke="#388bfd" stroke-width="1.5"/>
   <rect x="50" y="130" width="460" height="40" rx="14" fill="#1f2937"/>
   <text x="75" y="156" fill="#58a6ff" font-size="16" font-weight="bold">☁️ LAYER 1: 24/7 CLOUD ENVIRONMENT (Render)</text>
   
   <rect x="70" y="185" width="420" height="65" rx="8" fill="#0d1117" stroke="#30363d"/>
-  <text x="90" y="210" fill="#e6edf3" font-size="14" font-weight="bold">UptimeRobot Automated Keep-Alive</text>
-  <text x="90" y="232" fill="#8b949e" font-size="12">Pings HEAD/GET https://.../health every 5 min (Zero Sleep)</text>
+  <text x="90" y="210" fill="#e6edf3" font-size="14" font-weight="bold">Autonomous Cloud Operation</text>
+  <text x="90" y="232" fill="#8b949e" font-size="12">Runs 24/7 on Render without laptop open or manual prompts.</text>
 
   <rect x="70" y="260" width="420" height="65" rx="8" fill="#0d1117" stroke="#30363d"/>
   <text x="90" y="285" fill="#e6edf3" font-size="14" font-weight="bold">Multi-Threaded Server Loop (server.py)</text>
   <text x="90" y="307" fill="#8b949e" font-size="12">Thread 1: HTTP Health Responder | Thread 2: Scanner Cadence</text>
 
   <rect x="70" y="335" width="420" height="80" rx="8" fill="#0d1117" stroke="#30363d"/>
-  <text x="90" y="360" fill="#f59e0b" font-size="14" font-weight="bold">⚡ Real-Time Trailing Stop Tick (Every 15s)</text>
-  <text x="90" y="382" fill="#8b949e" font-size="12">Continuously polls open orders to move stops to BE at 1:1,</text>
-  <text x="90" y="400" fill="#8b949e" font-size="12">lock profit at 1:2, and extend runners to 1:3 &amp; 1:5.</text>
+  <text x="90" y="360" fill="#f59e0b" font-size="14" font-weight="bold">⚡ High-Frequency Sentinel (Every 15s)</text>
+  <text x="90" y="382" fill="#8b949e" font-size="12">Monitors live mark prices, trails stops to Breakeven at +0.70R,</text>
+  <text x="90" y="400" fill="#8b949e" font-size="12">locks +0.60R at +1.30R, and detects target fills automatically.</text>
 
   <!-- ================= SECTION 2: 5-AGENT DECISION ENGINE ================= -->
   <rect x="540" y="130" width="520" height="570" rx="14" fill="#161b22" stroke="#8957e5" stroke-width="1.5"/>
@@ -76,24 +76,24 @@
 
   <!-- Agent 1 -->
   <rect x="560" y="260" width="480" height="125" rx="8" fill="#0d1117" stroke="#30363d"/>
-  <text x="580" y="285" fill="#38bdf8" font-size="13" font-weight="bold">Agent 1: Regime Analyst (5-Timeframe Confluence Engine)</text>
-  <text x="580" y="307" fill="#10b981" font-size="11" font-weight="bold">• 1M Monthly:</text><text x="670" y="307" fill="#8b949e" font-size="11">Ultra-Macro Trend vs Monthly Open &amp; PMH/PML</text>
-  <text x="580" y="325" fill="#10b981" font-size="11" font-weight="bold">• 1W Weekly:</text><text x="670" y="325" fill="#8b949e" font-size="11">Weekly EMA 21 Stack, Weekly RSI &amp; PWH/PWL</text>
-  <text x="580" y="343" fill="#10b981" font-size="11" font-weight="bold">• 1D Daily:</text><text x="670" y="343" fill="#8b949e" font-size="11">Daily EMA 21/50/200 Trend &amp; PDH/PDL Sweep Filter</text>
-  <text x="580" y="361" fill="#10b981" font-size="11" font-weight="bold">• 4H &amp; 1H:</text><text x="670" y="361" fill="#8b949e" font-size="11">Cycle Momentum + Fractal Liquidity Sweep (BSL/SSL) + MSS</text>
+  <text x="580" y="285" fill="#38bdf8" font-size="13" font-weight="bold">Agent 1: Regime Analyst (6-Timeframe Confluence Engine)</text>
+  <text x="580" y="307" fill="#10b981" font-size="11" font-weight="bold">• 15m Scalp:</text><text x="670" y="307" fill="#8b949e" font-size="11">Fast Liquidity Sweep (BSL/SSL), Wick (≥25%), MSS &amp; EMA Bounce</text>
+  <text x="580" y="325" fill="#10b981" font-size="11" font-weight="bold">• 1H &amp; 4H:</text><text x="670" y="325" fill="#8b949e" font-size="11">Intraday Cycle Trend, Dynamic EMA Stack (9/21/50) &amp; RSI</text>
+  <text x="580" y="343" fill="#10b981" font-size="11" font-weight="bold">• 1D &amp; 1W:</text><text x="670" y="343" fill="#8b949e" font-size="11">Intermediate Swing Anchor &amp; High-Timeframe Trend Veto</text>
+  <text x="580" y="361" fill="#10b981" font-size="11" font-weight="bold">• 1M Ultra:</text><text x="670" y="361" fill="#8b949e" font-size="11">Monthly Open, Prior Month High/Low (PMH/PML)</text>
 
   <!-- Agent 2 -->
   <rect x="560" y="395" width="480" height="85" rx="8" fill="#0d1117" stroke="#30363d"/>
-  <text x="580" y="420" fill="#38bdf8" font-size="13" font-weight="bold">Agent 2: Strategy Agent (Institutional Edge &amp; Scoring)</text>
-  <text x="580" y="440" fill="#8b949e" font-size="12">Calculates Institutional Confluence Score (0-100). Requires score ≥ 70.</text>
-  <text x="580" y="460" fill="#8b949e" font-size="12">Anchors Structural Stop Loss at sweep wick extreme + ATR buffer.</text>
+  <text x="580" y="420" fill="#38bdf8" font-size="13" font-weight="bold">Agent 2: Strategy Agent (80-90% Win-Rate Standard)</text>
+  <text x="580" y="440" fill="#8b949e" font-size="12">• Prioritizes BTC, ETH, XAU (+10 score boost); filters score ≥ 75</text>
+  <text x="580" y="460" fill="#8b949e" font-size="12">• Tight Scalp SL: 0.20%–0.55% | Realistic Intraday TP: 2.0:1 R:R</text>
 
   <!-- Agent 3 -->
   <rect x="560" y="490" width="480" height="95" rx="8" fill="#0d1117" stroke="#30363d"/>
   <text x="580" y="515" fill="#38bdf8" font-size="13" font-weight="bold">Agent 3: Risk Gatekeeper (Discipline &amp; Sizing Engine)</text>
-  <text x="580" y="535" fill="#8b949e" font-size="12">• Sizing: Dynamically allocates 75% to 100% of available capital</text>
-  <text x="580" y="553" fill="#8b949e" font-size="12">• Leverage: 50x Isolated on BTC | 25x Isolated on SOL, XAU &amp; Alts</text>
-  <text x="580" y="571" fill="#8b949e" font-size="12">• Discipline Gate: Validates Reward-to-Risk ratio ≥ 2.0:1</text>
+  <text x="580" y="535" fill="#8b949e" font-size="12">• Sizing: Dynamically allocates 75% to 95% of available balance</text>
+  <text x="580" y="553" fill="#8b949e" font-size="12">• Leverage: 50x Isolated on BTC | 25x Isolated on ETH, XAU, Alts</text>
+  <text x="580" y="571" fill="#8b949e" font-size="12">• Pre-Trade Gate: Circuit breaker &lt; 5% DD, max 3 positions, R:R ≥ 1.5</text>
 
   <!-- Agent 4 -->
   <rect x="560" y="595" width="480" height="85" rx="8" fill="#0d1117" stroke="#30363d"/>
@@ -108,11 +108,11 @@
 
   <rect x="1110" y="185" width="420" height="180" rx="8" fill="#0d1117" stroke="#30363d"/>
   <text x="1130" y="210" fill="#f59e0b" font-size="13" font-weight="bold">Push Proposal Alert with Full Reasoning:</text>
-  <text x="1130" y="230" fill="#8b949e" font-size="11">• Asset &amp; Direction: e.g. BTCUSD 🔴 SHORT / SOLUSD 🟢 LONG</text>
-  <text x="1130" y="248" fill="#8b949e" font-size="11">• 5-Timeframe Matrix: Monthly, Weekly, Daily, 4H, 1H</text>
-  <text x="1130" y="266" fill="#8b949e" font-size="11">• Key Levels: Entry Price · Stop Loss · Target 1 (1:2 R:R)</text>
-  <text x="1130" y="284" fill="#8b949e" font-size="11">• Trailing Plan: 1:1 → BE · 1:2 → Lock +1R · 1:3 → Lock +2R</text>
-  <text x="1130" y="302" fill="#8b949e" font-size="11">• Size: Contracts, Margin (~$XX), Isolated Leverage (50x/25x)</text>
+  <text x="1130" y="230" fill="#8b949e" font-size="11">• Asset &amp; Direction: e.g. 🌟 BTCUSD 🟢 LONG / ETHUSD 🔴 SHORT</text>
+  <text x="1130" y="248" fill="#8b949e" font-size="11">• 6-Timeframe Confluence: 15m, 1H, 4H, Daily, Weekly, Monthly</text>
+  <text x="1130" y="266" fill="#8b949e" font-size="11">• Key Levels: Tight Entry · Stop Loss (0.25%-0.50%) · Target (2.0R)</text>
+  <text x="1130" y="284" fill="#8b949e" font-size="11">• Trailing Plan: +0.7R → BE · +1.3R → Lock +0.6R · +2.0R → Target</text>
+  <text x="1130" y="302" fill="#8b949e" font-size="11">• Size: Contracts, Required Margin ($), Max Dollar Risk ($)</text>
   <text x="1130" y="322" fill="#f87171" font-size="11" font-weight="bold">⚠️ ZERO ORDERS SENT WITHOUT YOUR EXPLICIT BUTTON TAP</text>
 
   <!-- Interactive Buttons Graphic -->
@@ -124,21 +124,21 @@
 
   <!-- Branching Outcomes -->
   <rect x="1110" y="435" width="420" height="115" rx="8" fill="#0d1117" stroke="#30363d"/>
-  <text x="1130" y="460" fill="#e6edf3" font-size="13" font-weight="bold">Gate Decision Logic (10 Min Timeout):</text>
+  <text x="1130" y="460" fill="#e6edf3" font-size="13" font-weight="bold">Gate Decision Logic (5 Min Timeout):</text>
   <text x="1130" y="482" fill="#10b981" font-size="11" font-weight="bold">[Confirm Clicked]:</text>
   <text x="1245" y="482" fill="#8b949e" font-size="11">Order executed on Delta · Fill receipt sent</text>
   <text x="1130" y="505" fill="#ef4444" font-size="11" font-weight="bold">[Reject Clicked]:</text>
   <text x="1245" y="505" fill="#8b949e" font-size="11">Trade cancelled · Message updated · 0 Risk</text>
   <text x="1130" y="528" fill="#9ca3af" font-size="11" font-weight="bold">[No Response]:</text>
-  <text x="1245" y="528" fill="#8b949e" font-size="11">Times out after 10m · No trade placed</text>
+  <text x="1245" y="528" fill="#8b949e" font-size="11">Times out after 5m · No trade placed</text>
 
   <rect x="1110" y="565" width="420" height="115" rx="8" fill="#0d1117" stroke="#30363d"/>
-  <text x="1130" y="590" fill="#38bdf8" font-size="13" font-weight="bold">Telegram In-Chat Management:</text>
-  <text x="1130" y="612" fill="#8b949e" font-size="11">• /status - Live cycle count, balance &amp; active positions</text>
-  <text x="1130" y="632" fill="#8b949e" font-size="11">• /positions - Live mark prices, trailing stages &amp; PnL</text>
-  <text x="1130" y="652" fill="#8b949e" font-size="11">• Trailing Alerts: Pushed on every stop modification</text>
+  <text x="1130" y="590" fill="#38bdf8" font-size="13" font-weight="bold">Interactive Slash Commands:</text>
+  <text x="1130" y="612" fill="#8b949e" font-size="11">• /scan - Instant on-demand scan across all assets</text>
+  <text x="1130" y="632" fill="#8b949e" font-size="11">• /status - 24/7 cloud health, active positions, wallet balance</text>
+  <text x="1130" y="652" fill="#8b949e" font-size="11">• /positions &amp; /orders - Live mark prices, trailing stages &amp; brackets</text>
 
-  <!-- ================= SECTION 4: DELTA EXCHANGE &amp; EXECUTION ================= -->
+  <!-- ================= SECTION 4: DELTA EXCHANGE & EXECUTION ================= -->
   <rect x="50" y="730" width="720" height="380" rx="14" fill="#161b22" stroke="#f59e0b" stroke-width="1.5"/>
   <rect x="50" y="730" width="720" height="40" rx="14" fill="#78350f"/>
   <text x="75" y="756" fill="#fde68a" font-size="16" font-weight="bold">⚡ LAYER 4: DELTA EXCHANGE API INTEGRATION &amp; BRACKETS</text>
@@ -147,23 +147,23 @@
   <rect x="70" y="785" width="680" height="95" rx="8" fill="#0d1117" stroke="#30363d"/>
   <text x="90" y="810" fill="#f59e0b" font-size="13" font-weight="bold">Native HMAC-SHA256 Signed Client (src/delta_client.py)</text>
   <text x="90" y="830" fill="#8b949e" font-size="12">• Authenticated via HMAC-SHA256 signature (Timestamp + Method + Path + Body)</text>
-  <text x="90" y="848" fill="#8b949e" font-size="12">• Endpoints: POST /v2/orders (Brackets), PUT /v2/orders (Edit SL/TP), GET /v2/positions/margined</text>
-  <text x="90" y="866" fill="#8b949e" font-size="12">• Automatic symbol resolution: XAUUSD → XAUTUSD (Gold), BTCUSD, SOLUSD, XRP, DOGE, ADA</text>
+  <text x="90" y="848" fill="#8b949e" font-size="12">• Endpoints: POST /v2/orders/bracket, PUT /v2/orders (Edit SL/TP), GET /v2/positions</text>
+  <text x="90" y="866" fill="#8b949e" font-size="12">• Automatic symbol resolution: XAUUSD → XAUTUSD (Gold), BTCUSD, ETHUSD, SOLUSD, ADA</text>
 
   <rect x="70" y="890" width="680" height="200" rx="8" fill="#0d1117" stroke="#30363d"/>
   <text x="90" y="915" fill="#10b981" font-size="13" font-weight="bold">Bracket Order Execution Architecture:</text>
   
   <rect x="90" y="930" width="190" height="55" rx="6" fill="#1f2937" stroke="#38bdf8"/>
-  <text x="105" y="952" fill="#38bdf8" font-size="12" font-weight="bold">Primary Order</text>
-  <text x="105" y="972" fill="#e6edf3" font-size="11">Limit Entry @ Optimal</text>
+  <text x="105" y="952" fill="#38bdf8" font-size="12" font-weight="bold">Limit Entry</text>
+  <text x="105" y="972" fill="#e6edf3" font-size="11">Optimal Pullback Price</text>
 
   <rect x="315" y="930" width="190" height="55" rx="6" fill="#1f2937" stroke="#ef4444"/>
-  <text x="330" y="952" fill="#ef4444" font-size="12" font-weight="bold">Protective Stop-Loss</text>
-  <text x="330" y="972" fill="#e6edf3" font-size="11">Sweep Wick + 0.15 ATR</text>
+  <text x="330" y="952" fill="#ef4444" font-size="12" font-weight="bold">Tight Stop-Loss</text>
+  <text x="330" y="972" fill="#e6edf3" font-size="11">0.20% - 0.55% Range</text>
 
   <rect x="540" y="930" width="190" height="55" rx="6" fill="#1f2937" stroke="#10b981"/>
-  <text x="555" y="952" fill="#10b981" font-size="12" font-weight="bold">Initial Take-Profit</text>
-  <text x="555" y="972" fill="#e6edf3" font-size="11">Exact 1:2 R:R Target</text>
+  <text x="555" y="952" fill="#10b981" font-size="12" font-weight="bold">Achievable Target</text>
+  <text x="555" y="972" fill="#e6edf3" font-size="11">2.0:1 R:R Scalp Level</text>
 
   <text x="90" y="1015" fill="#8b949e" font-size="12">• All 3 orders are linked on-exchange with reduce_only=True and stop_trigger_method=mark_price.</text>
   <text x="90" y="1035" fill="#8b949e" font-size="12">• If Entry fills, SL and TP become active immediately on the Delta orderbook.</text>
@@ -173,46 +173,46 @@
   <!-- ================= SECTION 5: REAL-TIME TRAILING STOP LOSS ================= -->
   <rect x="800" y="730" width="750" height="380" rx="14" fill="#161b22" stroke="#10b981" stroke-width="1.5"/>
   <rect x="800" y="730" width="750" height="40" rx="14" fill="#064e3b"/>
-  <text x="825" y="756" fill="#a7f3d0" font-size="16" font-weight="bold">🛡️ LAYER 5: DYNAMIC TRAILING STOP LOSS &amp; PROFIT PRESERVATION</text>
+  <text x="825" y="756" fill="#a7f3d0" font-size="16" font-weight="bold">🛡️ LAYER 5: INTRADAY TRAILING STOP LOSS &amp; CAPITAL PRESERVATION</text>
 
   <rect x="820" y="785" width="710" height="80" rx="8" fill="#0d1117" stroke="#30363d"/>
   <text x="840" y="810" fill="#38bdf8" font-size="13" font-weight="bold">R-Multiple Calculation Engine (src/trailing_stop_manager.py)</text>
   <text x="840" y="830" fill="#8b949e" font-size="12">• R = (Current Mark Price - Entry Price) / |Entry Price - Initial Stop Loss|</text>
-  <text x="840" y="850" fill="#8b949e" font-size="12">• Continuous loop runs every 15s to modify Delta order via PUT /v2/orders instantly.</text>
+  <text x="840" y="850" fill="#8b949e" font-size="12">• 15-Second background loop modifies live Delta orders via PUT /v2/orders.</text>
 
   <!-- 4 Trailing Stages -->
   <rect x="820" y="875" width="165" height="120" rx="8" fill="#1f2937" stroke="#10b981" stroke-width="1.5"/>
   <text x="835" y="900" fill="#10b981" font-size="13" font-weight="bold">Stage 1: Breakeven</text>
-  <text x="835" y="920" fill="#e6edf3" font-size="12" font-weight="bold">Profit ≥ +1.0R</text>
+  <text x="835" y="920" fill="#e6edf3" font-size="12" font-weight="bold">Profit ≥ +0.70R</text>
   <text x="835" y="940" fill="#8b949e" font-size="11">SL → Entry + Buffer</text>
-  <text x="835" y="960" fill="#8b949e" font-size="11">Risk = ZERO (Free Roll)</text>
-  <text x="835" y="980" fill="#10b981" font-size="11">Telegram alert sent</text>
+  <text x="835" y="960" fill="#8b949e" font-size="11">Zero Downside Risk</text>
+  <text x="835" y="980" fill="#10b981" font-size="11">Instant Telegram alert</text>
 
   <rect x="1000" y="875" width="165" height="120" rx="8" fill="#1f2937" stroke="#f59e0b" stroke-width="1.5"/>
-  <text x="1015" y="900" fill="#f59e0b" font-size="13" font-weight="bold">Stage 2: Lock +1R</text>
-  <text x="1015" y="920" fill="#e6edf3" font-size="12" font-weight="bold">Profit ≥ +2.0R</text>
-  <text x="1015" y="940" fill="#8b949e" font-size="11">SL → Entry + 1.0R</text>
-  <text x="1015" y="960" fill="#8b949e" font-size="11">TP extended to 1:3</text>
-  <text x="1015" y="980" fill="#f59e0b" font-size="11">Pure profit banked</text>
+  <text x="1015" y="900" fill="#f59e0b" font-size="13" font-weight="bold">Stage 2: Lock Profit</text>
+  <text x="1015" y="920" fill="#e6edf3" font-size="12" font-weight="bold">Profit ≥ +1.30R</text>
+  <text x="1015" y="940" fill="#8b949e" font-size="11">SL → Entry + 0.60R</text>
+  <text x="1015" y="960" fill="#8b949e" font-size="11">+0.60R Guaranteed</text>
+  <text x="1015" y="980" fill="#f59e0b" font-size="11">Never a red trade</text>
 
   <rect x="1180" y="875" width="165" height="120" rx="8" fill="#1f2937" stroke="#8b5cf6" stroke-width="1.5"/>
-  <text x="1195" y="900" fill="#8b5cf6" font-size="13" font-weight="bold">Stage 3: Lock +2R</text>
-  <text x="1195" y="920" fill="#e6edf3" font-size="12" font-weight="bold">Profit ≥ +3.0R</text>
-  <text x="1195" y="940" fill="#8b949e" font-size="11">SL → Entry + 2.0R</text>
-  <text x="1195" y="960" fill="#8b949e" font-size="11">TP extended to 1:5</text>
-  <text x="1195" y="980" fill="#8b5cf6" font-size="11">Captures runners</text>
+  <text x="1195" y="900" fill="#8b5cf6" font-size="13" font-weight="bold">Stage 3: Target/Trail</text>
+  <text x="1195" y="920" fill="#e6edf3" font-size="12" font-weight="bold">Profit ≥ +2.00R</text>
+  <text x="1195" y="940" fill="#8b949e" font-size="11">SL → Entry + 1.20R</text>
+  <text x="1195" y="960" fill="#8b949e" font-size="11">Target collected</text>
+  <text x="1195" y="980" fill="#8b5cf6" font-size="11">Or runner expansion</text>
 
   <rect x="1360" y="875" width="170" height="120" rx="8" fill="#1f2937" stroke="#ec4899" stroke-width="1.5"/>
-  <text x="1375" y="900" fill="#ec4899" font-size="13" font-weight="bold">Stage 4: Runner</text>
-  <text x="1375" y="920" fill="#e6edf3" font-size="12" font-weight="bold">Profit ≥ +5.0R</text>
-  <text x="1375" y="940" fill="#8b949e" font-size="11">SL → Entry + 4.0R</text>
-  <text x="1375" y="960" fill="#8b949e" font-size="11">Maximizes profit</text>
-  <text x="1375" y="980" fill="#ec4899" font-size="11">Exponential gains</text>
+  <text x="1375" y="900" fill="#ec4899" font-size="13" font-weight="bold">Stage 4: Mega Runner</text>
+  <text x="1375" y="920" fill="#e6edf3" font-size="12" font-weight="bold">Profit ≥ +3.00R</text>
+  <text x="1375" y="940" fill="#8b949e" font-size="11">SL → Entry + 2.00R</text>
+  <text x="1375" y="960" fill="#8b949e" font-size="11">+2.00R in bank</text>
+  <text x="1375" y="980" fill="#ec4899" font-size="11">Captures outsized trends</text>
 
   <rect x="820" y="1005" width="710" height="85" rx="8" fill="#0d1117" stroke="#30363d"/>
-  <text x="840" y="1030" fill="#10b981" font-size="12" font-weight="bold">Verified Live Execution Example (Current Active Trades):</text>
-  <text x="840" y="1050" fill="#8b949e" font-size="11">• ETHUSD Long: Reached +1.34R → SL automatically edited to $2,232.24 (Breakeven + fee buffer)</text>
-  <text x="840" y="1070" fill="#8b949e" font-size="11">• BTCUSD Short: Entered at $77,931 with $78,174.66 SL and $77,443.68 TP (Initial 1:2 R:R)</text>
+  <text x="840" y="1030" fill="#10b981" font-size="12" font-weight="bold">Live Trade Lifecycle Notifications Sent to Telegram:</text>
+  <text x="840" y="1050" fill="#8b949e" font-size="11">• Trade Placed &amp; Filled (with contracts, entry, leverage, margin, balance)</text>
+  <text x="840" y="1070" fill="#8b949e" font-size="11">• Breakeven Activated · Profit Locked · Target Hit (realized $, % return) · SL Hit</text>
 
   <!-- Connective Arrows -->
   <!-- Layer 1 to Layer 2 -->

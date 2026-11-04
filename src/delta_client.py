@@ -38,8 +38,12 @@ class DeltaExchangeClient:
         base_url: Optional[str] = None,
         timeout: int = 15,
     ):
-        self.api_key = api_key or os.getenv("DELTA_API_KEY", "")
-        self.api_secret = api_secret or os.getenv("DELTA_API_SECRET", "")
+        # Fallback to Delta Exchange testnet India demo credentials if unset
+        default_key = "REDACTED_DELTA_API_KEY"
+        default_secret = "REDACTED_DELTA_API_SECRET"
+
+        self.api_key = (api_key or os.getenv("DELTA_API_KEY") or default_key).strip()
+        self.api_secret = (api_secret or os.getenv("DELTA_API_SECRET") or default_secret).strip()
         self.environment = (os.getenv("DELTA_ENVIRONMENT") or environment).lower()
         
         if base_url:

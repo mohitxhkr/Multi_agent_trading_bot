@@ -12,13 +12,13 @@ services:
       - key: DELTA_BASE_URL
         value: https://cdn-ind.testnet.deltaex.org
       - key: DELTA_API_KEY
-        sync: false
+        value: REDACTED_DELTA_API_KEY
       - key: DELTA_API_SECRET
-        sync: false
+        value: REDACTED_DELTA_API_SECRET
       - key: TELEGRAM_BOT_TOKEN
-        sync: false
+        value: REDACTED_TELEGRAM_BOT_TOKEN
       - key: TELEGRAM_CHAT_ID
-        sync: false
+        value: "123456789"
       - key: TELEGRAM_NOTIFICATIONS_ENABLED
         value: "true"
       - key: BTC_LEVERAGE

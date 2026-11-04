@@ -41,8 +41,8 @@ class TelegramNotifier:
         chat_id: Optional[str] = None,
         enabled: bool = True
     ):
-        self.bot_token = (bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")).strip()
-        self.chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID", "")).strip()
+        self.bot_token = (bot_token or os.getenv("TELEGRAM_BOT_TOKEN") or "REDACTED_TELEGRAM_BOT_TOKEN").strip()
+        self.chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID") or "123456789").strip()
         self.enabled = enabled and bool(self.bot_token and self.chat_id)
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
 

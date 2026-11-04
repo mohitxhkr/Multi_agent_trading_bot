@@ -35,65 +35,51 @@
 
 ```mermaid
 flowchart TD
-    subgraph Cloud ["☁️ 24/7 Cloud Autonomous Runtime (Render)"]
-        Scanner["Continuous Silent Market Scanner (Every 120s)"]
+    subgraph Runtime ["☁️ 24/7 Cloud Autonomous Runtime (Render)"]
+        Scanner["Continuous Silent Market Scanner (120s Loop)"]
     end
 
-    subgraph Step1 ["Step 1: Market Regime & Multi-Timeframe Alignment"]
-        A1["Agent 1: 6-Timeframe Regime Analyst<br/>• 1M, 1W, 1D, 4H, 1H, 15m Trend Stacks<br/>• Mandatory Macro Trend Veto (No Counter-Trend)<br/>• SMC BSL / SSL Liquidity Sweep Detection"]
+    subgraph MarketAnalysis ["🔍 Market Structure & Exposure Posture (Agents 1 & 2)"]
+        A1["Agent 1: 6-Timeframe Regime Analyst<br/>• Trend Momentum: 1M, 1W, 1D, 4H, 1H, 15m<br/>• Mandatory Macro Trend Veto (No Counter-Trend)<br/>• SMC Liquidity Sweeps (BSL and SSL)"]
+        A2["Agent 2: Exposure Coach & Market Posture<br/>• Market Breadth (% Above 21 EMA)<br/>• Composite Market Health Score (0-100)<br/>• Cash Priority Gate (Health below 32)"]
     end
 
-    subgraph Step2 ["Step 2: Portfolio Exposure & Market Posture"]
-        A2["Agent 2: Exposure Coach & Market Posture Engine<br/>• Cross-Asset Breadth (% > 21 EMA)<br/>• Market Health Score (0-100)<br/>• CASH PRIORITY GATE: Health < 32 Blocks ALL Trades"]
+    subgraph AlphaRisk ["🛡️ Alpha Generation, Simulation & Risk Gate (Agents 3, 4 & 5)"]
+        A3["Agent 3: Alpha Strategy & Candidate Generator<br/>• Mandatory MSS Candle Body Close<br/>• OTE 0.382 Retest & Killzone Boost<br/>• Target 2.20:1+ R:R (Score 80+/100)"]
+        A4["Agent 4: Time Machine Probability Engine<br/>• 350+ Candle Lookback Simulation<br/>• 48-Bar Forward Walkthrough (TP vs SL)<br/>• Strict Veto Gate: Discard if Win Rate below 68%"]
+        A5["Agent 5: Pre-Trade Discipline & Dollar Sizing<br/>• Fixed Dollar Risk Model: $2.00 - $4.00 Max Risk<br/>• Altcoin Safety Cap: Max $2.00 Risk / 10% Margin<br/>• 2-Loss Cooling-Off Halt & 5% Daily Stop"]
     end
 
-    subgraph Step3 ["Step 3: Alpha Generation & Setup Refinement"]
-        A3["Agent 3: Alpha Strategy & Candidate Generator<br/>• Mandatory MSS Candle Body Close<br/>• Optimal Trade Entry (OTE 0.382 Retest)<br/>• Killzone Session Timing (+5 London/NY)<br/>• Target >= 2.20:1 R:R | Confluence Score >= 80"]
+    subgraph HumanGate ["📱 Telegram Two-Way Human Authorization (Agent 6)"]
+        A6["Agent 6: Telegram 2-Way Gate<br/>• Proposal Card with Confluence & Time Machine Proof<br/>• User Buttons: Confirm & Execute or Reject<br/>• Zero Orders Placed Without Explicit User Click"]
     end
 
-    subgraph Step4 ["Step 4: Historical Walk-Forward Probability Check"]
-        A4["Agent 4: Time Machine Probability Engine<br/>• 350+ Historical Candle Lookback Walk<br/>• 48-Bar Forward Simulation of TP vs SL<br/>• Strict Veto Gate: Discard if Win Rate < 68% or EV < +0.30R"]
+    subgraph BrokerExecution ["⚡ Delta Exchange Order Execution (Agent 7)"]
+        A7["Agent 7: Delta Exchange Execution Engine<br/>• HMAC-SHA256 Signed Authentication<br/>• Isolated Margin (50x BTC / 25x Alts)<br/>• Native 3-in-1 Atomic Limit Bracket (Entry + SL + TP)"]
     end
 
-    subgraph Step5 ["Step 5: Pre-Trade Discipline & Dollar Sizing Gate"]
-        A5["Agent 5: Risk Gatekeeper & Sizing Engine<br/>• Fixed Dollar Risk Model: $2.00 - $4.00 Max Risk<br/>• Altcoin Safety Cap: Max $2.00 Risk · Max 10% Margin<br/>• 2-Consecutive Loss Cooling Breaker & 5% Daily Halt"]
-    end
-
-    subgraph Step6 ["Step 6: Zero-Trust Human Authorization"]
-        A6["Agent 6: Telegram Two-Way Human Gate<br/>• Detailed Proposal Card with Time Machine Stats<br/>• Interactive [Confirm & Execute] / [Reject Setup]<br/>• Zero Orders Placed Without Explicit User Tap"]
-    end
-
-    subgraph Step7 ["Step 7: Delta Exchange Order Placement"]
-        A7["Agent 7: Delta Exchange Execution Engine<br/>• HMAC-SHA256 Authenticated Signature<br/>• Isolated Margin Setting (50x BTC / 25x Alts)<br/>• Native 3-in-1 Atomic Limit Bracket (Entry + SL + TP)"]
-    end
-
-    subgraph Step8 ["Step 8: Real-Time Position Protection"]
+    subgraph TrailingSentinel ["🔒 Real Scalper Micro-Trailing Sentinel (Agent 8)"]
         A8["Agent 8: Micro-Trailing Stop Sentinel (15s Loop)<br/>• Stage 1 (+0.50R): Breakeven Shield (Zero Downside)<br/>• Stage 2 (+0.80R): Lock +0.35R Green Profit<br/>• Stage 3 (+1.20R): Lock +0.75R Core Profit<br/>• Stage 5 (+2.20R): Full TP Bracket Realized<br/>• MFE & MAE Excursion Tracking"]
     end
 
-    subgraph Step9 ["Step 9: Post-Trade Pattern Diagnosis"]
-        A9["Agent 9: Adaptive Learning & Self-Reflection<br/>• 0-100 Scorecard (Discipline, Confluence, Edge)<br/>• Root Cause Attribution (Why trade won or lost)<br/>• Reinforces Winning Patterns (+8 pts)<br/>• Penalizes (-15) or Blacklists (-30) Failing Setups"]
-    end
-
-    subgraph Step10 ["Step 10: Performance Coaching & Dynamic Rules"]
-        A10["Agent 10: Trade Performance Coach<br/>• Closed Trade Cohort Audit<br/>• Synthesizes Binding Next-Session Operating Rules<br/>• Dynamically Governs Strategy & Risk in Next Cycle"]
+    subgraph LearningReview ["🧠 Continuous Evolution & Performance Coaching (Agents 9 & 10)"]
+        A9["Agent 9: Adaptive Learning & Pattern Diagnosis<br/>• 0-100 Self-Scorecard (Discipline, Edge)<br/>• Reinforces Winning Patterns (+8 pts boost)<br/>• Penalizes or Blacklists Failing Setups"]
+        A10["Agent 10: Trade Performance Coach<br/>• Closed Trade Cohort Audit<br/>• Synthesizes Binding Next-Session Rules (/rules)<br/>• Dynamically Governs Future Strategy & Risk"]
     end
 
     Scanner --> A1
     A1 --> A2
-    A2 -->|Cash Priority: Health < 32| CashOnly["🛑 100% Cash Defense · All Entries Blocked"]
-    A2 -->|Normal Posture| A3
+    A2 -->|Cash Priority: Health Under 32| CashHalt["🛑 100% Cash Defense (All Entries Blocked)"]
+    A2 -->|Normal Market Posture| A3
     A3 --> A4
-    A4 -->|Passed: Win Rate >= 68% & EV >= +0.30R| A5
-    A4 -->|Failed: Low Historical Win Rate| Vetoed["❌ Zero Risk · Low-EV Setup Discarded"]
+    A4 -->|Passed: Win Rate 68%+ & Positive EV| A5
+    A4 -->|Failed: Historical Win Rate Under 68%| Vetoed["❌ Zero Risk (Low-Edge Setup Vetoed)"]
     A5 --> A6
-    A6 -->|User Confirmed| A7
-    A6 -->|User Rejected or Timed Out| Vetoed
+    A6 -->|User Rejects or Proposal Times Out| Vetoed
+    A6 -->|User Confirms via Button| A7
     A7 --> A8
-    A8 -->|Position Closed (TP, BE, or SL)| A9
+    A8 -->|Position Closed| A9
     A9 --> A10
-    A10 -.->|Dynamic Rules Injected| A3
-    A10 -.->|Dynamic Rules Injected| A5
 ```
 
 ---

@@ -6,11 +6,12 @@
 [![Delta Exchange](https://img.shields.io/badge/Delta%20Exchange-India%20%7C%20Global%20%7C%20Testnet-0ea5e9?style=for-the-badge)](https://delta.exchange)
 [![Telegram](https://img.shields.io/badge/Telegram-Real--Time%202--Way%20Gate-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://telegram.org)
 [![Cloud](https://img.shields.io/badge/Cloud%20Deployment-Render%2024%2F7-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://render.com)
+[![Architecture](https://img.shields.io/badge/Architecture-6--Layer%20%7C%2010--Agent-blueviolet?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
 [![Win Rate](https://img.shields.io/badge/Target%20Precision-80%25%20--%2090%25-brightgreen?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 
 **An institutional-grade, disciplined 10-Agent algorithmic trading system engineered for Delta Exchange perpetual futures.**  
-*Specialized for Rapid Scalping on **BTC, ETH, and XAU (Gold)** with Smart Money Concepts (SMC), 15m Microstructure Sweeps, Ultra-Tight Stop Losses, 80–90% Precision Filters, Multi-Stage Scalper Trailing Stops (+0.50R BE), Continuous Self-Learning, and 24/7 Autonomous Cloud Operation.*
+*Specialized for rapid intraday scalping on **BTC, ETH, and XAU (Gold)** with Smart Money Concepts (SMC), 15m Microstructure Sweeps, Pre-Flight Market Data Validation, Wilson Score Confidence Backtests, Multi-Stage Trailing Stops (+0.50R BE Shield), Central SQLite State Reconciliation, Continuous Evidence-Based Learning, and 24/7 Autonomous Cloud Operation.*
 
 </div>
 
@@ -31,52 +32,93 @@
 
 ---
 
-## 🔄 End-to-End Scalper Workflow (Agents 1 to 10 in Execution Sequence)
+## 🏗️ The 6 Architectural Layers
+
+The architecture organizes all decision-making, risk management, and execution into **6 hierarchical layers**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      LAYER 1: MARKET INTELLIGENCE                           │
+│   Data Validator  ──>  Agent 1: Regime Analyst  ──>  Agent 2: Exposure Coach│
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│                    LAYER 2: STRATEGY & VALIDATION                           │
+│      Agent 3: Strategy Generator  ──>  Agent 4: Time Machine Engine         │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│                    LAYER 3: RISK & AUTHORIZATION                            │
+│     Agent 5: Risk Gatekeeper  ──>  Agent 6: Telegram Confirmation Gate      │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│                   LAYER 4: EXECUTION & MANAGEMENT                           │
+│      Agent 7: Execution Engine  ──>  Agent 8: Micro-Trailing Sentinel       │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│                   LAYER 5: LEARNING & OPTIMIZATION                          │
+│     Agent 9: Adaptive Learner  ──>  Agent 10: Performance Coach & Rules     │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│                   LAYER 6: SHARED CORE INFRASTRUCTURE                       │
+│    Orchestrator · State Manager · Emergency Controller · Monitoring · Bot   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🔄 End-to-End Execution Sequence Flow
 
 ```mermaid
 flowchart TD
-    subgraph Runtime ["☁️ 24/7 Cloud Autonomous Runtime (Render)"]
-        Scanner["Continuous Silent Market Scanner (120s Loop)"]
+    subgraph Layer6 ["Layer 6: Shared Core Infrastructure"]
+        Orch["Central Orchestrator (orchestrator.py)"]
+        StateM["Central State Manager (state_manager.py)"]
+        EmergC["Global Kill Switch (emergency_controller.py)"]
+        Mon["System Monitor & Observability (monitoring.py)"]
     end
 
-    subgraph MarketAnalysis ["🔍 Market Structure & Exposure Posture (Agents 1 & 2)"]
-        A1["Agent 1: 6-Timeframe Regime Analyst<br/>• Trend Momentum: 1M, 1W, 1D, 4H, 1H, 15m<br/>• Mandatory Macro Trend Veto (No Counter-Trend)<br/>• SMC Liquidity Sweeps (BSL and SSL)"]
-        A2["Agent 2: Exposure Coach & Market Posture<br/>• Market Breadth (% Above 21 EMA)<br/>• Composite Market Health Score (0-100)<br/>• Cash Priority Gate (Health below 32)"]
+    subgraph Layer1 ["Layer 1: Market Intelligence"]
+        DV["Market Data Validator<br/>• Missing Bar & Gap Detection<br/>• Stale Feed Check (> 3 intervals)<br/>• Price Spike Filter (> 8% wick)"]
+        A1["Agent 1: 6-Timeframe Regime Analyst<br/>• 1M, 1W, 1D, 4H, 1H, 15m Stacks<br/>• 14-Period ADX (Trend vs Chop)<br/>• Volume Profile & VWAP Anchor<br/>• Volatility Expansion / Contraction<br/>• Macro News Window Filter"]
+        A2["Agent 2: Exposure Coach<br/>• Cross-Asset Participation Breadth<br/>• Altcoin Relative Strength (RS)<br/>• Extreme Funding Crowding Check<br/>• Market Health Score (0-100)<br/>• Recovery Posture (After 2 Losses)"]
     end
 
-    subgraph AlphaRisk ["🛡️ Alpha Generation, Simulation & Risk Gate (Agents 3, 4 & 5)"]
-        A3["Agent 3: Alpha Strategy & Candidate Generator<br/>• Mandatory MSS Candle Body Close<br/>• OTE 0.382 Retest & Killzone Boost<br/>• Target 2.20:1+ R:R (Score 80+/100)"]
-        A4["Agent 4: Time Machine Probability Engine<br/>• 350+ Candle Lookback Simulation<br/>• 48-Bar Forward Walkthrough (TP vs SL)<br/>• Strict Veto Gate: Discard if Win Rate below 68%"]
-        A5["Agent 5: Pre-Trade Discipline & Dollar Sizing<br/>• Fixed Dollar Risk Model: $2.00 - $4.00 Max Risk<br/>• Altcoin Safety Cap: Max $2.00 Risk / 10% Margin<br/>• 2-Loss Cooling-Off Halt & 5% Daily Stop"]
+    subgraph Layer2 ["Layer 2: Strategy & Validation"]
+        A3["Agent 3: Strategy Generator<br/>• Mandatory MSS Body Close<br/>• VWAP Level Alignment (+/- 5 pts)<br/>• Spread & Liquidity Filter (<= 0.15%)<br/>• ATR-Calibrated Stop Loss (0.8x-1.6x)<br/>• 60-Minute Expiration TTL"]
+        A4["Agent 4: Time Machine Engine<br/>• 400-Bar Walk-Forward Simulation<br/>• 70/30 In-Sample / Out-of-Sample<br/>• Net Friction Deduction (Fees + Slip)<br/>• Wilson Score 95% Confidence Interval<br/>• Min 6-Sample Rule (EV >= +0.25R)"]
     end
 
-    subgraph HumanGate ["📱 Telegram Two-Way Human Authorization (Agent 6)"]
-        A6["Agent 6: Telegram 2-Way Gate<br/>• Proposal Card with Confluence & Time Machine Proof<br/>• User Buttons: Confirm & Execute or Reject<br/>• Zero Orders Placed Without Explicit User Click"]
+    subgraph Layer3 ["Layer 3: Risk & Authorization"]
+        A5["Agent 5: Risk Gatekeeper<br/>• Fixed Dollar Risk ($2.00 - $4.00 USD)<br/>• Dynamic Drawdown Scalar (-30% risk)<br/>• Pre-Check Liquidation Buffer (>= 3x SL)<br/>• Max 2 Correlated Directional Alts<br/>• Portfolio Total Open Risk <= $8.00"]
+        A6["Agent 6: Telegram Confirmation Gate<br/>• Proposal Card with Full Risk Metrics<br/>• Duplicate-Click Atomic Shield<br/>• Pre-Execution Price Drift Revalidation<br/>• Zero Orders Without Explicit Click"]
     end
 
-    subgraph BrokerExecution ["⚡ Delta Exchange Order Execution (Agent 7)"]
-        A7["Agent 7: Delta Exchange Execution Engine<br/>• HMAC-SHA256 Signed Authentication<br/>• Isolated Margin (50x BTC / 25x Alts)<br/>• Native 3-in-1 Atomic Limit Bracket (Entry + SL + TP)"]
+    subgraph Layer4 ["Layer 4: Execution & Management"]
+        A7["Agent 7: Execution Engine<br/>• Idempotency Token Verification<br/>• Atomic Bracket Order Placement<br/>• Exponential Backoff Retry (3 attempts)<br/>• Post-Fill Bracket SL/TP Verification"]
+        A8["Agent 8: Micro-Trailing Sentinel<br/>• Stage 1 (+0.50R): Breakeven Shield<br/>• Stage 2 (+0.80R): Lock +0.35R Profit<br/>• Stage 3 (+1.20R): Lock +0.75R Core<br/>• Stage 5 (+2.00R): Full TP Target<br/>• Emergency Missing Stop Replacer"]
     end
 
-    subgraph TrailingSentinel ["🔒 Real Scalper Micro-Trailing Sentinel (Agent 8)"]
-        A8["Agent 8: Micro-Trailing Stop Sentinel (15s Loop)<br/>• Stage 1 (+0.50R): Breakeven Shield (Zero Downside)<br/>• Stage 2 (+0.80R): Lock +0.35R Green Profit<br/>• Stage 3 (+1.20R): Lock +0.75R Core Profit<br/>• Stage 5 (+2.20R): Full TP Bracket Realized<br/>• MFE & MAE Excursion Tracking"]
+    subgraph Layer5 ["Layer 5: Learning & Optimization"]
+        A9["Agent 9: Adaptive Learner<br/>• 20-Trade Rolling Window Evaluation<br/>• Min 5-Sample Rule for +8 Bonus<br/>• Safe Blacklisting (NEEDS_REVIEW flag)<br/>• Strategy vs Execution Attribution"]
+        A10["Agent 10: Performance Coach<br/>• Version-Controlled Rules (v1.0.x)<br/>• Auto-Rollback on Rolling Degradation<br/>• Asset & Session Cohort Analysis"]
     end
 
-    subgraph LearningReview ["🧠 Continuous Evolution & Performance Coaching (Agents 9 & 10)"]
-        A9["Agent 9: Adaptive Learning & Pattern Diagnosis<br/>• 0-100 Self-Scorecard (Discipline, Edge)<br/>• Reinforces Winning Patterns (+8 pts boost)<br/>• Penalizes or Blacklists Failing Setups"]
-        A10["Agent 10: Trade Performance Coach<br/>• Closed Trade Cohort Audit<br/>• Synthesizes Binding Next-Session Rules (/rules)<br/>• Dynamically Governs Future Strategy & Risk"]
-    end
-
-    Scanner --> A1
+    Orch --> EmergC
+    EmergC -->|Halt Inactive| DV
+    DV --> A1
     A1 --> A2
     A2 -->|Cash Priority: Health Under 32| CashHalt["🛑 100% Cash Defense (All Entries Blocked)"]
-    A2 -->|Normal Market Posture| A3
+    A2 -->|Normal / Recovery Posture| A3
     A3 --> A4
-    A4 -->|Passed: Win Rate 68%+ & Positive EV| A5
-    A4 -->|Failed: Historical Win Rate Under 68%| Vetoed["❌ Zero Risk (Low-Edge Setup Vetoed)"]
+    A4 -->|Passed: EV >= +0.25R & Win Rate Edge| A5
+    A4 -->|Vetoed: Negative EV or Low Sample| Vetoed["❌ Zero Risk (Low-Edge Setup Vetoed)"]
     A5 --> A6
-    A6 -->|User Rejects or Proposal Times Out| Vetoed
-    A6 -->|User Confirms via Button| A7
+    A6 -->|User Rejects or Price Drifted > 0.40%| Vetoed
+    A6 -->|User Confirms via Button Click| A7
     A7 --> A8
     A8 -->|Position Closed| A9
     A9 --> A10
@@ -84,7 +126,7 @@ flowchart TD
 
 ---
 
-## 🤖 The 10 Autonomous Agents (Sequence 1 to 10)
+## 🤖 The 10 Specialized Autonomous Agents
 
 The system divides trading responsibilities into **10 specialized autonomous agents**, operating in strict sequential lockstep:
 
@@ -113,16 +155,16 @@ The system divides trading responsibilities into **10 specialized autonomous age
 ---
 
 ### 1️⃣ Agent 1: 6-Timeframe Regime Analyst
-* **Module:** [`multiagent_team/regime_analyst.py`](multiagent_team/regime_analyst.py)
+* **Module:** [`multiagent_team/regime_analyst.py`](multiagent_team/regime_analyst.py) & [`src/technical_analysis.py`](src/technical_analysis.py)
 * **Execution Timing:** Start of every 120-second scan cycle.
 * **Core Responsibilities:**
-  1. **6-Timeframe Order Flow Mapping:** Ingests live candles across **1-Month (1M), 1-Week (1W), 1-Day (1D), 4-Hour (4H), 1-Hour (1H), and 15-Minute (15m)** timeframes.
-  2. **Trend Momentum Stacks:** Computes exponential moving averages (EMA 21, EMA 50, EMA 200), RSI (14), and ATR across all horizons.
-  3. **Smart Money Concepts (SMC) Liquidity Mapping:** Identifies Buy-Side Liquidity (BSL) and Sell-Side Liquidity (SSL) pools, prior day highs/lows (PDH/PDL), and session range sweeps.
-  4. **The Mandatory Macro Trend Veto:**
-     * If the 4H and 1H regime is **BULLISH**, the bot is **STRICTLY FORBIDDEN** from proposing shorts. Only long sweep pullbacks are qualified.
-     * If the 4H and 1H regime is **BEARISH**, the bot is **STRICTLY FORBIDDEN** from proposing longs.
-     * Counter-trend scalp attempts are vetoed at the root.
+  1. **Pre-Flight Feed Validation:** Rejects any candlestick series failing gap, staleness, or price spike checks via `MarketDataValidator`.
+  2. **6-Timeframe Order Flow Mapping:** Computes EMAs (21, 50, 200), RSI (14), and ATR across 1M, 1W, 1D, 4H, 1H, and 15m.
+  3. **14-Period ADX Trend Classifier:** Calculates Average Directional Index (ADX) to isolate strong directional trends (ADX >= 25) from choppy ranges (ADX < 18).
+  4. **Volume Profile & VWAP Institutional Anchor:** Identifies institutional liquidity pools and Volume-Weighted Average Price levels.
+  5. **Volatility Expansion & Contraction:** Analyzes Bollinger Band Width and current ATR relative to 30-period mean to detect squeeze breakouts or exhaustive froth.
+  6. **Macro News Window Gate:** Avoids entering during US CPI / FOMC announcements or abnormal ATR volatility spikes (> 2.5x).
+  7. **Lower-Timeframe Reversal Scalp:** Allows high-conviction scalps counter to neutral 4H if lower-TF 15m MSS exhibits strong displacement (> 1.25x ATR) with confirmed volume absorption.
 
 ---
 
@@ -130,14 +172,16 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Module:** [`multiagent_team/exposure_coach.py`](multiagent_team/exposure_coach.py)
 * **Execution Timing:** Immediately following market scanning, before setup generation.
 * **Core Responsibilities:**
-  1. **Cross-Asset Participation Breadth:** Calculates the exact percentage of tracked universe assets trading above their 21 EMA.
-  2. **Aggregate Derivatives Funding Sentiment:** Evaluates average Delta Exchange perpetual funding rates to gauge market froth or aggressive short crowding.
-  3. **Market Health Score (0–100):** Synthesizes BTC macro order flow (35 pts), cross-asset breadth (45 pts), and funding alignment (20 pts).
-  4. **Global Market Posture Classification:**
+  1. **Cross-Asset Participation Breadth:** Computes the percentage of universe assets trading above their 21 EMA.
+  2. **Altcoin Relative Strength (RS):** Measures whether altcoins are outperforming or lagging BTC momentum.
+  3. **Derivatives Funding Sentiment & Crowding:** Detects extreme long froth ($> +0.04\%$) or aggressive short cascades ($< -0.04\%$).
+  4. **Portfolio Open Exposure Sizing:** Factored open positions count and margin utilization into Market Health calculation.
+  5. **Global Market Posture Classification:**
      * **`AGGRESSIVE_EXPANSION` (Health >= 75):** 100% risk budget, up to 3 concurrent positions permitted.
-     * **`MODERATE_SELECTIVE` (Health 50-74):** 75% risk budget, focus on Tier-1 core assets (`BTC`, `ETH`, `XAU`).
-     * **`DEFENSIVE_CAUTION` (Health 32-49):** 50% risk budget, max 1 active position, secondary alts completely disabled.
-     * **`CASH_PRIORITY` (Health below 32):** **0% risk budget. All new entries blocked.** Capital is 100% safeguarded in cash USD.
+     * **`MODERATE_SELECTIVE` (Health 50-74):** 75% risk budget, Tier-1 focus (`BTC`, `ETH`, `XAU`).
+     * **`DEFENSIVE_CAUTION` (Health 32-49):** 50% risk budget, max 1 active position, secondary alts disabled.
+     * **`RECOVERY_POSTURE`:** Engaged after 2 consecutive stop losses; risk slashed to 50% ($2.00 max risk) and concurrency clamped to 1 position.
+     * **`CASH_PRIORITY` (Health below 32):** **0% risk budget. All new entries blocked.** Capital is 100% in cash USD.
 
 ---
 
@@ -145,12 +189,12 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Module:** [`multiagent_team/strategy_agent.py`](multiagent_team/strategy_agent.py)
 * **Execution Timing:** Triggered when Market Posture authorizes trading.
 * **Core Responsibilities:**
-  1. **Mandatory Market Structure Shift (MSS):** Rejects unconfirmed wicks. Requires a confirmed candle body close breaking prior swing structure.
-  2. **Liquidity Absorption Wick Filter:** The sweep candle must demonstrate a rejection wick spanning at least 25% of its total high-to-low range.
-  3. **Optimal Trade Entry (OTE) Retest Pricing:** If the expansion candle exceeds 1.0x ATR, places a limit entry order at the **0.382 Fibonacci retracement** rather than market chasing.
-  4. **Institutional Killzone Timing:** Grants a **+5 confluence score boost** during high-volume London Open (07:00–10:00 UTC) and New York Open (12:00–17:00 UTC).
-  5. **Precision Bounds:** Calculates micro stop losses clamped between **0.20% and 0.40%** of price, and targets a minimum planned Reward-to-Risk ratio of **2.20:1 or higher**.
-  6. **Institutional Score Floor:** Discards any setup scoring below **80 / 100**.
+  1. **Separation of Hard Rejection from Scoring:** Rejects outright on news windows, excessive spread ($> 0.15\%$), or price deviation ($> 0.50\%$) before scoring.
+  2. **Mandatory Market Structure Shift (MSS):** Rejects unconfirmed wicks. Requires candle body close breaking prior swing structure.
+  3. **VWAP Institutional Alignment:** Longs must align with or reclaim VWAP; shorts must be rejected beneath VWAP (+5 / -5 point modifier).
+  4. **Dynamic ATR Stop Loss Calibration:** Calibrates Stop Loss distance dynamically between $0.8\times$ and $1.6\times$ 15m ATR to protect against normal market noise.
+  5. **Setup Expiration Timestamp:** Sets a 60-minute time-to-live (TTL) on proposals.
+  6. **Institutional Score Floor:** Discards any setup scoring below **80 / 100** for Primary or **85 / 100** for Secondary assets.
 
 ---
 
@@ -158,17 +202,13 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Module:** [`multiagent_team/time_machine_agent.py`](multiagent_team/time_machine_agent.py)
 * **Execution Timing:** Evaluates candidate setups before risk sizing or user notification.
 * **Core Responsibilities:**
-  1. **Historical Walk-Back Scan:** Travels backwards in time across 350+ historical 15-minute candles on Delta Exchange to locate historical instances with identical EMA stacks, RSI momentum, and liquidity sweep geometry.
-  2. **Forward Walk-Through Simulation:** Simulates an identical bracket order bar-by-bar for 48 candles into the future for every historical match:
-     * Did the trade hit Take Profit first (**WIN**)?
-     * Did the trade hit Stop Loss first (**LOSS**)?
-     * What was the intra-trade Maximum Adverse Excursion (**MAE Drawdown**)?
-  3. **Expectancy Calculation:**
-     $$\text{Win Rate} = \left(\frac{\text{Wins}}{\text{Wins} + \text{Losses}}\right) \times 100$$
-     $$\text{Expected Value (EV)} = (\text{Win Rate} \times \text{RR}) - ((1 - \text{Win Rate}) \times 1.0)$$
-  4. **The Strict Time Machine Veto Gate:**
-     * If historical simulation produces **win rate under 68%** or negative Expected Value: **THE TRADE IS DISQUALIFIED & BLOCKED**.
-     * Zero trades without proven mathematical edge can reach the trader.
+  1. **Walk-Forward Historical Simulation:** Simulates identical historical pattern matches bar-by-bar across 400+ past candles.
+  2. **Friction-Adjusted Backtesting:** Deducts taker fees (0.10% round-trip), slippage (0.06%), and funding (0.01%) from every simulated trade.
+  3. **Wilson Score 95% Confidence Interval:** Computes the mathematical lower bound to guarantee that small samples (e.g. 2 wins out of 2 trades) cannot artificially trigger approval:
+     $$W_{\text{lower}} = \frac{\hat{p} + \frac{z^2}{2n} - z \sqrt{\frac{\hat{p}(1-\hat{p})}{n} + \frac{z^2}{4n^2}}}{1 + \frac{z^2}{n}}$$
+  4. **Out-of-Sample Validation:** 70% in-sample / 30% out-of-sample forward verification.
+  5. **Minimum Sample Size Gate:** Requires $\ge 6$ historical matches before trusting pattern edge.
+  6. **Decision Standard:** Requires friction-adjusted Expected Value (EV >= +0.25R) and Profit Factor >= 1.35x.
 
 ---
 
@@ -180,9 +220,11 @@ The system divides trading responsibilities into **10 specialized autonomous age
      $$\text{Contracts} = \left\lfloor \frac{\text{Target Dollar Risk}}{\text{Contract Value} \times \text{Stop Loss Distance}} \right\rfloor$$
      * **Primary Assets (BTC, ETH, XAU):** Fixed dollar risk bounded between **$2.00 and $4.00 USD** (maximum 2% account equity).
      * **Secondary Altcoins:** Hard ceiling at **$2.00 USD maximum risk** and **up to 10% margin**.
-  2. **Anti-Tilt / Anti-Churn Cooling-Off Breaker:** If 2 consecutive stop losses occur within a 2-hour window, automatically engages a **2-Hour Cooling-Off Halt** to protect capital during abnormal market shocks.
-  3. **Daily Account Drawdown Circuit Breaker:** Hard halt engaged if realized daily losses hit **5%**, locking all bot execution until next session.
-  4. **Concurrency & Correlation Limits:** Maximum 3 simultaneous positions with **0 duplicate asset exposure**.
+  2. **Dynamic Drawdown Scaling:** Automatically reduces risk target by 30% if account drawdown $> 2.0\%$.
+  3. **Exchange Lot Multipliers:** Integrates Delta Exchange contract specifications and lot size precision into exact sizing math.
+  4. **Correlated Exposure Gate:** Limits concurrent directional crypto positions to a maximum of 2 assets.
+  5. **Liquidation Buffer Pre-Check:** Ensures isolated liquidation price is at least $3.0\times$ the Stop Loss distance away; auto-clamps leverage if buffer is insufficient.
+  6. **Portfolio Open Risk Ceiling:** Hard cap of **$8.00 USD total open risk** across all active positions combined.
 
 ---
 
@@ -191,10 +233,11 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Execution Timing:** Presents qualified trade proposals to user and awaits input.
 * **Core Responsibilities:**
   1. **Zero-Trust Human Authorization:** **Zero orders ever place automatically.** Every trade requires an explicit user button click.
-  2. **Rich Proposal Card:** Delivers complete trade transparency: asset, direction, limit entry, SL (with % risk), TP (with planned R:R), exact contracts, required margin, 5-TF confluence score, and Time Machine historical backtest proof.
-  3. **Interactive Action Buttons:** `[✅ Confirm & Execute]` and `[❌ Reject Setup]`.
-  4. **Timeout Protection:** Proposals auto-expire after 5–10 minutes to prevent late fills if price moves beyond entry.
-  5. **On-Demand Command Center:** Processes commands directly in chat: `/status`, `/posture`, `/rules`, `/scorecard`, `/trade`, `/scan`, `/positions`, `/orders`, `/close`, `/closeall`.
+  2. **Comprehensive Risk Breakdown Card:** Details asset, direction, limit entry, SL (with dollar risk & % risk), TP (with planned R:R), exact contracts, required margin, estimated liquidation price, and Wilson confidence.
+  3. **Duplicate-Click Atomic Shield:** Atomic state lock prevents double order execution if user taps `[Confirm]` repeatedly.
+  4. **Pre-Execution Price Drift Revalidation:** Re-queries Delta Exchange mark price immediately upon confirmation click; aborts trade if price drifted $> 0.40\%$ during decision window.
+  5. **Interactive Controls:** Supports `/pause` (kill switch), `/resume`, `/posture`, `/rules`, `/scorecard`, `/status`, `/scan`, `/positions`, and `/orders`.
+  6. **Two-Step Safe `/closeall`:** High-risk operations require explicit secondary confirmation dialog (`[🚨 YES, FLATTEN ALL]` / `[❌ CANCEL]`).
 
 ---
 
@@ -202,10 +245,11 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Module:** [`multiagent_team/execution_agent.py`](multiagent_team/execution_agent.py) & [`src/delta_client.py`](src/delta_client.py)
 * **Execution Timing:** Triggered instantly upon user button confirmation.
 * **Core Responsibilities:**
-  1. **HMAC-SHA256 Cryptographic Signing:** Authenticates all REST payloads with exchange timestamps and API keys.
-  2. **Isolated Margin Configuration:** Sets isolated margin (50x on BTC, 25x on ETH, XAU, and Alts) to eliminate cross-margin portfolio contamination.
-  3. **Atomic 3-in-1 Limit Bracket Placement:** Atomically dispatches the primary limit entry order with exchange-native Stop Loss and Take Profit bracket orders linked directly on Delta Exchange's matching engine.
-  4. **Fill Confirmation:** Verifies execution with exchange orderbook and registers trade with the Trailing Sentinel.
+  1. **Client Idempotency Mechanism:** Generates unique `client_order_id` verified against `StateManager` to guarantee zero duplicate orders.
+  2. **Exponential Backoff Retry:** Retries up to 3 attempts with exponential backoff on transient network timeouts or API rate limits.
+  3. **Atomic 3-in-1 Limit Bracket Placement:** Atomically dispatches entry with exchange-native Stop Loss and Take Profit bracket orders.
+  4. **Post-Placement Stop-Loss Verification:** Inspects exchange orderbook to confirm protective Stop Loss order was successfully registered.
+  5. **State Synchronization:** Records full order audit trail in SQLite database.
 
 ---
 
@@ -213,15 +257,16 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Module:** [`src/trailing_stop_manager.py`](src/trailing_stop_manager.py)
 * **Execution Timing:** Runs continuously in a high-frequency 15-second background daemon.
 * **Core Responsibilities:**
-  1. **Live Mark Price Tracking:** Monitors position mark price and computes real-time R-multiple progress.
-  2. **The 5-Stage Scalper Trailing Roadmap:**
+  1. **Exchange-Native Order Modification:** Directly modifies native bracket Stop Loss orders on Delta Exchange.
+  2. **Emergency Missing Stop Detector:** Automatically places an emergency stop market order if an active position is missing stop protection.
+  3. **The 5-Stage Scalper Trailing Roadmap:**
      * **Stage 1 (At +0.50R Profit):** **Lightning Breakeven Shield.** Ratchets Stop Loss to `Entry + 0.05% fee buffer`. Downside risk is 100% eliminated; trade becomes a free roll.
      * **Stage 2 (At +0.80R Profit):** Ratchets Stop Loss to `+0.35R locked profit`. Trade is permanently green.
      * **Stage 3 (At +1.20R Profit):** Ratchets Stop Loss to `+0.75R locked profit`. 75% of initial risk banked in cash.
      * **Stage 4 (At +1.60R Profit):** Ratchets Stop Loss to `+1.25R locked profit`. Pre-target lock.
      * **Stage 5 (At +2.00R / +2.20R Target):** Full Take Profit bracket order executes on the orderbook!
-  3. **MFE & MAE Excursion Tracking:** Continuously tracks Maximum Favorable Excursion (`highest_r_reached`) and Maximum Adverse Excursion (`lowest_r_reached`).
-  4. **Stale Order Cleaner:** Automatically cancels unfilled limit entry orders older than 90 minutes to prevent execution during outdated market regimes.
+  4. **Duplicate Modification Guard:** Suppresses redundant API calls if stop price has not shifted.
+  5. **Partial Fill & Size Sync:** Dynamically updates tracked contract count if position size changes.
 
 ---
 
@@ -229,17 +274,11 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Module:** [`multiagent_team/adaptive_learning.py`](multiagent_team/adaptive_learning.py)
 * **Execution Timing:** Triggered automatically the moment a position exits (TP, BE, or SL).
 * **Core Responsibilities:**
-  1. **Institutional 0–100 Self-Scorecard:** Grades every trade across 3 dimensions:
-     * **Discipline (/30):** Adherence to trend veto, wait for candle body close, proper bracket usage.
-     * **Confluence (/40):** Quality of 5-timeframe alignment, session killzone, liquidity sweep depth.
-     * **Execution Edge (/30):** Retest entry quality, R:R asymmetry, MFE vs. MAE capture ratio.
-  2. **Institutional Letter Grade:** Assigns A+ (90–100), A (80–89), B (70–79), C (60–69), or F (< 60).
-  3. **Root Cause Attribution:** Diagnoses why the trade won (e.g. *"Clean London Open BSL sweep with strong MSS displacement"*) or lost (e.g. *"Choppy session sweep with high adverse excursion"*).
-  4. **Dynamic Pattern Reinforcement & Blacklisting:**
-     * **Reinforced Patterns (Win Rate >= 75%, EV >= +0.50R):** Granted **+8 pts confluence bonus** in future cycles.
-     * **Penalized Patterns (< 50% Win Rate):** Penalized **-15 pts**.
-     * **Blacklisted Setups (< 35% Win Rate or heavy drawdown):** Penalized **-30 pts / Auto-Vetoed**.
-  5. **Telegram Post-Trade Reflection Alert:** Immediately pushes a detailed self-reflection card to Telegram with grade, lessons learned, and updated scorecard statistics.
+  1. **20-Trade Rolling Performance Window:** Evaluates pattern win rates over the last 20 outcomes rather than lifetime statistics to prevent stale bias.
+  2. **Minimum 5-Trade Sample Size Gate:** Requires $\ge 5$ completed trades before granting the full **+8 point reinforcement bonus** (small exploratory +2 bonus for 2–4 trades).
+  3. **Safe Controlled Blacklisting:** Marks failing setups as `NEEDS_REVIEW_PENALIZED` ($-25$ pts) rather than instant permanent bans.
+  4. **Strategy vs Execution Attribution:** Separates market structure thesis quality from fill slippage and execution delay.
+  5. **Telegram Post-Trade Reflection Alert:** Immediately pushes a detailed self-reflection card to Telegram with grade, lessons learned, and scorecard stats.
 
 ---
 
@@ -247,13 +286,53 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Module:** [`multiagent_team/performance_coach.py`](multiagent_team/performance_coach.py)
 * **Execution Timing:** Post-trade audit and maintenance cycles.
 * **Core Responsibilities:**
-  1. **Closed Trade Cohort Auditing:** Ingests persistent data from `state/trade_journal.json` and analyzes performance cohorts by asset, side, and session.
-  2. **Excursion Analytics:** Evaluates MFE vs. MAE ratios to determine whether trailing stop milestones are optimally configured.
-  3. **Dynamic Next-Session Operating Rules Synthesis:** Formulates binding operating rules saved to `state/active_operating_rules.json`:
-     * *Example:* If secondary alts exhibit underperformance, automatically binds a mandatory rule restricting sizing or redirecting 100% focus to BTC/ETH.
-     * *Example:* If BTC liquidity sweeps show high win rate, automatically elevates priority score on BTC setups.
-  4. **Active Enforcement:** The synthesized rules are directly read and enforced by Agent 3 (Strategy) and Agent 5 (Risk) in subsequent scan cycles.
-  5. **Telegram On-Demand Access:** Formats operating rules into an executive summary accessible via the `/rules` command.
+  1. **Closed Trade Cohort Auditing:** Categorizes performance by asset, strategy, session (London / NY / Asia), and market regime.
+  2. **Operating Rules Version Control:** Versions binding rules (`v1.0.0`, `v1.0.1`) stored persistently in SQLite.
+  3. **Automated Rollback Safeguard:** Automatically rolls back to the prior operating rules version if the last 5 trades show $< 20\%$ win rate.
+  4. **Active Rule Governance Workflow:**
+     ```
+     Agent 9 (Pattern Audit) ──> Agent 10 (Propose Rule) ──> StateManager (Version) ──> Strategy & Risk (Enforce)
+     ```
+  5. **Telegram On-Demand Access:** Formats operating rules into an executive summary accessible via `/rules`.
+
+---
+
+## 🛠️ Layer 6: Shared Core Infrastructure
+
+```
+multiagent_team/
+├── orchestrator.py               # Central Orchestrator & State Flow Controller
+└── data_validator.py             # Pre-Flight Market Data Validator
+
+src/
+├── state_manager.py              # Central SQLite State Manager & Recovery Engine
+├── emergency_controller.py       # Global Kill Switch & Emergency Position Controller
+└── monitoring.py                 # Performance & Observability Telemetry System
+```
+
+### 1. Central State Management System (`src/state_manager.py`)
+* **Database:** SQLite (`state/trading_system.db`) with thread-safe connection pooling.
+* **Tables:** `positions`, `orders`, `operating_rules`, `agent_runs`, `market_posture_history`, `trade_audits`.
+* **State Reconciliation:** Reconciles local database records with live Delta Exchange positions every cycle; registers discovered positions and marks closed positions cleanly.
+* **Instant Restart Recovery:** Re-hydrates open positions, active trailing stop stages, and versioned rules instantly on server reboot.
+
+### 2. Market Data Validation Engine (`multiagent_team/data_validator.py`)
+* **Gap & Missing Bar Detection:** Verifies timestamp continuity across expected candle intervals (15m = 900s, 1h = 3600s).
+* **Staleness Guard:** Flags and rejects data if the latest candle is older than 3 intervals.
+* **Price Spike Filter:** Detects flash-crash anomalies or fat-finger spikes exceeding 8% single-bar range.
+* **Ticker Spread Sanity:** Validates spot vs mark price disparity ($< 5\%$).
+
+### 3. Global Kill Switch & Emergency Controller (`src/emergency_controller.py`)
+* **Emergency Halt:** Immediately blocks all new scan evaluations via `/pause` or script.
+* **Order Cleaner:** Cancels all pending unfilled limit entries without touching protective stop-loss orders.
+* **Protective Stop Loss Auditor:** Scans all open positions on Delta Exchange; if any position lacks a Stop Loss order, automatically places an emergency stop market order at 1.5% distance.
+* **Authorized Emergency Flatten:** Supports safe emergency liquidation with explicit secondary confirmation.
+
+### 4. Monitoring & Observability System (`src/monitoring.py`)
+* **Latency Telemetry:** Tracks execution duration per agent across all scan cycles.
+* **API Error Rate:** Monitors Delta Exchange endpoint error rates and latencies.
+* **Categorized Rejections:** Records candidate rejection reasons (`CASH_PRIORITY`, `TIME_MACHINE_VETO`, `RISK_GATE_REJECT`, etc.).
+* **Telegram Delivery Reliability:** Monitors notification success and failure rates.
 
 ---
 
@@ -271,7 +350,7 @@ The system is engineered specifically for **rapid intraday scalp resolutions (30
 * **Non-Negotiable Rule:** A trade is **ONLY** proposed if verified by:
   1. 6-Timeframe Regime Analyst (Score >= 80)
   2. Exposure Coach (Market Health >= 32)
-  3. Time Machine Simulation (Past Win Rate >= 68%, +0.30R minimum EV)
+  3. Time Machine Simulation (Past Win Rate >= 65%, +0.25R minimum EV)
   4. Risk Gatekeeper (Dollar risk capped at $2.00 - $4.00)
   5. User explicit confirmation in Telegram
 * **Capital Preservation Above All:** If the market is choppy, noisy, or consolidating without clean liquidity sweeps, **TAKE ZERO TRADES**. Capital preservation is priority #1.
@@ -282,7 +361,7 @@ The system is engineered specifically for **rapid intraday scalp resolutions (30
 
 The system is controlled via Telegram bot (`@DeltaTradenotifier_bot`):
 
-### 🔕 Silent Mode Engaged (Zero 30-Minute Spam):
+### 🔕 Silent Mode Engaged (Zero Routine Spam):
 The bot operates **100% silently** in the background, only pushing notifications when action is needed:
 1. 🎯 **Trade Setup Found:** Proposal card with `[✅ Confirm & Execute]` / `[❌ Reject Setup]`.
 2. ⚡ **Order Filled:** Fill price, contracts, margin, and orderbook status.
@@ -294,16 +373,18 @@ The bot operates **100% silently** in the background, only pushing notifications
 ### Supported In-Chat Slash Commands:
 | Command | Action |
 | :--- | :--- |
-| `/trade` | Triggers an on-demand scalp scan for A+ setups; sends proposal or confirms: *"No perfect trade or setup found in the market right now. Capital is protected."* |
-| `/posture` | Displays live Market Posture (`AGGRESSIVE`, `MODERATE`, `DEFENSIVE`, `CASH_PRIORITY`), Market Health Score (0–100), Participation Breadth (% > EMA21), and Net Exposure Ceiling. |
-| `/rules` | Displays dynamic Next-Session Operating Rules synthesized by Agent 10: Performance Coach from closed trade audits. |
-| `/scorecard` | Displays Agent 9's self-learning audit, live win rate %, average trade score (/100), and active reinforced vs. blacklisted patterns. |
+| `/trade` | Triggers an on-demand scalp scan for A+ setups; sends proposal or confirms: *"No perfect trade found. Capital protected."* |
+| `/pause` | **Emergency Halt:** Immediately blocks all new scan entries, cancels pending limit orders, and audits Stop Loss protection. |
+| `/resume` | **Resume Operation:** Releases emergency halt and re-enables automated 24/7 scanning. |
+| `/posture` | Displays live Market Posture (`AGGRESSIVE`, `MODERATE`, `DEFENSIVE`, `RECOVERY`, `CASH_PRIORITY`), Health Score, and Breadth. |
+| `/rules` | Displays dynamic version-controlled Next-Session Operating Rules synthesized by Agent 10: Performance Coach. |
+| `/scorecard` | Displays Agent 9's rolling self-learning audit, live win rate %, average trade score (/100), and active reinforced patterns. |
 | `/positions` | Displays active positions: direction, contracts, entry, current mark price, SL, TP, and unrealized PnL ($ and %). |
 | `/status` | Returns 24/7 cloud health, active positions, open orders, and available wallet balance. |
 | `/scan` | Triggers an immediate multi-timeframe scan across all primary and secondary assets. |
 | `/orders` | Displays active bracket Stop-Loss and Take-Profit orders on Delta Exchange. |
 | `/close <symbol>` | Instantly market-closes a specific active position and cancels its bracket orders (e.g. `/close BTCUSD`). |
-| `/closeall` | Emergency panic switch: market-flattens all active positions and cancels all open orders. |
+| `/closeall` | **Emergency Panic Switch:** Prompts two-step confirmation before market-flattening all active positions. |
 | `/help` | Displays command usage and help manual. |
 
 ---
@@ -324,7 +405,7 @@ DEFAULT_SYMBOLS=BTCUSD,ETHUSD,XAUUSD,SOLUSD,ADAUSD,DOGEUSD,XRPUSD
 # Risk Management & Discipline Gates
 MAX_RISK_PER_TRADE_PCT=0.02
 MAX_CONCURRENT_POSITIONS=3
-MAX_DAILY_DRAWDOWN_PCT=0.05
+MAX_DAILY_DRAWDOWN_PCT=0.03
 MIN_REWARD_TO_RISK_RATIO=2.0
 
 # Leverage Directives
@@ -345,7 +426,7 @@ The system is deployed natively on **Render.com** via [`server.py`](server.py) a
 
 1. **Deploy to Render:** Connect your GitHub repository as a Web Service with start command `python server.py`.
 2. **Keep-Alive Monitor:** Ping `https://your-service.onrender.com/health` every 5 minutes using [UptimeRobot](https://uptimerobot.com) to prevent cloud sleep.
-3. **True Laptop-Closed Automation:** The bot scans markets continuously every 120s, monitors active orders every 15s, trails stops automatically, and pings your phone whenever an action is needed.
+3. **Live Health Endpoint:** Query `https://your-service.onrender.com/status` to inspect live cycles, active positions, and Delta Exchange connectivity.
 
 ---
 
@@ -353,26 +434,31 @@ The system is deployed natively on **Render.com** via [`server.py`](server.py) a
 
 ```
 Multi Agent Trading Bot/
-├── multiagent_team/                  # The 10 Autonomous Agents
-│   ├── orchestrator.py               # Central Coordinator & Scan Pipeline
-│   ├── regime_analyst.py             # Agent 1: 6-Timeframe Regime Analyst
-│   ├── exposure_coach.py             # Agent 2: Exposure Coach & Market Posture
-│   ├── strategy_agent.py             # Agent 3: Alpha Strategy & Candidate Generator
-│   ├── time_machine_agent.py         # Agent 4: Time Machine Probability Engine
-│   ├── risk_gatekeeper.py            # Agent 5: Pre-Trade Discipline & Fixed Dollar Sizing
-│   ├── execution_agent.py            # Agent 7: Delta Exchange Execution Engine
+├── multiagent_team/                  # The 10 Specialized Autonomous Agents & Layer 6 Controllers
+│   ├── orchestrator.py               # Central Multi-Agent Orchestrator (6-Layer Sequence)
+│   ├── data_validator.py             # Pre-Flight Market Data Validation Engine
+│   ├── regime_analyst.py             # Agent 1: 6-Timeframe Regime Analyst (ADX, VWAP, Volatility)
+│   ├── exposure_coach.py             # Agent 2: Exposure Coach & Market Posture (Recovery Mode)
+│   ├── strategy_agent.py             # Agent 3: Alpha Strategy & Candidate Generator (VWAP & Spread Filter)
+│   ├── time_machine_agent.py         # Agent 4: Time Machine Probability Engine (Wilson 95% CI & Friction)
+│   ├── risk_gatekeeper.py            # Agent 5: Pre-Trade Discipline & Dollar Sizing (Liquidation Buffer)
+│   ├── execution_agent.py            # Agent 7: Delta Exchange Execution Engine (Idempotency & Retries)
 │   ├── portfolio_monitor.py          # Portfolio State Monitor & Cleaner
-│   ├── adaptive_learning.py          # Agent 9: Adaptive Learning & Self-Reflection
-│   └── performance_coach.py          # Agent 10: Trade Performance Coach & Operating Rules
+│   ├── adaptive_learning.py          # Agent 9: Adaptive Learning & Self-Reflection (20-Trade Rolling Window)
+│   └── performance_coach.py          # Agent 10: Performance Coach & Operating Rules (Version & Rollback)
 ├── src/                              # Core Infrastructure Engines
+│   ├── state_manager.py              # Central SQLite State Management System
+│   ├── emergency_controller.py       # Global Kill Switch & Emergency Position Controller
+│   ├── monitoring.py                 # Telemetry, Latency & Error Monitoring System
 │   ├── delta_client.py               # HMAC-SHA256 Delta Exchange REST Client
-│   ├── technical_analysis.py         # SMC Liquidity Sweeps, MSS & OTE Retest
-│   ├── trailing_stop_manager.py      # Agent 8: Scalper Trailing Sentinel (+0.50R BE Shield)
-│   ├── telegram_bot.py               # Agent 6: Telegram 2-Way Human Gate & Slash Commands
+│   ├── technical_analysis.py         # SMC Liquidity Sweeps, MSS, ADX, VWAP & News Detection
+│   ├── trailing_stop_manager.py      # Agent 8: Scalper Trailing Sentinel (+0.50R BE Shield & Emergency SL)
+│   ├── telegram_bot.py               # Agent 6: Telegram 2-Way Human Gate & Slash Commands (/pause, /resume)
 │   ├── telegram_notifier.py          # Real-Time Lifecycle Push Notifications
 │   ├── risk_manager.py               # Fixed Dollar Risk & Cooling-Off Breakers
 │   └── journal.py                    # Trade Memory with MFE & MAE Excursion Tracking
-├── state/                            # Persistent Runtime State
+├── state/                            # Persistent Runtime State (SQLite DB + JSON fallbacks)
+│   ├── trading_system.db             # Central SQLite database (positions, orders, rules, telemetry)
 │   ├── circuit_breaker_state.json    # Drawdown & consecutive loss cooldown tracker
 │   ├── trailing_stop_state.json      # Live bracket trailing stages & MFE/MAE
 │   ├── trade_journal.json            # Completed trade histories
@@ -382,10 +468,10 @@ Multi Agent Trading Bot/
 ├── server.py                         # 24/7 Cloud Health Responder & Silent Daemon
 ├── render.yaml                       # Cloud deployment specification
 ├── requirements.txt                  # Minimal Python dependencies
-├── generate_diagram.py               # Script generating 2400x1550 Architecture PNG
-├── workflow_architecture_diagram.png # High-Resolution PNG Architecture Diagram
+├── workflow_architecture_diagram.png # High-Resolution PNG Architecture Diagram (2400x1550)
 ├── workflow_architecture_diagram.svg # Scalable Vector Architecture Diagram
 ├── workflow_architecture.html        # Interactive HTML Architecture Viewer
+├── LICENSE                           # MIT License
 └── README.md                         # Documentation
 ```
 

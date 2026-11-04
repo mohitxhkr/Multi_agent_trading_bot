@@ -141,3 +141,4 @@ class SystemMonitor:
                 json.dump(report, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save system metrics: {e}")
+

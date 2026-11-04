@@ -65,6 +65,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             active = [p for p in raw_pos if int(p.get("size", 0)) != 0]
             response_data = {
                 "bot": "Delta Exchange Multi-Agent 24/7 Trading Bot",
+                "version": "2.0.0-institutional",
+                "architecture": "6-Layer 10-Agent System",
                 "status": scanner_status["status"],
                 "cycles_completed": scanner_status["cycle_count"],
                 "last_scan": scanner_status["last_scan_time"],

@@ -163,3 +163,4 @@ class MarketDataValidator:
             "mark_price": mark_price,
             "issues": issues
         }
+

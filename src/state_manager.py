@@ -426,3 +426,4 @@ class StateManager:
                 reconciled["orphans_closed"].append(lp["symbol"])
 
         return reconciled
+

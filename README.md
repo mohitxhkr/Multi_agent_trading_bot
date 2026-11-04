@@ -18,62 +18,68 @@
 
 ## 🏛️ System Architecture
 
-```mermaid
-flowchart TD
-    subgraph CloudEnv ["☁️ 24/7 Cloud Autonomous Runtime (Render)"]
-        Scanner["Continuous Market Scanner (15m/1H/4H/1D)"]
-        Sentinel["Trailing Stop Sentinel (15s Loop)"]
-    end
+<p align="center">
+  <a href="https://raw.githubusercontent.com/mohitxhkr/Multi_agent_trading_bot/main/workflow_architecture_diagram.png" target="_blank">
+    <img src="workflow_architecture_diagram.png" alt="Delta Exchange Multi-Agent 24/7 Trading Architecture" width="100%" style="border-radius: 8px;" />
+  </a>
+</p>
 
-    subgraph AnalysisEngine ["🧠 6-Timeframe Institutional Confluence (Agent 1)"]
-        M15["15m Scalp Structure<br/>Liquidity Sweeps (BSL/SSL)<br/>Wick Rejection >= 25%<br/>MSS & EMA9/21 Pullbacks"]
-        H1_H4["1H & 4H Trend Context<br/>Cycle Momentum Stack<br/>Dynamic RSI Support/Resistance"]
-        D1_W1["Daily & Weekly Trend Anchor<br/>High-Timeframe Trend Veto<br/>Monthly Open Expansion"]
-    end
-
-    subgraph StrategyRisk ["🛡️ Alpha & Pre-Trade Discipline (Agents 2 & 3)"]
-        Strategy["Agent 2: Strategy Generator<br/>• Primary Focus: BTC, ETH, XAU (+10 score)<br/>• Score Threshold >= 75 (80-90% Win-Rate)<br/>• Tight Invalidation SL: 0.20% - 0.55%<br/>• Achievable Intraday TP: 2.0:1 R:R"]
-        Risk["Agent 3: Risk Gatekeeper<br/>• Drawdown Circuit Breaker (< 5% max)<br/>• Capital Sizing: 75% to 95% available margin<br/>• Leverage: 50x Isolated BTC / 25x Alts & Gold<br/>• Max 3 positions · 0 duplicate symbols"]
-    end
-
-    subgraph HumanGate ["📱 Telegram 2-Way Human-in-the-Loop Gate (Agent 4)"]
-        TG_Card["Interactive Trade Proposal Card<br/>Full Reasoning, Levels, Risk & R:R"]
-        ConfirmBtn["[✅ Confirm & Execute]"]
-        RejectBtn["[❌ Reject Setup]"]
-    end
-
-    subgraph ExecutionBroker ["⚡ Order Execution & Exchange Infrastructure (Agent 5)"]
-        DeltaExec["Delta Exchange API (HMAC-SHA256)<br/>Set Leverage -> Submit 3-in-1 Atomic Bracket<br/>(Limit Entry + Native SL + Native TP)"]
-    end
-
-    subgraph ProfitShield ["🔒 Dynamic Profit Preservation Sentinel"]
-        BE_Stage["Stage 1: +0.70R Gain<br/>SL -> Entry + Fee Buffer<br/>(ZERO DOWNSIDE RISK)"]
-        Lock_Stage["Stage 2: +1.30R Gain<br/>SL -> +0.60R Profit<br/>(GUARANTEED PROFIT)"]
-        Target_Stage["Stage 3: +2.00R Gain<br/>Take Full Profit or Trail<br/>(2.0R Collected)"]
-    end
-
-    Scanner --> AnalysisEngine
-    AnalysisEngine --> Strategy
-    Strategy --> Risk
-    Risk --> TG_Card
-    TG_Card --> ConfirmBtn
-    TG_Card --> RejectBtn
-    RejectBtn -->|Order Discarded| Cancelled["Zero Risk · Safe Discard"]
-    ConfirmBtn -->|User Confirms| DeltaExec
-    DeltaExec --> Sentinel
-    Sentinel --> BE_Stage
-    BE_Stage --> Lock_Stage
-    Lock_Stage --> Target_Stage
-```
+> **📥 Downloadable Architecture Assets:**  
+> • **[Download High-Resolution PNG Image (1800 × 1250)](https://raw.githubusercontent.com/mohitxhkr/Multi_agent_trading_bot/main/workflow_architecture_diagram.png)**  
+> • **[Download Scalable Vector (SVG Diagram)](workflow_architecture_diagram.svg)**  
+> • **[Open Interactive HTML Architecture Viewer](workflow_architecture.html)**
 
 ---
 
-## 📥 Visual Architecture Diagrams
+### 🔄 End-to-End Workflow Flowchart
 
-For offline review and print presentations:
-* **[High-Resolution Graphic (SVG Vector Diagram)](workflow_architecture_diagram.svg)**
-* **[Interactive HTML Architecture Viewer](workflow_architecture.html)**
-* **[PNG Architecture Diagram](workflow_architecture_diagram.png)**
+```mermaid
+flowchart TD
+    subgraph Cloud ["☁️ 24/7 Cloud Autonomous Runtime (Render)"]
+        Scanner["Continuous Market Scanner (Every 120s)"]
+        Sentinel["Trailing Stop Sentinel (15s Loop)"]
+    end
+
+    subgraph Analyst ["🧠 6-Timeframe Institutional Confluence (Agent 1)"]
+        M15["15m Scalp Structure: BSL/SSL Sweeps + MSS"]
+        H1_H4["1H & 4H Trend Momentum Stack & RSI"]
+        D1_W1["Daily & Weekly Trend Anchor (Trend Veto)"]
+    end
+
+    subgraph StrategyRisk ["🛡️ Alpha & Discipline Gates (Agents 2 & 3)"]
+        Strategy["Agent 2: Strategy Generator (Score 75+)"]
+        Risk["Agent 3: Risk Gatekeeper (50x BTC / 25x Alts)"]
+    end
+
+    subgraph TelegramGate ["📱 Telegram 2-Way Gate (Agent 4)"]
+        TG["Proposal Card with Full Reasoning"]
+        Confirm["User Taps: Confirm & Execute"]
+        Reject["User Taps: Reject Setup"]
+    end
+
+    subgraph ExecutionBroker ["⚡ Delta Exchange Infrastructure (Agent 5)"]
+        Delta["Atomic 3-in-1 Limit Bracket (Entry + Native SL + TP)"]
+    end
+
+    subgraph TrailingShield ["🔒 Profit Preservation Sentinel"]
+        BE["Stage 1: At +0.70R -> Move SL to Breakeven (0 Risk)"]
+        Lock["Stage 2: At +1.30R -> Lock +0.60R Profit in Bank"]
+        Target["Stage 3: At +2.00R -> Collect Full 2.0R Target"]
+    end
+
+    Scanner --> Analyst
+    Analyst --> Strategy
+    Strategy --> Risk
+    Risk --> TG
+    TG --> Confirm
+    TG --> Reject
+    Reject -->|Order Discarded| Cancelled["Zero Risk · Safe Discard"]
+    Confirm -->|User Confirmed| Delta
+    Delta --> Sentinel
+    Sentinel --> BE
+    BE --> Lock
+    Lock --> Target
+```
 
 ---
 

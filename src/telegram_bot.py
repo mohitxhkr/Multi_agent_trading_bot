@@ -319,13 +319,14 @@ class TelegramConfirmationBot:
                 if not text.startswith("/"):
                     continue
 
-                cmd = text.split()[0].lower()
+                full_text = text.strip()
+                cmd = full_text.split()[0].lower()
                 logger.info(f"Received Telegram command: {cmd}")
-                self._handle_command(cmd, orchestrator)
+                self._handle_command(cmd, orchestrator, full_text=full_text)
         except Exception as e:
             logger.error(f"Error checking Telegram commands: {e}")
 
-    def _handle_command(self, cmd: str, orchestrator=None) -> None:
+    def _handle_command(self, cmd: str, orchestrator=None, full_text: str = "") -> None:
         """Route user slash command to response."""
         if not orchestrator:
             self.send_message("⚠️ Orchestrator unavailable. Bot is initializing.")
@@ -491,7 +492,12 @@ class TelegramConfirmationBot:
         elif cmd in ["/orders", "/orderbook"]:
             try:
                 orders_res = client.get_open_orders()
-                open_orders = orders_res.get("result", []) if orders_res.get("success") else []
+                if not orders_res.get("success"):
+                    err = orders_res.get("error", "Failed to query Delta orders")
+                    self.send_message(f"⚠️ <b>Could not fetch orders from Delta Exchange:</b>\n<code>{err}</code>")
+                    return
+
+                open_orders = orders_res.get("result", [])
                 if not open_orders:
                     self.send_message("📋 <b>No pending orders on orderbook.</b>")
                 else:
@@ -509,7 +515,7 @@ class TelegramConfirmationBot:
             except Exception as e:
                 self.send_message(f"⚠️ Error fetching orders: {e}")
 
-        elif cmd.startswith("/closeall") or cmd.startswith("/panic"):
+        elif cmd in ["/closeall", "/panic"]:
             try:
                 self.send_message("🚨 <i>Emergency Close All initiated... Flattening positions and cancelling orders.</i>")
                 pos_res = client.get_positions()
@@ -530,8 +536,8 @@ class TelegramConfirmationBot:
             except Exception as e:
                 self.send_message(f"⚠️ Error executing closeall: {e}")
 
-        elif cmd.startswith("/close"):
-            parts = cmd.split()
+        elif cmd == "/close":
+            parts = full_text.split()
             if len(parts) < 2:
                 self.send_message("⚠️ Please specify symbol to close, e.g.: <code>/close BTCUSD</code> or use <code>/closeall</code>")
             else:

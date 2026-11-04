@@ -103,25 +103,16 @@ def run_scanner_loop():
     )
     telegram.send_message(startup_msg)
 
-    pulse_interval = int(os.getenv("TELEGRAM_PULSE_CYCLES", "15"))  # ~Every 30 minutes
+    logger.info("Silent 24/7 background scanner engaged. Push notifications sent ONLY on trade proposals & execution exits.")
 
     while True:
         try:
             scanner_status["cycle_count"] += 1
             scanner_status["last_scan_time"] = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
             
+            # Runs market cycle: only alerts Telegram when a qualified setup (score >= 75) is found!
             result = orchestrator.run_trading_cycle()
             scanner_status["last_result"] = result
-
-            # Send periodic live scan pulse to Telegram (every ~30 mins or cycle 1)
-            if scanner_status["cycle_count"] == 1 or (scanner_status["cycle_count"] % pulse_interval == 0):
-                try:
-                    scan_data = result.get("scan_results") if isinstance(result, dict) else None
-                    pulse_text = orchestrator.get_market_digest_text(scan_data)
-                    orchestrator.telegram_bot.send_message(pulse_text)
-                    logger.info("Dispatched periodic scan pulse to Telegram.")
-                except Exception as e:
-                    logger.error(f"Failed to dispatch periodic scan pulse: {e}")
         except Exception as e:
             logger.error(f"Scanner exception: {e}", exc_info=True)
 

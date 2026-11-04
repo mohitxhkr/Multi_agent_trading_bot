@@ -344,19 +344,33 @@ class TelegramConfirmationBot:
                 orders_res = client.get_open_orders()
                 open_orders = orders_res.get("result", []) if orders_res.get("success") else []
 
-                status_msg = (
-                    "🤖 <b>[DELTA 24/7 CLOUD BOT STATUS]</b>\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "• <b>Status:</b> 🟢 <b>ACTIVE & SCANNING 24/7</b>\n"
-                    f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code>\n"
-                    f"• <b>Active Positions:</b> <b>{len(active_pos)}</b>\n"
-                    f"• <b>Pending Orders:</b> <b>{len(open_orders)}</b>\n"
-                    "• <b>Core Focus:</b> <b>BTC, ETH, XAU (Gold)</b>\n"
-                    "• <b>2-Way Confirmation:</b> ✅ <b>STRICTLY REQUIRED</b>\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "⚡ <i>Type /scan for instant analysis or /orders to see orderbook.</i>"
-                )
-                self.send_message(status_msg)
+                status_lines = [
+                    "🤖 <b>[DELTA 24/7 CLOUD BOT STATUS]</b>",
+                    "━━━━━━━━━━━━━━━━━━━━━━",
+                    "• <b>Cloud Status:</b> 🟢 <b>SCANNING 24/7 (SILENT MODE)</b>",
+                    f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code>",
+                    f"• <b>Active Positions:</b> <b>{len(active_pos)}</b> | <b>Open Orders:</b> <b>{len(open_orders)}</b>",
+                    "• <b>Notifications:</b> ⚡ <b>Only on Trade Signals & Exits</b>",
+                    "• <b>Core Focus:</b> 🌟 <b>BTC, ETH, XAU (Gold)</b>"
+                ]
+
+                if active_pos:
+                    status_lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+                    status_lines.append("📊 <b>ACTIVE RUNNING POSITION:</b>")
+                    for p in active_pos:
+                        sym = p.get("product_symbol")
+                        raw_size = int(p.get("size", 0))
+                        dir_tag = "🟢 LONG" if raw_size > 0 else "🔴 SHORT"
+                        ent = float(p.get("entry_price", 0))
+                        mark = float(p.get("mark_price", 0))
+                        pnl = float(p.get("unrealized_pnl", 0))
+                        pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+                        status_lines.append(f"• <b>{sym} {dir_tag}:</b> {abs(raw_size):,} contracts")
+                        status_lines.append(f"  Entry: <code>${ent:.5f}</code> | Mark: <code>${mark:.5f}</code> | PnL: <b>{pnl_str}</b>")
+
+                status_lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+                status_lines.append("⚡ <i>Type /positions for full risk spec or /scan for on-demand analysis.</i>")
+                self.send_message("\n".join(status_lines))
             except Exception as e:
                 self.send_message(f"⚠️ Error fetching status: {e}")
 
@@ -372,18 +386,49 @@ class TelegramConfirmationBot:
             try:
                 pos_res = client.get_positions()
                 active_pos = [p for p in pos_res.get("result", []) if int(p.get("size", 0)) != 0] if pos_res.get("success") else []
+                orders_res = client.get_open_orders()
+                open_orders = orders_res.get("result", []) if orders_res.get("success") else []
+
                 if not active_pos:
                     self.send_message("📊 <b>No open positions.</b> Capital is 100% in cash USD.")
                 else:
                     lines = ["📊 <b>[ACTIVE OPEN POSITIONS]</b>", "━━━━━━━━━━━━━━━━━━━━━━"]
                     for p in active_pos:
                         sym = p.get("product_symbol")
-                        sz = p.get("size")
+                        raw_size = int(p.get("size", 0))
+                        dir_str = "🟢 LONG" if raw_size > 0 else "🔴 SHORT"
+                        contracts = abs(raw_size)
                         ent = float(p.get("entry_price", 0))
+                        mark = float(p.get("mark_price", 0))
                         pnl = float(p.get("unrealized_pnl", 0))
-                        lines.append(f"• <b>{sym}</b>: Size {sz} | Entry: <code>${ent:,.4f}</code> | PnL: <b>${pnl:,.2f}</b>")
+
+                        # Look up active bracket SL and TP orders
+                        pid = p.get("product_id")
+                        sl_price = "None"
+                        tp_price = "None"
+                        for o in open_orders:
+                            if o.get("product_id") == pid:
+                                s_type = o.get("stop_order_type")
+                                if s_type == "stop_loss_order":
+                                    sl_price = f"${float(o.get('stop_price') or 0):.5f}"
+                                elif s_type == "take_profit_order":
+                                    tp_price = f"${float(o.get('stop_price') or 0):.5f}"
+
+                        pinfo = client.get_product_info(sym)
+                        cval = float(pinfo.get("contract_value", 1.0)) if pinfo else 1.0
+                        lev = 25 if "BTC" not in sym else 50
+                        margin = (contracts * cval * ent) / lev
+                        roi_pct = (pnl / margin * 100.0) if margin > 0 else 0.0
+                        pnl_badge = f"+${pnl:.2f} (+{roi_pct:.2f}%)" if pnl >= 0 else f"-${abs(pnl):.2f} ({roi_pct:.2f}%)"
+
+                        lines.append(f"• <b>{sym}</b> {dir_str}")
+                        lines.append(f"  ↳ Contracts: <b>{contracts:,}</b> ({lev}x Isolated | Margin: ${margin:.2f})")
+                        lines.append(f"  ↳ Entry: <code>${ent:.5f}</code> | Current Mark: <code>${mark:.5f}</code>")
+                        lines.append(f"  ↳ Stop Loss: <code>{sl_price}</code> | Take Profit: <code>{tp_price}</code>")
+                        lines.append(f"  ↳ Unrealized PnL: <b>{pnl_badge}</b>")
+                        lines.append("")
                     lines.append("━━━━━━━━━━━━━━━━━━━━━━")
-                    lines.append("🛡️ <i>Protected by Trailing Stop Manager (15s loop).</i>")
+                    lines.append("🛡️ <i>Actively monitored by Trailing Stop Manager (+0.70R BE Shield).</i>")
                     self.send_message("\n".join(lines))
             except Exception as e:
                 self.send_message(f"⚠️ Error fetching positions: {e}")

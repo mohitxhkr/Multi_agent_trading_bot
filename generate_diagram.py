@@ -58,22 +58,22 @@ def generate_diagram():
         d.text((x + card_w - 155, y + 20), badge_text, fill="#ffffff", font=f_card_tag)
 
     # -------------------------------------------------------------
-    # CARD 1: AGENT 1 & 1.5 (REGIME ANALYST & EXPOSURE COACH)
+    # CARD 1: AGENTS 1 & 2 (REGIME ANALYST & EXPOSURE COACH)
     # -------------------------------------------------------------
-    draw_card_base(col1_x, row1_y, "🔍 AGENTS 1 & 1.5: REGIME & EXPOSURE COACH", "POSTURE & BREADTH", "#388bfd", "#1e3a5f", "#0284c7")
+    draw_card_base(col1_x, row1_y, "🔍 AGENTS 1 & 2: REGIME & EXPOSURE COACH", "POSTURE & BREADTH", "#388bfd", "#1e3a5f", "#0284c7")
     cy = row1_y + 80
     d.text((col1_x + 25, cy), "Macro Order Flow & Market Posture Engine:", fill="#38bdf8", font=f_sec_title)
     
     # 3 mini boxes
     box_y = cy + 30
     d.rounded_rectangle([(col1_x + 25, box_y), (col1_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col1_x + 40, box_y + 12), "1M, 1W & 1D:", fill="#38bdf8", font=f_box_title)
-    d.text((col1_x + 160, box_y + 13), "Higher-TF Trend Anchor (Mandatory trend veto: no counter-trend)", fill="#c9d1d9", font=f_box_sub)
+    d.text((col1_x + 40, box_y + 12), "Agent 1 (6-TF Regime):", fill="#38bdf8", font=f_box_title)
+    d.text((col1_x + 245, box_y + 13), "Higher-TF Trend Anchor (Mandatory trend veto: no counter-trend)", fill="#c9d1d9", font=f_box_sub)
 
     box_y += 52
     d.rounded_rectangle([(col1_x + 25, box_y), (col1_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col1_x + 40, box_y + 12), "Agent 1.5 Exposure Coach:", fill="#38bdf8", font=f_box_title)
-    d.text((col1_x + 270, box_y + 13), "Market Breadth (% > EMA21) + Health Score (0-100)", fill="#c9d1d9", font=f_box_sub)
+    d.text((col1_x + 40, box_y + 12), "Agent 2 (Exposure Coach):", fill="#38bdf8", font=f_box_title)
+    d.text((col1_x + 265, box_y + 13), "Market Breadth (% > EMA21) + Health Score (0-100)", fill="#c9d1d9", font=f_box_sub)
 
     box_y += 52
     d.rounded_rectangle([(col1_x + 25, box_y), (col1_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
@@ -88,9 +88,9 @@ def generate_diagram():
     d.text((col1_x + 25, by + 78), "• Institutional Killzones: Confluence boost during London & New York Open.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
-    # CARD 2: AGENT 2 (STRATEGY GENERATOR)
+    # CARD 2: AGENT 3 (STRATEGY GENERATOR)
     # -------------------------------------------------------------
-    draw_card_base(col2_x, row1_y, "💡 AGENT 2: ALPHA & STRATEGY GENERATOR", "ALPHA ENGINE", "#8b5cf6", "#3b1d6e", "#7c3aed")
+    draw_card_base(col2_x, row1_y, "💡 AGENT 3: ALPHA STRATEGY GENERATOR", "ALPHA ENGINE", "#8b5cf6", "#3b1d6e", "#7c3aed")
     cy = row1_y + 80
     d.text((col2_x + 25, cy), "Candidate Setup Edge & Confluence Scoring:", fill="#c084fc", font=f_sec_title)
 
@@ -116,9 +116,9 @@ def generate_diagram():
     d.text((col2_x + 25, by + 78), "• Trade Proposal Output: Emits exact Entry, SL, TP, and Confluence Matrix.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
-    # CARD 3: AGENT 2.5 (TIME MACHINE SIMULATOR)
+    # CARD 3: AGENT 4 (TIME MACHINE SIMULATOR)
     # -------------------------------------------------------------
-    draw_card_base(col3_x, row1_y, "⏳ AGENT 2.5: TIME MACHINE PROBABILITY SIMULATOR", "BACKTEST GATE", "#f59e0b", "#522b07", "#d97706")
+    draw_card_base(col3_x, row1_y, "⏳ AGENT 4: TIME MACHINE SIMULATOR", "BACKTEST GATE", "#f59e0b", "#522b07", "#d97706")
     cy = row1_y + 80
     d.text((col3_x + 25, cy), "Pre-Execution Historical Walk-Forward Simulation:", fill="#fbbf24", font=f_sec_title)
 
@@ -144,9 +144,9 @@ def generate_diagram():
     d.text((col3_x + 25, by + 78), "• Telegram Proof: Past sample size, win rate %, and EV embedded into alert.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
-    # CARD 4: AGENT 3 (RISK GATEKEEPER)
+    # CARD 4: AGENT 5 (RISK GATEKEEPER)
     # -------------------------------------------------------------
-    draw_card_base(col1_x, row2_y, "🛡️ AGENT 3: PRE-TRADE DISCIPLINE & SIZING GATE", "RISK GATE", "#ef4444", "#501313", "#dc2626")
+    draw_card_base(col1_x, row2_y, "🛡️ AGENT 5: PRE-TRADE DISCIPLINE & SIZING GATE", "RISK GATE", "#ef4444", "#501313", "#dc2626")
     cy = row2_y + 80
     d.text((col1_x + 25, cy), "Institutional Fixed Dollar Risk Model:", fill="#f87171", font=f_sec_title)
 
@@ -171,9 +171,9 @@ def generate_diagram():
     d.text((col1_x + 25, by + 78), "• Leverage Directives: 50x Isolated on BTC | 25x Isolated on ETH, XAU, Alts.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
-    # CARD 5: TELEGRAM TWO-WAY HUMAN GATE
+    # CARD 5: AGENT 6 (TELEGRAM TWO-WAY HUMAN GATE)
     # -------------------------------------------------------------
-    draw_card_base(col2_x, row2_y, "📱 TELEGRAM 2-WAY HUMAN-IN-THE-LOOP GATE", "HUMAN GATE", "#06b6d4", "#083344", "#0891b2")
+    draw_card_base(col2_x, row2_y, "📱 AGENT 6: TELEGRAM 2-WAY HUMAN GATE", "HUMAN GATE", "#06b6d4", "#083344", "#0891b2")
     cy = row2_y + 80
     d.text((col2_x + 25, cy), "Zero-Trust Interactive Confirmation Protocol:", fill="#38bdf8", font=f_sec_title)
 
@@ -197,20 +197,20 @@ def generate_diagram():
     d.text((col2_x + 25, by + 78), "• User Discretion: Trader retains 100% final authority over portfolio actions.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
-    # CARD 6: AGENTS 4, 5, 6 & 7 (EXECUTION, LEARNING & PERFORMANCE COACH)
+    # CARD 6: AGENTS 7, 8, 9 & 10 (EXECUTION, TRAILING, LEARNING & COACH)
     # -------------------------------------------------------------
-    draw_card_base(col3_x, row2_y, "⚡ AGENTS 4, 5, 6 & 7: EXECUTION & PERFORMANCE COACH", "EXECUTE & LEARN", "#10b981", "#064e3b", "#059669")
+    draw_card_base(col3_x, row2_y, "⚡ AGENTS 7-10: EXECUTION & LEARNING", "EXECUTE & LEARN", "#10b981", "#064e3b", "#059669")
     cy = row2_y + 80
     d.text((col3_x + 25, cy), "Delta Execution, Trailing Sentinel & Performance Coach:", fill="#34d399", font=f_sec_title)
 
     box_y = cy + 30
     d.rounded_rectangle([(col3_x + 25, box_y), (col3_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col3_x + 40, box_y + 12), "Atomic Bracket Orders & 15s Trailing Sentinel", fill="#34d399", font=f_box_title)
-    d.text((col3_x + 445, box_y + 13), "+0.50R Breakeven Shield to +2.2R TP", fill="#8b949e", font=f_box_sub)
+    d.text((col3_x + 40, box_y + 12), "Agents 7 & 8: Atomic Execution & 15s Trailing Sentinel", fill="#34d399", font=f_box_title)
+    d.text((col3_x + 490, box_y + 13), "+0.50R BE Shield to +2.2R TP", fill="#8b949e", font=f_box_sub)
 
     box_y += 52
     d.rounded_rectangle([(col3_x + 25, box_y), (col3_x + card_w - 25, box_y + 60)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col3_x + 40, box_y + 10), "Agent 6 & 7: Adaptive Learning & Performance Coach:", fill="#34d399", font=f_box_title)
+    d.text((col3_x + 40, box_y + 10), "Agents 9 & 10: Adaptive Learning & Performance Coach:", fill="#34d399", font=f_box_title)
     d.text((col3_x + 40, box_y + 35), "0-100 Self-Scorecard · Pattern Memory · Binding Operating Rules (/rules)", fill="#c9d1d9", font=f_box_sub)
 
     by = box_y + 70
@@ -218,6 +218,7 @@ def generate_diagram():
     d.text((col3_x + 25, by + 26), "• Pattern Avoidance: Failing patterns penalized (-15) or permanently blacklisted.", fill="#8b949e", font=f_body)
     d.text((col3_x + 25, by + 52), "• MFE & MAE Postmortem: Tracks peak potential vs adverse excursion on every exit.", fill="#8b949e", font=f_body)
     d.text((col3_x + 25, by + 78), "• Continuous Evolution: Dynamic rules update each session (/rules, /scorecard).", fill="#8b949e", font=f_body)
+
 
     # -------------------------------------------------------------
     # FOOTER: INFRASTRUCTURE & LIFECYCLE SUMMARY

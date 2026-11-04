@@ -58,12 +58,23 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
+            client = DeltaExchangeClient()
+            conn = client.test_connection()
+            pos = client.get_positions()
+            raw_pos = pos.get("result", []) if pos.get("success") else []
+            active = [p for p in raw_pos if int(p.get("size", 0)) != 0]
             response_data = {
                 "bot": "Delta Exchange Multi-Agent 24/7 Trading Bot",
                 "status": scanner_status["status"],
                 "cycles_completed": scanner_status["cycle_count"],
                 "last_scan": scanner_status["last_scan_time"],
-                "uptime_started": scanner_status["uptime_started"]
+                "uptime_started": scanner_status["uptime_started"],
+                "authenticated": conn.get("authenticated", False),
+                "auth_message": conn.get("message", ""),
+                "positions_success": pos.get("success", False),
+                "active_positions_count": len(active),
+                "active_symbols": [p.get("product_symbol") for p in active],
+                "positions_error": pos.get("error") if not pos.get("success") else None
             }
             self.wfile.write(json.dumps(response_data, indent=2).encode("utf-8"))
         else:

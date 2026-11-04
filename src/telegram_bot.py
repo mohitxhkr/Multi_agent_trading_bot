@@ -388,7 +388,12 @@ class TelegramConfirmationBot:
         elif cmd in ["/positions", "/pos"]:
             try:
                 pos_res = client.get_positions()
-                active_pos = [p for p in pos_res.get("result", []) if int(p.get("size", 0)) != 0] if pos_res.get("success") else []
+                if not pos_res.get("success"):
+                    err = pos_res.get("error", "Failed to query Delta Exchange API")
+                    self.send_message(f"⚠️ <b>Could not fetch positions from Delta Exchange:</b>\n<code>{err}</code>")
+                    return
+
+                active_pos = [p for p in pos_res.get("result", []) if int(p.get("size", 0)) != 0]
                 orders_res = client.get_open_orders()
                 open_orders = orders_res.get("result", []) if orders_res.get("success") else []
 

@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 
 **An institutional-grade, disciplined multi-agent algorithmic trading system engineered for Delta Exchange perpetual futures.**  
-*Specialized for Intraday Scalping on **BTC, ETH, and XAU (Gold)** with Smart Money Concepts (SMC), 15m Microstructure Sweeps, 80–90% Precision Filters, +0.70R Breakeven Protection, and 24/7 Autonomous Cloud Operation.*
+*Specialized for Rapid Scalping on **BTC, ETH, and XAU (Gold)** with Smart Money Concepts (SMC), 15m Microstructure Sweeps, Ultra-Tight Stop Losses, 80–90% Precision Filters, Multi-Stage Scalper Trailing Stops (+0.50R BE), and Silent 24/7 Autonomous Cloud Operation.*
 
 </div>
 
@@ -31,40 +31,42 @@
 
 ---
 
-### 🔄 End-to-End Workflow Flowchart
+### 🔄 End-to-End Scalper Workflow Flowchart
 
 ```mermaid
 flowchart TD
     subgraph Cloud ["☁️ 24/7 Cloud Autonomous Runtime (Render)"]
-        Scanner["Continuous Market Scanner (Every 120s)"]
-        Sentinel["Trailing Stop Sentinel (15s Loop)"]
+        Scanner["Continuous Silent Market Scanner (Every 120s)"]
+        Sentinel["High-Frequency Trailing Stop Sentinel (15s Loop)"]
     end
 
     subgraph Analyst ["🧠 6-Timeframe Institutional Confluence (Agent 1)"]
-        M15["15m Scalp Structure: BSL/SSL Sweeps + MSS"]
-        H1_H4["1H & 4H Trend Momentum Stack & RSI"]
-        D1_W1["Daily & Weekly Trend Anchor (Trend Veto)"]
+        M15["15m Scalp Structure: BSL/SSL Sweeps + MSS + Rejection Wicks >= 25%"]
+        H1_H4["1H & 4H Trend Momentum Stack (EMA 9/21/50) & RSI Support/Resistance"]
+        D1_W1["Daily & Weekly Trend Anchor (Strict High-Timeframe Trend Veto)"]
     end
 
     subgraph StrategyRisk ["🛡️ Alpha & Discipline Gates (Agents 2 & 3)"]
-        Strategy["Agent 2: Strategy Generator (Score 75+)"]
-        Risk["Agent 3: Risk Gatekeeper (50x BTC / 25x Alts)"]
+        Strategy["Agent 2: Strategy Generator<br/>• Score Threshold >= 75 (80-90% Win Rate Standard)<br/>• Tight Invalidation Stop: 0.20% - 0.40%<br/>• Achievable Same-Day Target: 2.0:1 R:R"]
+        Risk["Agent 3: Risk Gatekeeper<br/>• Drawdown Circuit Breaker (< 5% max)<br/>• Capital Sizing: 75% to 95% available margin<br/>• Leverage: 50x Isolated BTC / 25x Alts & Gold<br/>• Max 3 positions · 0 duplicate symbols"]
     end
 
-    subgraph TelegramGate ["📱 Telegram 2-Way Gate (Agent 4)"]
-        TG["Proposal Card with Full Reasoning"]
-        Confirm["User Taps: Confirm & Execute"]
-        Reject["User Taps: Reject Setup"]
+    subgraph TelegramGate ["📱 Telegram 2-Way Human Gate (Agent 4)"]
+        TG["Proposal Card with Full Reasoning & Confluence Proof"]
+        Confirm["User Taps: [✅ Confirm & Execute]"]
+        Reject["User Taps: [❌ Reject Setup]"]
     end
 
-    subgraph ExecutionBroker ["⚡ Delta Exchange Infrastructure (Agent 5)"]
+    subgraph ExecutionBroker ["⚡ Delta Exchange Execution Infrastructure (Agent 5)"]
         Delta["Atomic 3-in-1 Limit Bracket (Entry + Native SL + TP)"]
     end
 
-    subgraph TrailingShield ["🔒 Profit Preservation Sentinel"]
-        BE["Stage 1: At +0.70R -> Move SL to Breakeven (0 Risk)"]
-        Lock["Stage 2: At +1.30R -> Lock +0.60R Profit in Bank"]
-        Target["Stage 3: At +2.00R -> Collect Full 2.0R Target"]
+    subgraph TrailingShield ["🔒 Real Scalper Micro-Trailing Sentinel"]
+        M1["Stage 1: At +0.50R -> Move SL to Breakeven (Zero Downside)"]
+        M2["Stage 2: At +0.80R -> Lock +0.35R Profit in Bank"]
+        M3["Stage 3: At +1.20R -> Lock +0.75R Profit in Bank"]
+        M4["Stage 4: At +1.60R -> Lock +1.25R Profit in Bank"]
+        M5["Stage 5: At +2.00R -> Full 2.0R Take Profit Realized"]
     end
 
     Scanner --> Analyst
@@ -76,27 +78,32 @@ flowchart TD
     Reject -->|Order Discarded| Cancelled["Zero Risk · Safe Discard"]
     Confirm -->|User Confirmed| Delta
     Delta --> Sentinel
-    Sentinel --> BE
-    BE --> Lock
-    Lock --> Target
+    Sentinel --> M1
+    M1 --> M2
+    M2 --> M3
+    M3 --> M4
+    M4 --> M5
 ```
 
 ---
 
-## 🌟 Primary Focus Assets & Intraday Scalping Discipline
+## 🌟 Primary Focus Assets & Rapid Scalping Discipline
 
-The system categorizes tradable instruments into two prioritized tiers to maximize edge:
+The system is engineered specifically for **rapid intraday scalp resolutions (30 minutes to 3 hours)** so traders **never wait days in floating limbo**:
 
-| Tier | Assets | Leverage | Minimum Score | Primary Focus & Characteristics |
+| Tier | Assets | Leverage | Minimum Score | Primary Focus & Execution Rules |
 | :--- | :--- | :--- | :--- | :--- |
-| **Tier 1 (PRIMARY)** | **`BTCUSD`**, **`ETHUSD`**, **`XAUUSD` (Gold)** | **50x (BTC)<br/>25x (ETH/XAU)** | **$\ge$ 75** (+10 Priority Boost) | **Core Focus.** Deep institutional liquidity, tight spreads, and clean 15-minute microstructure sweeps. Prioritized in scanning and Telegram proposals. |
-| **Tier 2 (SECONDARY)** | `SOLUSD`, `ADAUSD`, `DOGEUSD`, `XRPUSD` | **25x Isolated** | **$\ge$ 80** | Subordinate assets evaluated only when Tier-1 assets are in dead consolidation. |
+| **Tier 1 (PRIMARY)** | **`BTCUSD`**, **`ETHUSD`**, **`XAUUSD` (Gold)** | **50x (BTC)<br/>25x (ETH/XAU)** | **$\ge$ 75** (+10 Priority Boost) | **Core Focus.** Deep institutional liquidity, tight spreads, and clean 15-minute microstructure sweeps. Always prioritized first in scanning and Telegram proposals. |
+| **Tier 2 (SECONDARY)** | `SOLUSD`, `ADAUSD`, `DOGEUSD`, `XRPUSD` | **25x Isolated** | **$\ge$ 80** | Subordinate assets evaluated only when Tier-1 assets are in flat consolidation. |
+
+### 🛑 The Core Discipline Mandate
+* **Target:** Seek up to **~2 perfect trades daily** on primary focus assets (`BTC`, `ETH`, `XAU`).
+* **Non-Negotiable Rule:** A trade is **ONLY** proposed if a true **A+ perfect setup** is verified.
+* **Capital Preservation Above All:** If the market is choppy, noisy, or consolidating without clean liquidity sweeps, **TAKE ZERO TRADES**. Better to take 0 trades on a choppy day than take a mediocre trade that loses capital.
 
 ---
 
 ## 🎯 How the 80%–90% Win-Rate Standard is Achieved
-
-In professional intraday scalping, win-rate is driven by **rigorous confluence entry filters** paired with an **aggressive breakeven defense**:
 
 ### 1. The 5-Layer Confluence Matrix
 1. **Macro Trend Guard (4H & 1D):** Never buy intraday pullbacks into a confirmed Daily/Weekly downtrend (unless capitulation RSI $< 32$). Never short into confirmed HTF bull expansion (unless overbought RSI $> 68$).
@@ -105,14 +112,18 @@ In professional intraday scalping, win-rate is driven by **rigorous confluence e
 4. **Market Structure Shift (MSS):** The bot waits for the following candle to close back beyond the sweep extreme, confirming directional reversal.
 5. **Score Threshold ($\ge 75$):** Eliminates low-probability chop.
 
-### 2. Tight Invalidation & Realistic Same-Day Targets
-* **Stop Loss:** Clamped between **0.20% and 0.55%** of price (e.g. BTC ~$200–$350, ETH ~$6–$10).
-* **Take Profit:** Fixed at **2.0:1 Reward-to-Risk ratio** (e.g. BTC ~$400–$700 move, ETH ~$12–$20 move). These targets comfortably complete within 1 to 4 hours.
+### 2. Low Stop Loss & Same-Session Targets (No Waiting for Days)
+* **Micro Stop Loss:** Clamped between **0.20% and 0.40%** of price *(~$160–$310 on BTC, ~$5–$8 on ETH, ~$10–$18 on XAU)*.
+* **Achievable Same-Day Target:** Fixed at **2.0:1 Reward-to-Risk ratio** *(0.40%–0.80% price move)*.
+* **Rapid Completion:** Setups complete within **30 minutes to 3 hours**, never lingering for days.
 
-### 3. The Micro-Trailing Capital Shield
-* **At +0.70R Profit:** Stop Loss is **instantly modified on Delta Exchange to Entry + 0.05% fee buffer**. Downside risk is completely eradicated (free roll).
-* **At +1.30R Profit:** Stop Loss is trailed to **+0.60R locked profit**, guaranteeing a green trade even during sudden market reversals.
-* **At +2.00R Profit:** Full Take Profit target fills on the orderbook.
+### 3. The Scalper Micro-Trailing Engine
+Stop losses ratchet forward step-by-step behind every micro impulse move:
+* **Stage 1 (At +0.50R Profit):** Stop Loss moves to **Entry Price + 0.05% fee buffer** $\rightarrow$ Downside risk is 100% eliminated (free roll).
+* **Stage 2 (At +0.80R Profit):** Stop Loss moves to **+0.35R locked profit** $\rightarrow$ Trade is permanently in the green.
+* **Stage 3 (At +1.20R Profit):** Stop Loss moves to **+0.75R locked profit** $\rightarrow$ 75% of initial risk banked in cash.
+* **Stage 4 (At +1.60R Profit):** Stop Loss moves to **+1.25R locked profit** $\rightarrow$ Guards against pre-target double-top/bottom rejections.
+* **Stage 5 (At +2.00R Target):** Full Take Profit bracket order executes on the orderbook!
 
 ---
 
@@ -125,27 +136,35 @@ In professional intraday scalping, win-rate is driven by **rigorous confluence e
 | **Agent 3: Risk Gatekeeper** | `multiagent_team/risk_gatekeeper.py` | Absolute veto authority. Enforces account circuit breaker ($< 5\%$ daily drawdown), sizes 75%–95% margin at 50x/25x leverage, and enforces R:R $\ge 1.5:1$. |
 | **Agent 4: Telegram Two-Way Gate** | `src/telegram_bot.py` | Sends rich interactive proposal card with inline buttons. Requires explicit user tap (`[Confirm]` / `[Reject]`) before any order executes. |
 | **Agent 5: Execution Engine** | `multiagent_team/execution_agent.py` | Signs HMAC-SHA256 authenticated requests. Sets leverage and places native 3-in-1 atomic bracket orders on Delta Exchange. |
-| **Agent 6: Trailing Stop Sentinel** | `src/trailing_stop_manager.py` | 15-second background loop. Detects order fills, moves stops to Breakeven (+0.70R), locks profit (+1.30R), and notifies Telegram of exits. |
+| **Agent 6: Trailing Stop Sentinel** | `src/trailing_stop_manager.py` | 15-second background loop. Detects order fills, trails stops through the 5 scalper stages (+0.50R BE, +0.80R lock, +1.20R lock, +1.60R lock), and notifies Telegram. |
 
 ---
 
-## 📱 Telegram 2-Way Gate & Interactive Commands
+## 📱 Telegram 2-Way Gate & Silent High-Signal Mode
 
 The system is controlled via Telegram bot (`@DeltaTradenotifier_bot`):
+
+### 🔕 Silent Mode Engaged (Zero 30-Minute Spam):
+The bot operates **100% silently** in the background, only pushing notifications when action is needed:
+1. 🎯 **Trade Setup Found:** Proposal card with `[✅ Confirm & Execute]` / `[❌ Reject Setup]`.
+2. ⚡ **Order Filled:** Fill price, contracts, margin, and orderbook status.
+3. 🛡️ **Micro-Trailing Activated:** Stops moved to Breakeven (+0.50R) or profits locked (+0.80R, +1.20R, +1.60R).
+4. 💰 **Take Profit / Stop Loss Hit:** Full exit report with realized profit ($), % return, and updated wallet balance.
+5. 📱 **On-Demand Slash Commands:** Real-time responses to `/positions`, `/status`, `/scan`, `/orders`.
 
 ### Trade Proposal Preview:
 ```text
 🚨 [HIGH PROBABILITY TRADE SETUP]
-• Symbol: BTCUSD 🟢 LONG (🌟 PRIMARY FOCUS ASSET)
-• Strategy: Intraday_Scalp_SSL_Sweep_15m (Score: 85/100)
+• Symbol: BTCUSD 🔴 SHORT (🌟 PRIMARY FOCUS ASSET)
+• Strategy: Intraday_Scalp_BSL_Sweep_15m (Score: 75/100)
 ━━━━━━━━━━━━━━━━━━━━━━
-• Entry: $78,557.00 (Limit Bracket)
-• Stop Loss: $78,319.06 (Risk: 0.30% / $237.94)
-• Take Profit: $79,032.88 (Target: 2.0:1 R:R / +$475.88)
+• Entry: $78,633.00 (Limit Bracket)
+• Stop Loss: $78,790.27 (Tight Risk: 0.20% / $157.27)
+• Take Profit: $78,318.47 (Achievable Target: 2.0:1 R:R / +$314.53)
 ━━━━━━━━━━━━━━━━━━━━━━
 • Position Size: 15 contracts (50x Isolated Leverage)
-• Required Margin: $23.57 USD | Max Risk: $3.57 USD
-• Plan: Move to BE at +0.70R -> Lock +0.60R at +1.30R -> 2.0R Target
+• Required Margin: $23.59 USD | Max Risk: $2.36 USD
+• Trailing Plan: +0.50R -> BE | +0.80R -> Lock +0.35R | +1.20R -> Lock +0.75R | +2.0R -> TP
 ━━━━━━━━━━━━━━━━━━━━━━
 [✅ Confirm & Execute]   [❌ Reject Setup]
 ```
@@ -153,11 +172,11 @@ The system is controlled via Telegram bot (`@DeltaTradenotifier_bot`):
 ### Supported In-Chat Slash Commands:
 | Command | Action |
 | :--- | :--- |
-| `/scan` | Triggers an immediate multi-timeframe scan across all primary and secondary assets. |
+| `/positions` | Displays active positions: direction, contracts, entry, current mark price, SL, TP, and unrealized PnL ($ and %). |
 | `/status` | Returns 24/7 cloud health, active positions, open orders, and available wallet balance. |
-| `/positions` | Shows real-time mark prices, entry prices, liquidation distance, and unrealized PnL. |
+| `/scan` | Triggers an immediate multi-timeframe scan across all primary and secondary assets. |
 | `/orders` | Displays active bracket Stop-Loss and Take-Profit orders on Delta Exchange. |
-| `/help` | Displays command usage and help menu. |
+| `/help` | Displays command usage and help manual. |
 
 ---
 
@@ -200,7 +219,7 @@ The system is deployed natively on **Render.com** via [`server.py`](server.py) a
 
 1. **Deploy to Render:** Connect your GitHub repository as a Web Service with start command `python server.py`.
 2. **Keep-Alive Monitor:** Ping `https://your-service.onrender.com/health` every 5 minutes using [UptimeRobot](https://uptimerobot.com) to prevent cloud sleep.
-3. **True Laptop-Closed Automation:** The bot scans markets continuously, monitors active orders every 15s, trails stops to breakeven, and pings your phone whenever an action is needed.
+3. **True Laptop-Closed Automation:** The bot scans markets continuously every 120s, monitors active orders every 15s, trails stops automatically, and pings your phone whenever an action is needed.
 
 ---
 
@@ -224,7 +243,7 @@ python main.py --scan
 python main.py --trade
 
 # 6. Run background scanner (continuous local loop)
-python run_247_scanner.py --interval 60
+python run_247_scanner.py --interval 120
 ```
 
 ---
@@ -234,7 +253,7 @@ python run_247_scanner.py --interval 60
 ```
 Multi Agent Trading Bot/
 ├── multiagent_team/                  # The 6 Autonomous Agents
-│   ├── orchestrator.py               # Central Multi-Agent Coordinator & Scan Pulse
+│   ├── orchestrator.py               # Central Multi-Agent Coordinator & Scan Pipeline
 │   ├── regime_analyst.py             # Agent 1: 6-Timeframe Structure & SMC Sweeps
 │   ├── strategy_agent.py             # Agent 2: 80-90% Win-Rate Alpha Generator
 │   ├── risk_gatekeeper.py            # Agent 3: Mathematical Sizing & Capital Allocation
@@ -243,16 +262,16 @@ Multi Agent Trading Bot/
 ├── src/                              # Core Infrastructure Engines
 │   ├── delta_client.py               # HMAC-SHA256 Delta Exchange REST Client
 │   ├── technical_analysis.py         # SMC Liquidity Sweeps, MSS & Indicators
-│   ├── trailing_stop_manager.py      # 15s Trailing Sentinel (+0.7R BE, +1.3R Lock)
+│   ├── trailing_stop_manager.py      # Scalper Sentinel (+0.5R BE, +0.8R lock, +1.2R, +1.6R)
 │   ├── telegram_bot.py               # Interactive 2-Way Telegram Gate & Commands
-│   ├── telegram_notifier.py          # Rich Real-Time Lifecycle Notifications
+│   ├── telegram_notifier.py          # Real-Time Lifecycle Push Notifications
 │   ├── risk_manager.py               # Drawdown Circuit Breakers & R:R Verification
 │   └── journal.py                    # Persistent Trade Journal & Performance
 ├── state/                            # Persistent Runtime State
 │   ├── circuit_breaker_state.json    # Drawdown & daily loss tracker
 │   ├── trailing_stop_state.json      # Live bracket trailing stages
 │   └── trade_journal.json            # Completed trade histories
-├── server.py                         # 24/7 Cloud Health Responder & Scanner Daemon
+├── server.py                         # 24/7 Cloud Health Responder & Silent Scanner Daemon
 ├── render.yaml                       # Cloud deployment specification
 ├── requirements.txt                  # Minimal Python dependencies
 └── README.md                         # Documentation

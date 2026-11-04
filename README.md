@@ -113,7 +113,7 @@ The system divides trading responsibilities into **10 specialized autonomous age
 ---
 
 ### 1️⃣ Agent 1: 6-Timeframe Regime Analyst
-* **Module:** [`multiagent_team/regime_analyst.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/multiagent_team/regime_analyst.py)
+* **Module:** [`multiagent_team/regime_analyst.py`](multiagent_team/regime_analyst.py)
 * **Execution Timing:** Start of every 120-second scan cycle.
 * **Core Responsibilities:**
   1. **6-Timeframe Order Flow Mapping:** Ingests live candles across **1-Month (1M), 1-Week (1W), 1-Day (1D), 4-Hour (4H), 1-Hour (1H), and 15-Minute (15m)** timeframes.
@@ -127,7 +127,7 @@ The system divides trading responsibilities into **10 specialized autonomous age
 ---
 
 ### 2️⃣ Agent 2: Exposure Coach & Market Posture Engine
-* **Module:** [`multiagent_team/exposure_coach.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/multiagent_team/exposure_coach.py)
+* **Module:** [`multiagent_team/exposure_coach.py`](multiagent_team/exposure_coach.py)
 * **Execution Timing:** Immediately following market scanning, before setup generation.
 * **Core Responsibilities:**
   1. **Cross-Asset Participation Breadth:** Calculates the exact percentage of tracked universe assets trading above their 21 EMA.
@@ -142,7 +142,7 @@ The system divides trading responsibilities into **10 specialized autonomous age
 ---
 
 ### 3️⃣ Agent 3: Alpha Strategy & Candidate Generator
-* **Module:** [`multiagent_team/strategy_agent.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/multiagent_team/strategy_agent.py)
+* **Module:** [`multiagent_team/strategy_agent.py`](multiagent_team/strategy_agent.py)
 * **Execution Timing:** Triggered when Market Posture authorizes trading.
 * **Core Responsibilities:**
   1. **Mandatory Market Structure Shift (MSS):** Rejects unconfirmed wicks. Requires a confirmed candle body close breaking prior swing structure.
@@ -155,7 +155,7 @@ The system divides trading responsibilities into **10 specialized autonomous age
 ---
 
 ### 4️⃣ Agent 4: Time Machine Historical Simulation & Probability Engine
-* **Module:** [`multiagent_team/time_machine_agent.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/multiagent_team/time_machine_agent.py)
+* **Module:** [`multiagent_team/time_machine_agent.py`](multiagent_team/time_machine_agent.py)
 * **Execution Timing:** Evaluates candidate setups before risk sizing or user notification.
 * **Core Responsibilities:**
   1. **Historical Walk-Back Scan:** Travels backwards in time across 350+ historical 15-minute candles on Delta Exchange to locate historical instances with identical EMA stacks, RSI momentum, and liquidity sweep geometry.
@@ -173,7 +173,7 @@ The system divides trading responsibilities into **10 specialized autonomous age
 ---
 
 ### 5️⃣ Agent 5: Pre-Trade Discipline & Fixed Dollar Sizing Gatekeeper
-* **Module:** [`multiagent_team/risk_gatekeeper.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/multiagent_team/risk_gatekeeper.py) & [`src/risk_manager.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/src/risk_manager.py)
+* **Module:** [`multiagent_team/risk_gatekeeper.py`](multiagent_team/risk_gatekeeper.py) & [`src/risk_manager.py`](src/risk_manager.py)
 * **Execution Timing:** Sizes approved setups and verifies account-level safety rules.
 * **Core Responsibilities:**
   1. **Institutional Fixed Dollar Risk Model:** Eliminates catastrophic liquidation risks by strictly capping dollar loss:
@@ -187,7 +187,7 @@ The system divides trading responsibilities into **10 specialized autonomous age
 ---
 
 ### 6️⃣ Agent 6: Telegram Two-Way Human Confirmation Gate
-* **Module:** [`src/telegram_bot.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/src/telegram_bot.py)
+* **Module:** [`src/telegram_bot.py`](src/telegram_bot.py)
 * **Execution Timing:** Presents qualified trade proposals to user and awaits input.
 * **Core Responsibilities:**
   1. **Zero-Trust Human Authorization:** **Zero orders ever place automatically.** Every trade requires an explicit user button click.
@@ -199,7 +199,7 @@ The system divides trading responsibilities into **10 specialized autonomous age
 ---
 
 ### 7️⃣ Agent 7: Delta Exchange Execution & Orderbook Engine
-* **Module:** [`multiagent_team/execution_agent.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/multiagent_team/execution_agent.py) & [`src/delta_client.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/src/delta_client.py)
+* **Module:** [`multiagent_team/execution_agent.py`](multiagent_team/execution_agent.py) & [`src/delta_client.py`](src/delta_client.py)
 * **Execution Timing:** Triggered instantly upon user button confirmation.
 * **Core Responsibilities:**
   1. **HMAC-SHA256 Cryptographic Signing:** Authenticates all REST payloads with exchange timestamps and API keys.
@@ -210,7 +210,7 @@ The system divides trading responsibilities into **10 specialized autonomous age
 ---
 
 ### 8️⃣ Agent 8: Micro-Trailing Stop Sentinel & Orderbook Manager
-* **Module:** [`src/trailing_stop_manager.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/src/trailing_stop_manager.py)
+* **Module:** [`src/trailing_stop_manager.py`](src/trailing_stop_manager.py)
 * **Execution Timing:** Runs continuously in a high-frequency 15-second background daemon.
 * **Core Responsibilities:**
   1. **Live Mark Price Tracking:** Monitors position mark price and computes real-time R-multiple progress.
@@ -226,7 +226,7 @@ The system divides trading responsibilities into **10 specialized autonomous age
 ---
 
 ### 9️⃣ Agent 9: Adaptive Learning & Pattern Diagnosis Engine
-* **Module:** [`multiagent_team/adaptive_learning.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/multiagent_team/adaptive_learning.py)
+* **Module:** [`multiagent_team/adaptive_learning.py`](multiagent_team/adaptive_learning.py)
 * **Execution Timing:** Triggered automatically the moment a position exits (TP, BE, or SL).
 * **Core Responsibilities:**
   1. **Institutional 0–100 Self-Scorecard:** Grades every trade across 3 dimensions:
@@ -244,12 +244,12 @@ The system divides trading responsibilities into **10 specialized autonomous age
 ---
 
 ### 🔟 Agent 10: Trade Performance Coach & Dynamic Operating Rules Engine
-* **Module:** [`multiagent_team/performance_coach.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/multiagent_team/performance_coach.py)
+* **Module:** [`multiagent_team/performance_coach.py`](multiagent_team/performance_coach.py)
 * **Execution Timing:** Post-trade audit and maintenance cycles.
 * **Core Responsibilities:**
-  1. **Closed Trade Cohort Auditing:** Ingests persistent data from [`state/trade_journal.json`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/state/trade_journal.json) and analyzes performance cohorts by asset, side, and session.
+  1. **Closed Trade Cohort Auditing:** Ingests persistent data from `state/trade_journal.json` and analyzes performance cohorts by asset, side, and session.
   2. **Excursion Analytics:** Evaluates MFE vs. MAE ratios to determine whether trailing stop milestones are optimally configured.
-  3. **Dynamic Next-Session Operating Rules Synthesis:** Formulates binding operating rules saved to [`state/active_operating_rules.json`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/state/active_operating_rules.json):
+  3. **Dynamic Next-Session Operating Rules Synthesis:** Formulates binding operating rules saved to `state/active_operating_rules.json`:
      * *Example:* If secondary alts exhibit underperformance, automatically binds a mandatory rule restricting sizing or redirecting 100% focus to BTC/ETH.
      * *Example:* If BTC liquidity sweeps show high win rate, automatically elevates priority score on BTC setups.
   4. **Active Enforcement:** The synthesized rules are directly read and enforced by Agent 3 (Strategy) and Agent 5 (Risk) in subsequent scan cycles.

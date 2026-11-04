@@ -185,6 +185,7 @@ class MultiAgentTradingOrchestrator:
         # -----------------------------------------------------------------
         print("\n🛡️ [Agent 3: Risk Gatekeeper] Running Pre-Trade Discipline Gates...")
         approved_trades = []
+        reject_reasons = []
         for c in candidates:
             sym = c.get("symbol", "")
             asset_leverage = int(os.getenv("BTC_LEVERAGE", "50")) if "BTC" in sym else int(os.getenv("ALT_LEVERAGE", "25"))
@@ -197,10 +198,12 @@ class MultiAgentTradingOrchestrator:
                 approved_trades.append(decision)
             else:
                 print(f"   ❌ [REJECTED] {sym}: {decision.get('reason')}")
+                reject_reasons.append(f"{sym}: {decision.get('reason')}")
 
         if not approved_trades:
             print("\n   All prospective setups rejected by Risk Gatekeeper. Capital protected.")
-            return {"status": "REJECTED_BY_RISK_GATE", "regime": market_regime, "scan_results": scan_results}
+            first_reason = reject_reasons[0] if reject_reasons else "Risk limits or capital allocation exceeded."
+            return {"status": "REJECTED_BY_RISK_GATE", "reason": first_reason, "regime": market_regime, "scan_results": scan_results}
 
         # -----------------------------------------------------------------
         # Step 5: Telegram 2-Way Execution Gate (Agent 4 + Telegram Bot)

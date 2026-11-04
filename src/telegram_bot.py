@@ -197,10 +197,12 @@ class TelegramConfirmationBot:
             f"🎯 <b>Target 1 (1:2 R:R):</b> <code>{fmt_p(tp)}</code> (Initial TP)\n"
             f"⚖️ <b>Initial R:R:</b> <b>{rr:.2f} : 1</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📈 <b>Trailing Stop Roadmap:</b>\n"
-            f"  1️⃣ <b>At +1.0R:</b> SL moves to Breakeven (<code>{fmt_p(be_price)}</code> — Zero Risk)\n"
-            f"  2️⃣ <b>At +2.0R:</b> SL locks +1.0R (<code>{fmt_p(r2_sl)}</code>), TP trails to 1:3 (<code>{fmt_p(r3_tp)}</code>)\n"
-            f"  3️⃣ <b>At +3.0R:</b> SL locks +2.0R, TP trails to 1:5 (<code>{fmt_p(r5_tp)}</code>)\n"
+            f"📈 <b>Scalper Trailing Roadmap:</b>\n"
+            f"  1️⃣ <b>At +0.50R:</b> Breakeven Shield (<code>{fmt_p(entry)}</code> + fee buffer — Zero Risk)\n"
+            f"  2️⃣ <b>At +0.80R:</b> Micro-Lock +0.35R green profit in bank\n"
+            f"  3️⃣ <b>At +1.20R:</b> Core Lock +0.75R profit in bank\n"
+            f"  4️⃣ <b>At +1.60R:</b> Pre-Target Lock +1.25R profit in bank\n"
+            f"  5️⃣ <b>At +2.00R:</b> Full Take Profit collected\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"⚡ <b>Leverage:</b> <code>{leverage}x Isolated</code>\n"
             f"💼 <b>Size:</b> <code>{contracts} contracts</code> (Margin: ~${margin:,.2f})\n"
@@ -437,9 +439,9 @@ class TelegramConfirmationBot:
         elif cmd in ["/trade", "/findtrade", "/find_trade"]:
             try:
                 self.send_message("🎯 <i>Running institutional scalp scan for A+ setups on BTC, ETH, and XAU...</i>")
-                scan_res = orchestrator.regime_analyst.scan_universe(orchestrator.symbols, resolution="60")
-                candidates = orchestrator.strategy_agent.find_best_candidates(scan_res)
-                if not candidates:
+                res = orchestrator.run_trading_cycle()
+                status = res.get("status") if isinstance(res, dict) else None
+                if status == "NO_SETUPS_FOUND":
                     self.send_message(
                         "🛡️ <b>[ON-DEMAND SCALP SCAN RESULT]</b>\n"
                         "━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -448,26 +450,14 @@ class TelegramConfirmationBot:
                         "• <b>Discipline Rule:</b> Capital is 100% protected. Zero forced trades.\n"
                         "⚡ <i>The 24/7 background engine will immediately alert you when an A+ setup triggers!</i>"
                     )
-                else:
-                    top_setup = candidates[0]
-                    sym = top_setup.get("symbol")
-                    score = top_setup.get("score")
-                    side = top_setup.get("side", "").upper()
-                    ent = top_setup.get("entry_price")
-                    sl = top_setup.get("stop_loss_price")
-                    tp = top_setup.get("take_profit_price")
-                    rr = top_setup.get("planned_rr_ratio")
+                elif status == "REJECTED_BY_RISK_GATE":
+                    reason = res.get("reason", "Risk limits or margin constraints exceeded.")
                     self.send_message(
-                        f"🎯 <b>[A+ HIGH-CONVICTION SCALP SETUP FOUND]</b>\n"
+                        f"🛡️ <b>[SETUP REJECTED BY RISK GATEKEEPER]</b>\n"
                         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"• Asset: <b>{sym}</b> ({side})\n"
-                        f"• Confluence Score: <b>{score}/100</b> (A+ Edge)\n"
-                        f"• Entry: <code>${ent:,.2f}</code>\n"
-                        f"• Tight Stop Loss: <code>${sl:,.2f}</code>\n"
-                        f"• Take Profit: <code>${tp:,.2f}</code> (R:R: {rr}:1)\n"
-                        f"• Thesis: <i>{top_setup.get('thesis', '')}</i>\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"⚡ <i>Wait for the confirmation prompt to execute with isolated leverage!</i>"
+                        f"• <b>Status:</b> Prospective setup filtered by pre-trade discipline.\n"
+                        f"• <b>Reason:</b> {reason}\n"
+                        f"• <b>Rule:</b> Capital protected from excessive exposure."
                     )
             except Exception as e:
                 self.send_message(f"⚠️ Error running scalp scan: {e}")

@@ -357,6 +357,15 @@ class TelegramConfirmationBot:
                     "• <b>Core Focus:</b> 🌟 <b>BTC, ETH, XAU (Gold)</b>"
                 ]
 
+                if not pos_res.get("success"):
+                    err = pos_res.get("error", {})
+                    err_code = err.get("code") if isinstance(err, dict) else str(err)
+                    if "ip_not_whitelisted" in err_code:
+                        client_ip = err.get("context", {}).get("client_ip", "") if isinstance(err, dict) else ""
+                        status_lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+                        status_lines.append(f"⚠️ <b>DELTA API WARNING:</b> IP Whitelisting active on your key.")
+                        status_lines.append(f"  <i>Please edit your key on Delta Exchange and leave Allowed IPs blank so cloud IP <code>{client_ip}</code> is permitted.</i>")
+
                 if active_pos:
                     status_lines.append("━━━━━━━━━━━━━━━━━━━━━━")
                     status_lines.append("📊 <b>ACTIVE RUNNING POSITION:</b>")
@@ -390,7 +399,19 @@ class TelegramConfirmationBot:
                 pos_res = client.get_positions()
                 if not pos_res.get("success"):
                     err = pos_res.get("error", "Failed to query Delta Exchange API")
-                    self.send_message(f"⚠️ <b>Could not fetch positions from Delta Exchange:</b>\n<code>{err}</code>")
+                    err_code = err.get("code") if isinstance(err, dict) else str(err)
+                    if "ip_not_whitelisted" in err_code:
+                        client_ip = err.get("context", {}).get("client_ip", "") if isinstance(err, dict) else ""
+                        self.send_message(
+                            f"🔒 <b>[DELTA EXCHANGE IP RESTRICTION DETECTED]</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"• <b>Issue:</b> Your Delta API Key has IP Whitelisting enabled.\n"
+                            f"• <b>Cloud Server IP:</b> <code>{client_ip}</code>\n"
+                            f"• <b>Quick Fix:</b> Log into Delta Exchange (Settings → API Keys), edit your key and <b>leave the Allowed IPs / IP Whitelist field completely blank</b> (or allow all IPs).\n"
+                            f"• Once saved, your cloud bot will instantly access positions and execute trades 24/7!"
+                        )
+                    else:
+                        self.send_message(f"⚠️ <b>Could not fetch positions from Delta Exchange:</b>\n<code>{err}</code>")
                     return
 
                 active_pos = [p for p in pos_res.get("result", []) if int(p.get("size", 0)) != 0]

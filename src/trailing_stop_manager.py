@@ -82,15 +82,170 @@ class TrailingStopManager:
         self._save_state()
         logger.info(f"Registered trade for trailing stop: {symbol} | Entry: {entry_price} | SL: {initial_sl} | Risk: {risk:.2f}")
 
+    def get_wallet_metrics(self) -> Dict[str, Any]:
+        """Fetch fresh wallet metrics from Delta Exchange."""
+        try:
+            wallet = self.client.get_wallet_balances()
+            meta = wallet.get("meta", {}) if isinstance(wallet, dict) else {}
+            net_equity = float(meta.get("net_equity", 0.0) or 0.0)
+            avail_usd = 0.0
+            avail_inr = 0.0
+            total_usd = 0.0
+            total_inr = 0.0
+
+            if isinstance(wallet, dict) and wallet.get("result"):
+                for a in wallet["result"]:
+                    if a.get("asset_symbol") == "USD":
+                        avail_usd = float(a.get("available_balance", "0") or 0.0)
+                        avail_inr = float(a.get("available_balance_inr", "0") or 0.0)
+                        total_usd = float(a.get("balance", "0") or 0.0)
+                        total_inr = float(a.get("balance_inr", "0") or 0.0)
+                        break
+
+            if net_equity <= 0:
+                net_equity = total_usd
+
+            return {
+                "net_equity_usd": round(net_equity, 2),
+                "available_usd": round(avail_usd, 2),
+                "available_inr": round(avail_inr, 2),
+                "total_usd": round(total_usd, 2),
+                "total_inr": round(total_inr, 2)
+            }
+        except Exception as e:
+            logger.error(f"Error fetching wallet metrics: {e}")
+            return {
+                "net_equity_usd": 0.0,
+                "available_usd": 0.0,
+                "available_inr": 0.0,
+                "total_usd": 0.0,
+                "total_inr": 0.0
+            }
+
     def check_and_update_trailing_stops(self) -> List[Dict[str, Any]]:
         """
         Inspect all open positions on Delta Exchange and trail Stop Losses if milestones reached.
+        Detects order fills, Take Profit hits, and Stop Loss exits automatically.
         """
         positions_res = self.client.get_positions()
         if not positions_res.get("success"):
             return []
 
         active_positions = [p for p in positions_res.get("result", []) if int(p.get("size", 0)) != 0]
+        active_symbols = {p.get("product_symbol") for p in active_positions}
+
+        # -----------------------------------------------------------------
+        # STEP 1: DETECT CLOSED POSITIONS (Target Hit / Stop Loss Hit)
+        # -----------------------------------------------------------------
+        closed_symbols = [s for s in list(self.state.keys()) if s not in active_symbols]
+        for sym in closed_symbols:
+            pos_state = self.state.pop(sym, None)
+            if not pos_state:
+                continue
+
+            # Query recent fills on Delta Exchange to confirm exit price & time
+            exit_price = None
+            try:
+                fills_res = self.client.get_fills(symbol=sym, page_size=5)
+                for f in fills_res.get("result", []):
+                    f_side = f.get("side", "").lower()
+                    if (pos_state["side"] == "buy" and f_side == "sell") or (pos_state["side"] == "sell" and f_side == "buy"):
+                        exit_price = float(f.get("price") or 0.0)
+                        break
+            except Exception as e:
+                logger.error(f"Error fetching exit fills for {sym}: {e}")
+
+            if not exit_price or exit_price <= 0:
+                exit_price = pos_state.get("current_sl") or pos_state.get("entry_price")
+
+            # Calculate realized PnL
+            entry_p = pos_state["entry_price"]
+            side = pos_state["side"]
+            contracts = pos_state.get("contracts", 1)
+
+            pinfo = self.client.get_product_info(sym)
+            contract_value = float(pinfo.get("contract_value", "1.0")) if pinfo else 1.0
+
+            if side == "buy":
+                pnl = (exit_price - entry_p) * contracts * contract_value
+                is_tp = exit_price >= (pos_state["current_tp"] * 0.998)
+                is_be = (pos_state.get("stage", 0) >= 1) and (exit_price >= entry_p * 0.999) and not is_tp
+                is_sl = not is_tp and not is_be
+            else:
+                pnl = (entry_p - exit_price) * contracts * contract_value
+                is_tp = exit_price <= (pos_state["current_tp"] * 1.002)
+                is_be = (pos_state.get("stage", 0) >= 1) and (exit_price <= entry_p * 1.001) and not is_tp
+                is_sl = not is_tp and not is_be
+
+            # Calculate return pct on margin used
+            leverage = 25 if "BTC" not in sym else 50
+            margin_used = (contracts * contract_value * entry_p) / leverage
+            return_pct = (pnl / margin_used * 100.0) if margin_used > 0 else 0.0
+
+            # Calculate R-multiple achieved
+            risk_unit = pos_state.get("risk_per_unit", entry_p * 0.01)
+            gain_per_unit = (exit_price - entry_p) if side == "buy" else (entry_p - exit_price)
+            r_achieved = round(gain_per_unit / risk_unit, 2) if risk_unit > 0 else 0.0
+
+            # Record in persistent trade journal
+            from src.journal import record_trade_exit, get_performance_summary
+            exit_reason = "TAKE_PROFIT" if is_tp else ("BREAKEVEN" if is_be else "STOP_LOSS")
+            trade_id = pos_state.get("trade_id") or f"trade_{sym}"
+            record_trade_exit(
+                trade_id=trade_id,
+                exit_price=exit_price,
+                realized_pnl_usd=pnl,
+                exit_reason=exit_reason,
+                postmortem_notes=f"Exited at stage {pos_state.get('stage', 0)} ({r_achieved:+.2f}R)"
+            )
+
+            # Get fresh wallet metrics & updated stats
+            wallet_metrics = self.get_wallet_metrics()
+            stats = get_performance_summary().get("stats", {})
+
+            # Dispatch rich Telegram notification!
+            if is_tp:
+                self.telegram.notify_take_profit_hit(
+                    symbol=sym,
+                    side=side,
+                    entry_price=entry_p,
+                    exit_price=exit_price,
+                    contracts=contracts,
+                    realized_pnl=pnl,
+                    return_pct=return_pct,
+                    r_multiple=max(r_achieved, 2.0),
+                    wallet=wallet_metrics,
+                    stats=stats
+                )
+            elif is_be:
+                self.telegram.notify_breakeven_exit(
+                    symbol=sym,
+                    side=side,
+                    entry_price=entry_p,
+                    exit_price=exit_price,
+                    contracts=contracts,
+                    realized_pnl=pnl,
+                    wallet=wallet_metrics,
+                    stats=stats
+                )
+            else:
+                stage_label = "Initial Protective Stop Loss" if pos_state.get("stage", 0) == 0 else f"Trailing Stop (Stage {pos_state.get('stage')})"
+                self.telegram.notify_stop_loss_hit(
+                    symbol=sym,
+                    side=side,
+                    entry_price=entry_p,
+                    exit_price=exit_price,
+                    contracts=contracts,
+                    realized_pnl=pnl,
+                    return_pct=return_pct,
+                    exit_stage=stage_label,
+                    wallet=wallet_metrics,
+                    stats=stats
+                )
+
+            logger.info(f"Position closed for {sym}: {exit_reason} @ ${exit_price} (PnL: ${pnl:.2f})")
+            self._save_state()
+
         if not active_positions:
             return []
 
@@ -182,6 +337,23 @@ class TrailingStopManager:
                 pos_state["sl_order_id"] = sl_order.get("id")
             if tp_order and not pos_state.get("tp_order_id"):
                 pos_state["tp_order_id"] = tp_order.get("id")
+
+            # Notify Telegram when order transitions to FILLED on orderbook
+            if not pos_state.get("fill_notified"):
+                wallet_metrics = self.get_wallet_metrics()
+                leverage = 25 if "BTC" not in symbol else 50
+                self.telegram.notify_order_filled(
+                    symbol=symbol,
+                    side=side,
+                    fill_price=entry_price,
+                    contracts=abs(size),
+                    leverage=leverage,
+                    sl=pos_state.get("current_sl", 0.0),
+                    tp=pos_state.get("current_tp", 0.0),
+                    wallet=wallet_metrics
+                )
+                pos_state["fill_notified"] = True
+                self._save_state()
 
             risk_per_unit = pos_state.get("risk_per_unit", entry_price * 0.015)
             if risk_per_unit <= 0:

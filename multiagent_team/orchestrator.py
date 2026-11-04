@@ -234,7 +234,8 @@ class MultiAgentTradingOrchestrator:
                     self.portfolio_monitor.journal_execution(exec_res, trade)
                     executed_records.append(exec_res)
                     # Instant Telegram execution receipt
-                    self.telegram.notify_trade_execution(exec_res, trade)
+                    wallet_metrics = self.trailing_stop_manager.get_wallet_metrics()
+                    self.telegram.notify_trade_execution(exec_res, trade, wallet=wallet_metrics)
                 else:
                     print(f"   ⚠️ Order execution failed: {exec_res.get('error')}")
             else:

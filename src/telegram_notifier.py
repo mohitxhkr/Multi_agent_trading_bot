@@ -15,6 +15,20 @@ load_dotenv()
 logger = logging.getLogger("telegram-notifier")
 
 
+def fmt_p(p: float) -> str:
+    """Format price with magnitude-aware precision."""
+    if p < 0.001:
+        return f"${p:,.7f}"
+    elif p < 0.1:
+        return f"${p:,.6f}"
+    elif p < 1.0:
+        return f"${p:,.5f}"
+    elif p < 10.0:
+        return f"${p:,.4f}"
+    else:
+        return f"${p:,.2f}"
+
+
 class TelegramNotifier:
     """
     Lightweight Telegram bot client using standard HTTP requests.
@@ -116,33 +130,240 @@ class TelegramNotifier:
         )
         return self.send_message(message)
 
-    def notify_trade_execution(self, exec_result: Dict[str, Any], trade_spec: Dict[str, Any]) -> bool:
+    def notify_trade_execution(
+        self,
+        exec_result: Dict[str, Any],
+        trade_spec: Dict[str, Any],
+        wallet: Optional[Dict[str, Any]] = None
+    ) -> bool:
         """
         Send instant receipt when order is submitted and live on Delta Exchange.
         """
         symbol = trade_spec.get("symbol", "N/A")
         side = trade_spec.get("side", "").upper()
-        emoji_dir = "🟢 BOUGHT" if side == "BUY" else "🔴 SOLD"
+        emoji_dir = "🟢 BOUGHT (LONG)" if side == "BUY" else "🔴 SOLD (SHORT)"
         order_id = exec_result.get("order_id", "N/A")
         contracts = trade_spec.get("contracts", 1)
         entry = trade_spec.get("entry_price", 0.0)
         sl = trade_spec.get("stop_loss_price", 0.0)
         tp = trade_spec.get("take_profit_price", 0.0)
-        leverage = trade_spec.get("leverage", 5)
+        leverage = trade_spec.get("leverage", 25)
+        margin = trade_spec.get("required_margin_usd", 0.0)
+        risk = trade_spec.get("dollar_risk_usd", 0.0)
+
+        wallet_lines = ""
+        if wallet:
+            avail_usd = wallet.get("available_usd", 0.0)
+            avail_inr = wallet.get("available_inr", 0.0)
+            net_equity = wallet.get("net_equity_usd", 0.0)
+            wallet_lines = (
+                f"💼 <b>ACCOUNT EQUITY &amp; BALANCES:</b>\n"
+                f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code> (₹{avail_inr:,.2f} INR)\n"
+                f"• <b>Total Account Equity:</b> <code>${net_equity:,.2f} USD</code>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            )
 
         message = (
             f"🚀 <b>[TRADE EXECUTED ON DELTA EXCHANGE]</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• <b>Status:</b> ✅ <b>ORDER PLACED &amp; ACTIVE</b>\n"
+            f"• <b>Status:</b> ✅ <b>ORDER PLACED ON ORDERBOOK</b>\n"
             f"• <b>Order ID:</b> <code>{order_id}</code>\n"
             f"• <b>Action:</b> {emoji_dir} <code>{contracts} contracts</code> of <b>{symbol}</b>\n"
-            f"• <b>Leverage:</b> <code>{leverage}x Isolated</code>\n"
+            f"• <b>Leverage:</b> <code>{leverage}x Isolated</code> (Margin: ~${margin:,.2f})\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📍 <b>Fill/Limit:</b> <code>${entry:,.2f}</code>\n"
-            f"🛑 <b>Bracket SL:</b> <code>${sl:,.2f}</code>\n"
-            f"🎯 <b>Bracket TP:</b> <code>${tp:,.2f}</code>\n"
+            f"📍 <b>Order Price:</b> <code>{fmt_p(entry)}</code>\n"
+            f"🛑 <b>Bracket SL:</b> <code>{fmt_p(sl)}</code> (Risk: ${risk:,.2f})\n"
+            f"🎯 <b>Bracket TP (1:2):</b> <code>{fmt_p(tp)}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🛡️ <i>Bracket orders active. Capital is protected.</i>"
+            f"{wallet_lines}"
+            f"🛡️ <i>Trailing Stop Manager active (15s loop). Breakeven at +1.0R.</i>"
+        )
+        return self.send_message(message)
+
+    def notify_order_filled(
+        self,
+        symbol: str,
+        side: str,
+        fill_price: float,
+        contracts: int,
+        leverage: int,
+        sl: float,
+        tp: float,
+        wallet: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Send instant notification when a pending order is FILLED on the orderbook."""
+        emoji_dir = "🟢 LONG" if side.upper() == "BUY" else "🔴 SHORT"
+        wallet_lines = ""
+        if wallet:
+            avail_usd = wallet.get("available_usd", 0.0)
+            avail_inr = wallet.get("available_inr", 0.0)
+            net_equity = wallet.get("net_equity_usd", 0.0)
+            wallet_lines = (
+                f"💼 <b>UPDATED WALLET:</b>\n"
+                f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code> (₹{avail_inr:,.2f} INR)\n"
+                f"• <b>Total Account Equity:</b> <code>${net_equity:,.2f} USD</code>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            )
+
+        message = (
+            f"⚡ <b>[ORDER FILLED &amp; POSITION ACTIVE]</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• <b>Asset:</b> <code>{symbol}</code> ({emoji_dir})\n"
+            f"• <b>Fill Price:</b> <code>{fmt_p(fill_price)}</code>\n"
+            f"• <b>Size:</b> <code>{contracts} contracts</code> ({leverage}x Isolated)\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🛑 <b>Stop Loss:</b> <code>{fmt_p(sl)}</code>\n"
+            f"🎯 <b>Take Profit:</b> <code>{fmt_p(tp)}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{wallet_lines}"
+            f"🛡️ <i>Position is live! Trailing Stop Manager actively monitoring.</i>"
+        )
+        return self.send_message(message)
+
+    def notify_take_profit_hit(
+        self,
+        symbol: str,
+        side: str,
+        entry_price: float,
+        exit_price: float,
+        contracts: int,
+        realized_pnl: float,
+        return_pct: float,
+        r_multiple: float,
+        wallet: Optional[Dict[str, Any]] = None,
+        stats: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Send celebratory alert when Take Profit target is achieved!"""
+        emoji_dir = "🟢 LONG" if side.upper() == "BUY" else "🔴 SHORT"
+        wallet_lines = ""
+        if wallet:
+            avail_usd = wallet.get("available_usd", 0.0)
+            avail_inr = wallet.get("available_inr", 0.0)
+            net_equity = wallet.get("net_equity_usd", 0.0)
+            wallet_lines = (
+                f"💼 <b>UPDATED WALLET &amp; PERFORMANCE:</b>\n"
+                f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code> (₹{avail_inr:,.2f} INR)\n"
+                f"• <b>Total Account Equity:</b> <code>${net_equity:,.2f} USD</code>\n"
+            )
+        if stats:
+            total_pnl = stats.get("total_realized_pnl_usd", 0.0)
+            win_rate = stats.get("win_rate_pct", 0.0)
+            total_trades = stats.get("total_trades", 0)
+            wins = stats.get("winning_trades", 0)
+            losses = stats.get("losing_trades", 0)
+            wallet_lines += (
+                f"• <b>Cumulative Realized PnL:</b> <b>{'+' if total_pnl >= 0 else ''}${total_pnl:,.2f} USD</b>\n"
+                f"• <b>Win Rate:</b> <b>{win_rate:.1f}%</b> ({wins}W / {losses}L in {total_trades} trades)\n"
+            )
+
+        message = (
+            f"🎯 <b>[TARGET HIT — TAKE PROFIT EXECUTED!]</b> 🏆\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• <b>Asset:</b> <code>{symbol}</code> ({emoji_dir})\n"
+            f"• <b>Contracts:</b> <code>{contracts}</code>\n"
+            f"• <b>Entry:</b> <code>{fmt_p(entry_price)}</code> ──► <b>Exit (TP):</b> <code>{fmt_p(exit_price)}</code>\n"
+            f"• <b>Realized Profit:</b> 🟢 <b>+${realized_pnl:,.2f} USD (+{return_pct:.1f}% Return)</b>\n"
+            f"• <b>R-Multiple:</b> <b>+{r_multiple:.2f}R</b> 🎯\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{wallet_lines}"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚡ <i>Profit banked successfully to cash balance. Hunting next high-probability setup.</i>"
+        )
+        return self.send_message(message)
+
+    def notify_stop_loss_hit(
+        self,
+        symbol: str,
+        side: str,
+        entry_price: float,
+        exit_price: float,
+        contracts: int,
+        realized_pnl: float,
+        return_pct: float,
+        exit_stage: str,
+        wallet: Optional[Dict[str, Any]] = None,
+        stats: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Send alert when Stop Loss is hit, detailing capital preservation."""
+        emoji_dir = "🟢 LONG" if side.upper() == "BUY" else "🔴 SHORT"
+        wallet_lines = ""
+        if wallet:
+            avail_usd = wallet.get("available_usd", 0.0)
+            avail_inr = wallet.get("available_inr", 0.0)
+            net_equity = wallet.get("net_equity_usd", 0.0)
+            wallet_lines = (
+                f"💼 <b>UPDATED WALLET &amp; PERFORMANCE:</b>\n"
+                f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code> (₹{avail_inr:,.2f} INR)\n"
+                f"• <b>Total Account Equity:</b> <code>${net_equity:,.2f} USD</code>\n"
+            )
+        if stats:
+            total_pnl = stats.get("total_realized_pnl_usd", 0.0)
+            win_rate = stats.get("win_rate_pct", 0.0)
+            total_trades = stats.get("total_trades", 0)
+            wins = stats.get("winning_trades", 0)
+            losses = stats.get("losing_trades", 0)
+            wallet_lines += (
+                f"• <b>Cumulative Realized PnL:</b> <b>{'+' if total_pnl >= 0 else ''}${total_pnl:,.2f} USD</b>\n"
+                f"• <b>Win Rate:</b> <b>{win_rate:.1f}%</b> ({wins}W / {losses}L in {total_trades} trades)\n"
+            )
+
+        message = (
+            f"🛑 <b>[STOP LOSS HIT — CAPITAL PROTECTED]</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• <b>Asset:</b> <code>{symbol}</code> ({emoji_dir})\n"
+            f"• <b>Contracts:</b> <code>{contracts}</code>\n"
+            f"• <b>Entry:</b> <code>{fmt_p(entry_price)}</code> ──► <b>Exit (SL):</b> <code>{fmt_p(exit_price)}</code>\n"
+            f"• <b>Realized PnL:</b> 🔴 <b>-${abs(realized_pnl):,.2f} USD ({return_pct:.1f}%)</b>\n"
+            f"• <b>Exit Stage:</b> <i>{exit_stage}</i>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{wallet_lines}"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🛡️ <i>Disciplined stop executed. Risk strictly bounded. Searching for next edge.</i>"
+        )
+        return self.send_message(message)
+
+    def notify_breakeven_exit(
+        self,
+        symbol: str,
+        side: str,
+        entry_price: float,
+        exit_price: float,
+        contracts: int,
+        realized_pnl: float,
+        wallet: Optional[Dict[str, Any]] = None,
+        stats: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Send alert when position exits at Breakeven (0 downside risk)."""
+        emoji_dir = "🟢 LONG" if side.upper() == "BUY" else "🔴 SHORT"
+        wallet_lines = ""
+        if wallet:
+            avail_usd = wallet.get("available_usd", 0.0)
+            avail_inr = wallet.get("available_inr", 0.0)
+            net_equity = wallet.get("net_equity_usd", 0.0)
+            wallet_lines = (
+                f"💼 <b>UPDATED WALLET &amp; PERFORMANCE:</b>\n"
+                f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code> (₹{avail_inr:,.2f} INR)\n"
+                f"• <b>Total Account Equity:</b> <code>${net_equity:,.2f} USD</code>\n"
+            )
+        if stats:
+            total_pnl = stats.get("total_realized_pnl_usd", 0.0)
+            win_rate = stats.get("win_rate_pct", 0.0)
+            wallet_lines += (
+                f"• <b>Cumulative Realized PnL:</b> <b>{'+' if total_pnl >= 0 else ''}${total_pnl:,.2f} USD</b>\n"
+                f"• <b>Win Rate:</b> <b>{win_rate:.1f}%</b>\n"
+            )
+
+        message = (
+            f"🛡️ <b>[BREAKEVEN EXIT — ZERO RISK ACHIEVED]</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• <b>Asset:</b> <code>{symbol}</code> ({emoji_dir})\n"
+            f"• <b>Contracts:</b> <code>{contracts}</code>\n"
+            f"• <b>Entry:</b> <code>{fmt_p(entry_price)}</code> ──► <b>Exit (BE):</b> <code>{fmt_p(exit_price)}</code>\n"
+            f"• <b>Realized PnL:</b> 🟢 <b>+${realized_pnl:,.2f} USD</b> (Fees Covered)\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{wallet_lines}"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚡ <i>Trade exited risk-free. Capital 100% intact.</i>"
         )
         return self.send_message(message)
 

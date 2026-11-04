@@ -380,10 +380,10 @@ class TrailingStopManager:
             new_stage = current_stage
 
             # ---------------------------------------------------------
-            # Milestone 1: At >= +0.7R -> Move SL to Breakeven (+0.05% fee buffer)
-            # Shields intraday/scalp positions to achieve 80-90% capital preservation & win-rate
+            # Milestone 1: At >= +0.50R -> Lightning Breakeven Shield
+            # Real Scalper Rule: Wipes out downside on the very first impulse move
             # ---------------------------------------------------------
-            if current_r >= 0.70 and current_stage < 1:
+            if current_r >= 0.50 and current_stage < 1:
                 buffer = risk_per_unit * 0.05
                 if side == "buy":
                     candidate_sl = round_price(entry_price + buffer, entry_price)
@@ -397,110 +397,110 @@ class TrailingStopManager:
                 if new_sl:
                     new_stage = 1
                     stage_narrative = (
-                        f"🛡️ <b>[BREAKEVEN ACTIVATED — ZERO RISK]</b>\n"
+                        f"⚡ <b>[SCALPER BREAKEVEN ACTIVATED — ZERO RISK]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
                         f"• Stop Loss moved from ${current_sl:,.2f} to <b>${new_sl:,.2f}</b> (Breakeven + fee buffer)\n"
-                        f"• Downside risk is completely eliminated! Trade is now a free roll."
+                        f"• Downside risk is 100% eliminated! Trade is now a free roll."
                     )
 
             # ---------------------------------------------------------
-            # Milestone 2: At >= +1.3R -> Lock +0.6R Profit (Intraday Scalp Capital Protection)
+            # Milestone 2: At >= +0.80R -> First Micro Profit Lock (+0.35R)
+            # Real Scalper Rule: Never let a 0.8R winner retrace into breakeven
             # ---------------------------------------------------------
-            elif current_r >= 1.30 and current_stage < 2:
+            elif current_r >= 0.80 and current_stage < 2:
                 if side == "buy":
-                    candidate_sl = round_price(entry_price + (0.60 * risk_per_unit), entry_price)
+                    candidate_sl = round_price(entry_price + (0.35 * risk_per_unit), entry_price)
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                 else:
-                    candidate_sl = round_price(entry_price - (0.60 * risk_per_unit), entry_price)
+                    candidate_sl = round_price(entry_price - (0.35 * risk_per_unit), entry_price)
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
 
                 if new_sl:
                     new_stage = 2
                     stage_narrative = (
-                        f"🔒 <b>[INTRADAY SCALP PROFIT LOCKED — +0.60R IN THE BANK]</b>\n"
+                        f"🔒 <b>[SCALPER MICRO-LOCK — +0.35R PROFIT BANKED]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss secured at <b>${new_sl:,.2f}</b> (+0.60R guaranteed profit)\n"
-                        f"• Guaranteed green trade even if market suddenly pulls back!"
+                        f"• Stop Loss secured at <b>${new_sl:,.2f}</b> (Guaranteed green profit)\n"
+                        f"• Position is permanently in profit!"
                     )
 
             # ---------------------------------------------------------
-            # Milestone 3: At >= +2.0R -> Lock +1.2R profit & trail TP towards 1:3
+            # Milestone 3: At >= +1.20R -> Core Profit Lock (+0.75R)
+            # Real Scalper Rule: Lock 3/4th of target in the bank
             # ---------------------------------------------------------
-            elif current_r >= 2.00 and current_stage < 3:
+            elif current_r >= 1.20 and current_stage < 3:
                 if side == "buy":
-                    candidate_sl = round_price(entry_price + (1.20 * risk_per_unit), entry_price)
+                    candidate_sl = round_price(entry_price + (0.75 * risk_per_unit), entry_price)
+                    if candidate_sl > current_sl:
+                        new_sl = candidate_sl
+                else:
+                    candidate_sl = round_price(entry_price - (0.75 * risk_per_unit), entry_price)
+                    if candidate_sl < current_sl:
+                        new_sl = candidate_sl
+
+                if new_sl:
+                    new_stage = 3
+                    stage_narrative = (
+                        f"💰 <b>[SCALPER PROFIT EXPANDED — +0.75R LOCKED]</b>\n"
+                        f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
+                        f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
+                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+0.75R locked pure profit)\n"
+                        f"• Running towards the final 2.0R Take Profit target!"
+                    )
+
+            # ---------------------------------------------------------
+            # Milestone 4: At >= +1.60R -> Pre-Target Lock (+1.25R)
+            # Real Scalper Rule: Guard against double-top/bottom rejection before 2.0R
+            # ---------------------------------------------------------
+            elif current_r >= 1.60 and current_stage < 4:
+                if side == "buy":
+                    candidate_sl = round_price(entry_price + (1.25 * risk_per_unit), entry_price)
+                    if candidate_sl > current_sl:
+                        new_sl = candidate_sl
+                else:
+                    candidate_sl = round_price(entry_price - (1.25 * risk_per_unit), entry_price)
+                    if candidate_sl < current_sl:
+                        new_sl = candidate_sl
+
+                if new_sl:
+                    new_stage = 4
+                    stage_narrative = (
+                        f"🎯 <b>[SCALPER PRE-TARGET SECURED — +1.25R IN BANK]</b>\n"
+                        f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
+                        f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
+                        f"• Stop Loss locked at <b>${new_sl:,.2f}</b> (+1.25R guaranteed)\n"
+                        f"• Tapping final Take Profit target!"
+                    )
+
+            # ---------------------------------------------------------
+            # Milestone 5: At >= +2.00R -> Full Target / Runner Expansion (+1.60R Lock)
+            # ---------------------------------------------------------
+            elif current_r >= 2.00 and current_stage < 5:
+                if side == "buy":
+                    candidate_sl = round_price(entry_price + (1.60 * risk_per_unit), entry_price)
                     candidate_tp = round_price(entry_price + (3.0 * risk_per_unit), entry_price)
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
                 else:
-                    candidate_sl = round_price(entry_price - (1.20 * risk_per_unit), entry_price)
+                    candidate_sl = round_price(entry_price - (1.60 * risk_per_unit), entry_price)
                     candidate_tp = round_price(entry_price - (3.0 * risk_per_unit), entry_price)
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
 
                 if new_sl:
-                    new_stage = 3
-                    stage_narrative = (
-                        f"💰 <b>[TRAILING STOP UPDATE — +1.20R PROFIT LOCKED]</b>\n"
-                        f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
-                        f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (Locking +1.20R profit)\n"
-                        f"• Take Profit extended to <b>${new_tp:,.2f}</b> (Targeting 1:3 R:R runner expansion)!"
-                    )
-
-            # ---------------------------------------------------------
-            # Milestone 4: At >= +3.0R -> Lock +2.0R profit & trail TP towards 1:5
-            # ---------------------------------------------------------
-            elif current_r >= 3.0 and current_stage < 4:
-                if side == "buy":
-                    candidate_sl = round_price(entry_price + (2.0 * risk_per_unit), entry_price)
-                    candidate_tp = round_price(entry_price + (5.0 * risk_per_unit), entry_price)
-                    if candidate_sl > current_sl:
-                        new_sl = candidate_sl
-                        new_tp = candidate_tp
-                else:
-                    candidate_sl = round_price(entry_price - (2.0 * risk_per_unit), entry_price)
-                    candidate_tp = round_price(entry_price - (5.0 * risk_per_unit), entry_price)
-                    if candidate_sl < current_sl:
-                        new_sl = candidate_sl
-                        new_tp = candidate_tp
-
-                if new_sl:
-                    new_stage = 4
-                    stage_narrative = (
-                        f"🚀 <b>[TRAILING STOP UPDATE — +2.0R PROFIT LOCKED]</b>\n"
-                        f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
-                        f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (Locking +2.0R profit)\n"
-                        f"• Take Profit extended to <b>${new_tp:,.2f}</b> (Targeting 1:5 R:R runner expansion)!"
-                    )
-
-            # ---------------------------------------------------------
-            # Milestone 5: At >= +5.0R -> Lock +4.0R profit
-            # ---------------------------------------------------------
-            elif current_r >= 5.0 and current_stage < 5:
-                if side == "buy":
-                    candidate_sl = round_price(entry_price + (4.0 * risk_per_unit), entry_price)
-                    if candidate_sl > current_sl:
-                        new_sl = candidate_sl
-                else:
-                    candidate_sl = round_price(entry_price - (4.0 * risk_per_unit), entry_price)
-                    if candidate_sl < current_sl:
-                        new_sl = candidate_sl
-
-                if new_sl:
                     new_stage = 5
                     stage_narrative = (
-                        f"🏆 <b>[MEGA RUNNER — +4.0R PROFIT LOCKED]</b>\n"
+                        f"🏆 <b>[SCALP TARGET HIT & RUNNER TRAILING — +1.60R LOCKED]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss locked at <b>${new_sl:,.2f}</b> (+4.0R in the bank)!"
+                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+1.60R locked profit)\n"
+                        f"• Take Profit extended to <b>${new_tp:,.2f}</b> (Trailing outsized momentum)!"
                     )
 
             # Apply order modification on Delta Exchange if SL updated

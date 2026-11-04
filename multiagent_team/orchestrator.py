@@ -58,10 +58,62 @@ class MultiAgentTradingOrchestrator:
         self.telegram_bot = TelegramConfirmationBot()
         self.trailing_stop_manager = TrailingStopManager(client=self.client, telegram=self.telegram)
 
-        raw_symbols = os.getenv("DEFAULT_SYMBOLS", "BTCUSD,ETHUSD,SOLUSD,XAUUSD,PAXGUSD,XRPUSD,DOGEUSD,ADAUSD")
+        raw_symbols = os.getenv("DEFAULT_SYMBOLS", "BTCUSD,ETHUSD,XAUUSD,SOLUSD,PAXGUSD,XRPUSD,DOGEUSD,ADAUSD")
         self.symbols = symbols or [s.strip().upper() for s in raw_symbols.split(",") if s.strip()]
         self.interactive = interactive
         self.leverage = leverage
+
+    def get_market_digest_text(self, scan_results: Optional[Dict[str, Any]] = None) -> str:
+        """Generate a clean Telegram-ready summary of market regimes for primary assets."""
+        if not scan_results:
+            scan_results = self.regime_analyst.scan_universe(self.symbols, resolution="60")
+
+        symbols_data = scan_results.get("symbols_data", {})
+        pos_res = self.client.get_positions()
+        active_pos = [p for p in pos_res.get("result", []) if int(p.get("size", 0)) != 0] if pos_res.get("success") else []
+        orders_res = self.client.get_open_orders()
+        open_orders = orders_res.get("result", []) if orders_res.get("success") else []
+
+        lines = [
+            "📡 <b>[DELTA 24/7 LIVE SCANNER PULSE]</b>",
+            "━━━━━━━━━━━━━━━━━━━━━━",
+            "• <b>Status:</b> 🟢 <b>SCANNING 24/7 ON CLOUD</b>",
+            f"• <b>Active Positions:</b> <b>{len(active_pos)}</b> | <b>Open Orders:</b> <b>{len(open_orders)}</b>",
+            "━━━━━━━━━━━━━━━━━━━━━━",
+            "🌟 <b>PRIMARY ASSETS (CORE FOCUS):</b>"
+        ]
+
+        for sym in ["BTCUSD", "ETHUSD", "XAUUSD"]:
+            d = symbols_data.get(sym)
+            if not d:
+                continue
+            price = d.get("current_price", 0.0)
+            m_reg = d.get("macro_monthly", {}).get("regime", "N/A").replace("MONTHLY_", "")
+            w_reg = d.get("macro_weekly", {}).get("regime", "N/A").replace("WEEKLY_", "")
+            d_reg = d.get("macro_daily", {}).get("regime", "N/A").replace("DAILY_", "")
+            h4_reg = d.get("macro_4h", {}).get("regime", "N/A").replace("MACRO_", "")
+            liq = d.get("liquidity", {})
+            sweep = liq.get("sweep_type", "NONE")
+            sweep_txt = f"Sweep: {sweep}" if liq.get("sweep_detected") else "Consolidating (No Sweep)"
+
+            lines.append(f"• <b>{sym}:</b> <code>${price:,.2f}</code> | 1M:{m_reg} 1W:{w_reg} 1D:{d_reg} 4H:{h4_reg}")
+            lines.append(f"  ↳ <i>{sweep_txt}</i>")
+
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append("⚪ <b>SECONDARY ASSETS (LESS IMPORTANT):</b>")
+        for sym in ["SOLUSD", "XRPUSD", "DOGEUSD", "ADAUSD"]:
+            d = symbols_data.get(sym)
+            if not d:
+                continue
+            price = d.get("current_price", 0.0)
+            liq = d.get("liquidity", {})
+            sweep = liq.get("sweep_type", "NONE")
+            sweep_tag = f"Sweep: {sweep}" if liq.get("sweep_detected") else "No Sweep"
+            lines.append(f"• <code>{sym}</code>: ${price:.4f} ({sweep_tag})")
+
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append("⚡ <i>Send /scan or /status anytime to get instant updates!</i>")
+        return "\n".join(lines)
 
     def run_trading_cycle(self) -> Dict[str, Any]:
         """
@@ -110,7 +162,7 @@ class MultiAgentTradingOrchestrator:
         candidates = self.strategy_agent.find_best_candidates(scan_results)
         if not candidates:
             print("   No qualified setups found matching strict edge criteria this cycle.")
-            return {"status": "NO_SETUPS_FOUND", "regime": market_regime}
+            return {"status": "NO_SETUPS_FOUND", "regime": market_regime, "scan_results": scan_results}
 
         print(f"   Found {len(candidates)} prospective trade setup(s):")
         for i, c in enumerate(candidates, 1):
@@ -136,7 +188,7 @@ class MultiAgentTradingOrchestrator:
 
         if not approved_trades:
             print("\n   All prospective setups rejected by Risk Gatekeeper. Capital protected.")
-            return {"status": "REJECTED_BY_RISK_GATE", "regime": market_regime}
+            return {"status": "REJECTED_BY_RISK_GATE", "regime": market_regime, "scan_results": scan_results}
 
         # -----------------------------------------------------------------
         # Step 5: Telegram 2-Way Execution Gate (Agent 4 + Telegram Bot)
@@ -196,7 +248,8 @@ class MultiAgentTradingOrchestrator:
             "market_regime": market_regime,
             "approved_trades_count": len(approved_trades),
             "executed_trades_count": len(executed_records),
-            "executed_records": executed_records
+            "executed_records": executed_records,
+            "scan_results": scan_results
         }
 
     def run_continuous_loop(self, interval_seconds: int = 300):

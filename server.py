@@ -88,20 +88,22 @@ def run_scanner_loop():
 
     # Send startup confirmation to Telegram
     startup_msg = (
-        "🤖 <b>[DELTA MULTI-AGENT BOT DEPLOYED & ONLINE 24/7]</b>\n"
+        "🤖 <b>[DELTA MULTI-AGENT BOT ONLINE & 24/7 SCANNING]</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "• <b>Status:</b> 🟢 <b>RUNNING ON CLOUD</b>\n"
+        "• <b>Primary Focus:</b> 🌟 <b>BTC, ETH, XAU (Gold)</b>\n"
         "• <b>2-Way Confirmation:</b> ✅ <b>STRICTLY REQUIRED</b>\n"
-        "  <i>(Zero trades will be taken without your explicit button click on Telegram)</i>\n"
-        "• <b>Trailing Stop Loss:</b> 🛡️ <b>ACTIVE</b>\n"
+        "  <i>(Zero trades will execute without your Telegram click)</i>\n"
+        "• <b>Trailing Stop Loss:</b> 🛡️ <b>ACTIVE (15s Loop)</b>\n"
         "  <i>(1:1 -> Breakeven, 1:2 -> Lock +1R & trail to 1:3, 1:5)</i>\n"
-        "• <b>Confluence Engine:</b> 🎯 <b>80-90% WIN-RATE FILTER</b>\n"
-        "  <i>(4H Macro Stack + 1H Liquidity Sweeps + MSS + Structural SL)</i>\n"
-        "• <b>Universe:</b> <code>BTCUSD, ETHUSD, SOLUSD, XAUUSD, PAXGUSD, XRPUSD, DOGEUSD, ADAUSD</code>\n"
+        "• <b>Interactive Commands Active:</b>\n"
+        "  Type <code>/status</code>, <code>/scan</code>, <code>/positions</code>, or <code>/orders</code> anytime!\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "⚡ <i>Monitoring charts 24/7. Capital is protected.</i>"
+        "⚡ <i>Actively scanning charts 24/7. Capital is protected.</i>"
     )
     telegram.send_message(startup_msg)
+
+    pulse_interval = int(os.getenv("TELEGRAM_PULSE_CYCLES", "15"))  # ~Every 30 minutes
 
     while True:
         try:
@@ -110,18 +112,30 @@ def run_scanner_loop():
             
             result = orchestrator.run_trading_cycle()
             scanner_status["last_result"] = result
+
+            # Send periodic live scan pulse to Telegram (every ~30 mins or cycle 1)
+            if scanner_status["cycle_count"] == 1 or (scanner_status["cycle_count"] % pulse_interval == 0):
+                try:
+                    scan_data = result.get("scan_results") if isinstance(result, dict) else None
+                    pulse_text = orchestrator.get_market_digest_text(scan_data)
+                    orchestrator.telegram_bot.send_message(pulse_text)
+                    logger.info("Dispatched periodic scan pulse to Telegram.")
+                except Exception as e:
+                    logger.error(f"Failed to dispatch periodic scan pulse: {e}")
         except Exception as e:
             logger.error(f"Scanner exception: {e}", exc_info=True)
 
-        # Sleep in 15-second chunks, continuously monitoring trailing stops for active positions
+        # Sleep in 15-second chunks, continuously monitoring trailing stops & Telegram commands
         elapsed = 0
         while elapsed < interval:
             time.sleep(15)
             elapsed += 15
             try:
                 orchestrator.trailing_stop_manager.check_and_update_trailing_stops()
+                # Check for Telegram slash commands (/status, /scan, /positions, /orders, /help)
+                orchestrator.telegram_bot.process_incoming_commands(orchestrator)
             except Exception as e:
-                logger.error(f"Trailing stop background tick error: {e}")
+                logger.error(f"Trailing stop / Telegram command background tick error: {e}")
 
 
 def main():

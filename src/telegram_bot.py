@@ -285,3 +285,143 @@ class TelegramConfirmationBot:
         logger.info(f"Trade proposal {trade_id} timed out. Order cancelled.")
         return False
 
+    def process_incoming_commands(self, orchestrator=None) -> None:
+        """
+        Poll Telegram for incoming user commands (/status, /scan, /positions, /orders, /help)
+        and respond immediately.
+        """
+        if not self.is_configured:
+            return
+
+        try:
+            url = f"{self.base_url}/getUpdates"
+            params = {"offset": self.last_update_id, "timeout": 2}
+            res = requests.get(url, params=params, timeout=5)
+            data = res.json()
+            if not data.get("ok"):
+                return
+
+            for update in data.get("result", []):
+                self.last_update_id = max(self.last_update_id, update["update_id"] + 1)
+
+                msg = update.get("message")
+                if not msg:
+                    continue
+
+                chat_id = str(msg.get("chat", {}).get("id", ""))
+                if chat_id != str(self.chat_id):
+                    continue
+
+                text = (msg.get("text") or "").strip()
+                if not text.startswith("/"):
+                    continue
+
+                cmd = text.split()[0].lower()
+                logger.info(f"Received Telegram command: {cmd}")
+                self._handle_command(cmd, orchestrator)
+        except Exception as e:
+            logger.error(f"Error checking Telegram commands: {e}")
+
+    def _handle_command(self, cmd: str, orchestrator=None) -> None:
+        """Route user slash command to response."""
+        if not orchestrator:
+            self.send_message("⚠️ Orchestrator unavailable. Bot is initializing.")
+            return
+
+        client = orchestrator.client
+
+        if cmd in ["/status", "/ping"]:
+            try:
+                wallet = client.get_wallet_balances()
+                avail_usd = 0.0
+                if isinstance(wallet, dict) and wallet.get("result"):
+                    for a in wallet["result"]:
+                        if a.get("asset_symbol") == "USD":
+                            avail_usd = float(a.get("available_balance", "0"))
+
+                pos_res = client.get_positions()
+                active_pos = [p for p in pos_res.get("result", []) if int(p.get("size", 0)) != 0] if pos_res.get("success") else []
+                orders_res = client.get_open_orders()
+                open_orders = orders_res.get("result", []) if orders_res.get("success") else []
+
+                status_msg = (
+                    "🤖 <b>[DELTA 24/7 CLOUD BOT STATUS]</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "• <b>Status:</b> 🟢 <b>ACTIVE & SCANNING 24/7</b>\n"
+                    f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code>\n"
+                    f"• <b>Active Positions:</b> <b>{len(active_pos)}</b>\n"
+                    f"• <b>Pending Orders:</b> <b>{len(open_orders)}</b>\n"
+                    "• <b>Core Focus:</b> <b>BTC, ETH, XAU (Gold)</b>\n"
+                    "• <b>2-Way Confirmation:</b> ✅ <b>STRICTLY REQUIRED</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "⚡ <i>Type /scan for instant analysis or /orders to see orderbook.</i>"
+                )
+                self.send_message(status_msg)
+            except Exception as e:
+                self.send_message(f"⚠️ Error fetching status: {e}")
+
+        elif cmd in ["/scan", "/market"]:
+            try:
+                self.send_message("🔍 <i>Scanning BTC, ETH, and XAU across 5 timeframes... Please wait a few seconds.</i>")
+                digest = orchestrator.get_market_digest_text()
+                self.send_message(digest)
+            except Exception as e:
+                self.send_message(f"⚠️ Error generating scan: {e}")
+
+        elif cmd in ["/positions", "/pos"]:
+            try:
+                pos_res = client.get_positions()
+                active_pos = [p for p in pos_res.get("result", []) if int(p.get("size", 0)) != 0] if pos_res.get("success") else []
+                if not active_pos:
+                    self.send_message("📊 <b>No open positions.</b> Capital is 100% in cash USD.")
+                else:
+                    lines = ["📊 <b>[ACTIVE OPEN POSITIONS]</b>", "━━━━━━━━━━━━━━━━━━━━━━"]
+                    for p in active_pos:
+                        sym = p.get("product_symbol")
+                        sz = p.get("size")
+                        ent = float(p.get("entry_price", 0))
+                        pnl = float(p.get("unrealized_pnl", 0))
+                        lines.append(f"• <b>{sym}</b>: Size {sz} | Entry: <code>${ent:,.4f}</code> | PnL: <b>${pnl:,.2f}</b>")
+                    lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+                    lines.append("🛡️ <i>Protected by Trailing Stop Manager (15s loop).</i>")
+                    self.send_message("\n".join(lines))
+            except Exception as e:
+                self.send_message(f"⚠️ Error fetching positions: {e}")
+
+        elif cmd in ["/orders", "/orderbook"]:
+            try:
+                orders_res = client.get_open_orders()
+                open_orders = orders_res.get("result", []) if orders_res.get("success") else []
+                if not open_orders:
+                    self.send_message("📋 <b>No pending orders on orderbook.</b>")
+                else:
+                    lines = ["📋 <b>[PENDING ORDERS ON DELTA EXCHANGE]</b>", "━━━━━━━━━━━━━━━━━━━━━━"]
+                    for o in open_orders:
+                        oid = o.get("id")
+                        sym = o.get("product_symbol")
+                        side = o.get("side", "").upper()
+                        sz = o.get("size")
+                        lp = float(o.get("limit_price") or 0)
+                        lines.append(f"• <b>#{oid}</b>: <b>{sym} {side}</b> | {sz} contracts @ <code>${lp:,.4f}</code>")
+                    lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+                    lines.append("⚡ <i>Orders execute automatically when limit price is filled.</i>")
+                    self.send_message("\n".join(lines))
+            except Exception as e:
+                self.send_message(f"⚠️ Error fetching orders: {e}")
+
+        elif cmd in ["/help", "/start"]:
+            help_msg = (
+                "📖 <b>[DELTA BOT COMMAND CENTER]</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "You can command your trading bot anytime directly in this chat:\n\n"
+                "• <code>/status</code> — View 24/7 cloud health, available equity & open count\n"
+                "• <code>/scan</code> — Trigger on-demand 5-timeframe scan of BTC, ETH & XAU\n"
+                "• <code>/positions</code> — View currently active positions & PnL\n"
+                "• <code>/orders</code> — Inspect pending limit/bracket orders\n"
+                "• <code>/help</code> — Show this help manual\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🎯 <b>Primary Focus:</b> BTC, ETH, XAU (Gold)\n"
+                "⚠️ <b>Zero trades execute without your explicit button click.</b>"
+            )
+            self.send_message(help_msg)
+

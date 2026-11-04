@@ -38,17 +38,24 @@ class StrategyAgent:
 
             stop_distance = abs(entry - sl)
             if stop_distance > 0 and entry > 0:
+                is_primary = any(p in (symbol or "").upper() for p in ["BTC", "ETH", "XAU", "GOLD"])
+                priority_tag = "PRIMARY" if is_primary else "SECONDARY"
+                adjusted_score = score + (10 if is_primary else 0)
+                formatted_thesis = f"🌟 [PRIMARY FOCUS ASSET] {thesis}" if is_primary else f"⚪ [SECONDARY ASSET] {thesis}"
+
                 return {
                     "symbol": symbol,
-                    "strategy_name": f"Institutional_SMC_{side.upper()}_{score}pts",
+                    "strategy_name": f"Institutional_SMC_{priority_tag}_{side.upper()}_{adjusted_score}pts",
                     "side": side,
                     "entry_price": entry,
                     "stop_loss_price": sl,
                     "take_profit_price": tp,
                     "stop_distance_pct": round((stop_distance / entry) * 100, 2),
                     "planned_rr_ratio": round(abs(tp - entry) / stop_distance, 2),
-                    "score": score,
-                    "thesis": thesis,
+                    "score": adjusted_score,
+                    "is_primary": is_primary,
+                    "priority_tier": 1 if is_primary else 2,
+                    "thesis": formatted_thesis,
                     "confluence": {
                         "monthly": f"{macro_monthly.get('regime', 'NEUTRAL')} (M-Open: ${macro_monthly.get('monthly_open', 'N/A')})",
                         "weekly": f"{macro_weekly.get('regime', 'NEUTRAL')} (W-RSI: {macro_weekly.get('rsi_14', 'N/A')})",
@@ -64,6 +71,7 @@ class StrategyAgent:
     def find_best_candidates(self, scan_results: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Scan all symbols from RegimeAnalyst and return list of qualified setups.
+        Primary assets (BTC, ETH, XAU) are prioritized first.
         """
         candidates = []
         symbols_data = scan_results.get("symbols_data", {})
@@ -74,6 +82,13 @@ class StrategyAgent:
             if setup:
                 candidates.append(setup)
                 
-        # Rank by R:R ratio descending
-        candidates.sort(key=lambda s: s.get("planned_rr_ratio", 0.0), reverse=True)
+        # Rank by: Primary tier first, then score, then R:R ratio descending
+        candidates.sort(
+            key=lambda s: (
+                1 if s.get("is_primary") else 0,
+                s.get("score", 0),
+                s.get("planned_rr_ratio", 0.0)
+            ),
+            reverse=True
+        )
         return candidates

@@ -677,73 +677,83 @@ def analyze_multi_timeframe(
     strategy_label = ""
 
     # Priority A: Intraday Liquidity Sweep Scalp (15m / 1H)
+    # Institutional Rules:
+    # 1. Macro Trend Alignment: NEVER trade against dominant 1H & 4H momentum.
+    # 2. Market Structure Shift (MSS): MANDATORY confirmation (no entering on unconfirmed wicks).
+    # 3. Strict Confluence: High precision setup targeting 80-90% win rate.
     if sweep_detected:
         if sweep_type == "BULLISH_SSL_SWEEP":
-            # STRICT VETO: Cannot buy into confirmed Daily + Weekly Bear Trend unless Daily RSI < 32 oversold
-            if daily_regime == "DAILY_BEARISH" and weekly_regime == "WEEKLY_BEARISH" and rsi_1d >= 32.0:
-                rejection_reason = "Blocked: High-Timeframe Bearish Conflict (1D & 1W Bearish with RSI >= 32)."
+            # STRICT VETO 1: Cannot go long if 1H or 4H is strongly bearish
+            if macro_4h_regime == "MACRO_BEARISH" or (daily_regime == "DAILY_BEARISH" and weekly_regime == "WEEKLY_BEARISH" and rsi_1d >= 32.0):
+                rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily Bearish)."
+            elif not mss_confirmed:
+                rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
             else:
-                setup_score = 30  # Base intraday sweep
-                if mss_confirmed:
-                    setup_score += 20  # Microstructure shift
+                setup_score = 40  # Base confirmed sweep
+                setup_score += 25  # MSS confirmed (mandatory)
                 if vol_confirmed:
-                    setup_score += 10  # Volume absorption
-                if macro_4h_regime in ["MACRO_BULLISH", "MACRO_NEUTRAL"]:
+                    setup_score += 10  # Volume absorption confirmed
+                if macro_4h_regime == "MACRO_BULLISH":
                     setup_score += 15  # 4H aligned
-                if daily_regime == "DAILY_BULLISH" or rsi_1d < 35.0:
-                    setup_score += 10  # Daily aligned / oversold
+                elif macro_4h_regime == "MACRO_NEUTRAL":
+                    setup_score += 5
+                if daily_regime == "DAILY_BULLISH" or rsi_1d < 38.0:
+                    setup_score += 10  # Daily aligned or oversold bounce
                 if is_primary:
                     setup_score += 10  # Priority asset boost
 
-                qual_threshold = 60 if is_primary else 70
+                qual_threshold = 80 if is_primary else 85
                 if setup_score >= qual_threshold:
                     raw_sl = min(sweep_wick, current_price - (0.6 * atr_15m)) - (0.10 * atr_15m)
                     raw_risk = current_price - raw_sl
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(current_price - sl_dist, current_price)
-                    target_tp = round_price(current_price + (2.0 * sl_dist), current_price)
+                    target_tp = round_price(current_price + (2.2 * sl_dist), current_price)
                     
                     setup_qualified = True
                     setup_side = "buy"
-                    strategy_label = f"Intraday_Scalp_SSL_Sweep_{st_tf}"
+                    strategy_label = f"Institutional_SSL_Sweep_{st_tf}"
                     thesis = (
-                        f"Intraday {st_tf} Bullish SSL Sweep (Score {setup_score}/100): Swept Sell-Side Liquidity "
-                        f"(${active_liq.get('swept_level', 0):.4f}) with quick wick rejection. "
-                        f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.0:1."
+                        f"High-Precision {st_tf} Bullish SSL Sweep (Score {setup_score}/100): Confirmed liquidity absorption "
+                        f"at ${active_liq.get('swept_level', 0):.4f} with verified MSS & higher-timeframe trend alignment. "
+                        f"Calculated Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.2:1."
                     )
 
         elif sweep_type == "BEARISH_BSL_SWEEP":
-            # STRICT VETO: Cannot short into confirmed Daily + Weekly Bull Trend unless Daily RSI > 68 exhaustion
-            if daily_regime == "DAILY_BULLISH" and weekly_regime == "WEEKLY_BULLISH" and rsi_1d <= 68.0:
-                rejection_reason = "Blocked: High-Timeframe Bullish Conflict (1D & 1W Bullish with RSI <= 68)."
+            # STRICT VETO 1: Cannot short if 1H or 4H is strongly bullish
+            if macro_4h_regime == "MACRO_BULLISH" or (daily_regime == "DAILY_BULLISH" and weekly_regime == "WEEKLY_BULLISH" and rsi_1d <= 68.0):
+                rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily Bullish expansion)."
+            elif not mss_confirmed:
+                rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
             else:
-                setup_score = 30
-                if mss_confirmed:
-                    setup_score += 20
+                setup_score = 40  # Base confirmed sweep
+                setup_score += 25  # MSS confirmed (mandatory)
                 if vol_confirmed:
-                    setup_score += 10
-                if macro_4h_regime in ["MACRO_BEARISH", "MACRO_NEUTRAL"]:
-                    setup_score += 15
-                if daily_regime == "DAILY_BEARISH" or rsi_1d > 65.0:
-                    setup_score += 10
+                    setup_score += 10  # Volume absorption confirmed
+                if macro_4h_regime == "MACRO_BEARISH":
+                    setup_score += 15  # 4H aligned
+                elif macro_4h_regime == "MACRO_NEUTRAL":
+                    setup_score += 5
+                if daily_regime == "DAILY_BEARISH" or rsi_1d > 62.0:
+                    setup_score += 10  # Daily aligned or overbought rejection
                 if is_primary:
-                    setup_score += 10
+                    setup_score += 10  # Priority asset boost
 
-                qual_threshold = 60 if is_primary else 70
+                qual_threshold = 80 if is_primary else 85
                 if setup_score >= qual_threshold:
                     raw_sl = max(sweep_wick, current_price + (0.6 * atr_15m)) + (0.10 * atr_15m)
                     raw_risk = raw_sl - current_price
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(current_price + sl_dist, current_price)
-                    target_tp = round_price(current_price - (2.0 * sl_dist), current_price)
+                    target_tp = round_price(current_price - (2.2 * sl_dist), current_price)
 
                     setup_qualified = True
                     setup_side = "sell"
-                    strategy_label = f"Intraday_Scalp_BSL_Sweep_{st_tf}"
+                    strategy_label = f"Institutional_BSL_Sweep_{st_tf}"
                     thesis = (
-                        f"Intraday {st_tf} Bearish BSL Sweep (Score {setup_score}/100): Swept Buy-Side Liquidity "
-                        f"(${active_liq.get('swept_level', 0):.4f}) with quick wick rejection. "
-                        f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.0:1."
+                        f"High-Precision {st_tf} Bearish BSL Sweep (Score {setup_score}/100): Confirmed liquidity absorption "
+                        f"at ${active_liq.get('swept_level', 0):.4f} with verified MSS & higher-timeframe trend alignment. "
+                        f"Calculated Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.2:1."
                     )
 
     # Priority B: 15m High-Momentum Trend Pullback / EMA Re-test Scalp

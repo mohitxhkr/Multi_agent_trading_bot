@@ -43,7 +43,7 @@ class StrategyAgent:
                 adjusted_score = score + (10 if is_primary else 0)
 
                 # Enforce institutional high-conviction threshold (80-90% accuracy standard)
-                min_threshold = 75 if is_primary else 80
+                min_threshold = 80 if is_primary else 85
                 if adjusted_score < min_threshold:
                     return None
 

@@ -94,40 +94,54 @@ class RiskGatekeeperAgent:
         pinfo = self.client.get_product_info(symbol)
         contract_value = float(pinfo.get("contract_value", "0.001")) if pinfo else 0.001
 
-        # 6. Sizing Engine: Target 75% to 100% Capital Allocation at specified leverage
-        alloc_min = float(os.getenv("CAPITAL_ALLOCATION_MIN_PCT", "0.75"))
-        alloc_max = float(os.getenv("CAPITAL_ALLOCATION_MAX_PCT", "1.00"))
-
+        # 6. Sizing Engine: Institutional Fixed Dollar Risk Model
+        # Strictly caps dollar loss per trade to preserve capital (typically 1-3% or $2-$5 max).
+        # Eliminates catastrophic drawdowns from high-beta altcoins.
         usable_capital = max(available_usdt, 0.0)
-        if usable_capital < 5.0:
+        if usable_capital < 3.0:
             return {
                 "gate_decision": "REJECTED",
                 "reason": f"Available capital (${usable_capital:.2f}) is too low to open a new position."
             }
 
-        target_margin = usable_capital * alloc_min
-        target_notional = target_margin * leverage
+        is_primary = any(p in (symbol or "").upper() for p in ["BTC", "ETH", "XAU", "GOLD"])
+        stop_distance = abs(entry - stop)
+        if stop_distance <= 0:
+            return {"gate_decision": "REJECTED", "reason": "Invalid stop loss distance (zero or negative)."}
+
         per_contract_notional = contract_value * entry
         if per_contract_notional <= 0:
             return {"gate_decision": "REJECTED", "reason": "Invalid entry price or contract value."}
 
-        contracts = int(target_notional / per_contract_notional)
+        # Dollar risk ceiling per trade
+        # For primary assets (BTC/ETH/XAU): target 2% of equity, capped between $1.50 and $5.00
+        # For secondary alts: strictly capped at $2.00 max to eliminate outsized volatility drag
+        max_dollar_risk_cap = float(os.getenv("MAX_DOLLAR_RISK_PER_TRADE", "4.00" if is_primary else "2.00"))
+        target_risk_pct = 0.02 if is_primary else 0.015
+        calculated_dollar_risk = min(max(total_usdt * target_risk_pct, 1.50), max_dollar_risk_cap)
+
+        # Risk-based contract sizing: contracts = dollar_risk / (contract_value * stop_distance)
+        risk_per_contract = contract_value * stop_distance
+        contracts = int(calculated_dollar_risk / risk_per_contract) if risk_per_contract > 0 else 1
         if contracts < 1:
             contracts = 1
 
+        # Margin guardrails:
+        # Max margin allowed: 25% of usable equity for primary, 10% for secondary alts
+        max_margin_pct = 0.25 if is_primary else 0.10
+        max_allowed_margin = min(usable_capital * max_margin_pct, 30.0 if is_primary else 10.0)
+        
         req_margin = (contracts * per_contract_notional) / leverage
-        # Clamp to available balance with buffer
-        if req_margin > usable_capital * 0.98:
-            contracts = int((usable_capital * 0.95 * leverage) / per_contract_notional)
+        if req_margin > max_allowed_margin:
+            contracts = int((max_allowed_margin * leverage) / per_contract_notional)
             req_margin = (contracts * per_contract_notional) / leverage
 
         if contracts < 1 or req_margin > usable_capital:
             return {
                 "gate_decision": "REJECTED",
-                "reason": f"Minimum contract margin (${req_margin:.2f}) exceeds available capital (${usable_capital:.2f})."
+                "reason": f"Required margin (${req_margin:.2f}) exceeds risk ceiling or available balance (${usable_capital:.2f})."
             }
 
-        stop_distance = abs(entry - stop)
         dollar_risk = contracts * contract_value * stop_distance
         risk_pct = (dollar_risk / total_usdt) * 100.0 if total_usdt > 0 else 0.0
         profit_distance = abs(tp - entry)

@@ -443,42 +443,23 @@ class AdaptiveLearningEngine:
 
         status_emoji = "🟢 REINFORCED (Repeat Pattern)" if pat["status"] == "REINFORCED" else ("🔴 BLACKLISTED (Avoid Pattern)" if pat["status"] == "VETOED_BLACKLISTED" else "🟡 EVALUATING")
 
+        initial_risk = refl.get("initial_risk_usd", 2.0)
         lines = [
-            f"🧠 <b>[ALGORITHM POST-TRADE REFLECTION &amp; SELF-AUDIT]</b>",
+            "🧠 <b>[TRADE OUTCOME & LEARNING REFLECTION]</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",
-            f"• <b>Asset:</b> <code>{sym}</code> | <b>Side:</b> {emoji_dir}",
-            f"• <b>Outcome:</b> <b>{outcome_tag}</b> (<code>{pnl_str}</code>)",
-            f"• <b>Self-Scorecard:</b> <b>{scoring['total_score']}/100</b> — <i>{scoring['grade']}</i>",
-            f"  ↳ Discipline: {scoring['discipline_score']}/30 | Confluence: {scoring['confluence_score']}/40 | Edge: {scoring['edge_score']}/30",
+            f"• <b>Asset:</b> <code>{sym}</code> ({emoji_dir})",
+            f"• <b>Result:</b> <b>{outcome_tag}</b>",
+            f"• <b>Total Risk Taken:</b> <b>${initial_risk:.2f} USD</b>",
+            f"• <b>Total Realized Profit/Loss:</b> <b>{pnl_str}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",
-            "🔍 <b>ROOT CAUSE DIAGNOSIS:</b>"
+            f"⭐ <b>Trade Quality Grade:</b> <b>{scoring['grade']} ({scoring['total_score']}/100)</b>",
+            f"💡 <b>Key Lesson:</b> <i>{diag['actionable_lesson']}</i>",
+            "━━━━━━━━━━━━━━━━━━━━━━",
+            f"🎯 <b>Bot Win Rate:</b> <b>{sc['win_rate_pct']}%</b> ({sc['winning_trades']}W / {sc['losing_trades']}L)",
+            f"💰 <b>Total Profit to Date:</b> <b>{'+' if sc['cumulative_pnl_usd'] >= 0 else ''}${sc['cumulative_pnl_usd']:.2f} USD</b>",
+            "━━━━━━━━━━━━━━━━━━━━━━",
+            "⚡ <i>Algorithm automatically applies this lesson to the next trade.</i>"
         ]
-
-        if diag["success_factors"]:
-            lines.append("<b>Why It Succeeded:</b>")
-            for sf in diag["success_factors"]:
-                lines.append(f"  ✅ <i>{sf}</i>")
-
-        if diag["failure_factors"]:
-            lines.append("<b>Why It Failed / Drawdown Drivers:</b>")
-            for ff in diag["failure_factors"]:
-                lines.append(f"  ⚠️ <i>{ff}</i>")
-
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append(f"⚙️ <b>ALGORITHM ADAPTATION:</b>")
-        lines.append(f"• <b>Pattern Signature:</b> <code>{pat['pattern_key']}</code>")
-        lines.append(f"• <b>Pattern Status:</b> {status_emoji}")
-        lines.append(f"• <b>Score Adjustment:</b> <b>{'+' if pat['score_adjustment'] >= 0 else ''}{pat['score_adjustment']} pts</b>")
-        lines.append(f"• <b>Rule:</b> <i>{diag['actionable_lesson']}</i>")
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("📈 <b>UPDATED BOT SCORECARD:</b>")
-        lines.append(f"• Total Completed Trades: <b>{sc['total_completed_trades']}</b>")
-        lines.append(f"• Performance: <b>{sc['winning_trades']} Wins</b> | <b>{sc['losing_trades']} Losses</b> | <b>{sc['breakeven_trades']} BE</b>")
-        lines.append(f"• Realized Win Rate: <b>{sc['win_rate_pct']}%</b>")
-        lines.append(f"• Cumulative Realized PnL: <b>{'+' if sc['cumulative_pnl_usd'] >= 0 else ''}${sc['cumulative_pnl_usd']:.2f} USD</b>")
-        lines.append(f"• Average Trade Score: <b>{sc['average_trade_score']}/100</b>")
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("⚡ <i>Self-learning loop complete. Weights persisted to memory.</i>")
 
         return "\n".join(lines)
 

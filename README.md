@@ -93,7 +93,7 @@ flowchart TD
     end
 
     subgraph Layer3 ["Layer 3: Risk & Authorization"]
-        A5["Agent 5: Risk Gatekeeper<br/>• Fixed Dollar Risk ($2.00 - $4.00 USD)<br/>• Dynamic Drawdown Scalar (-30% risk)<br/>• Pre-Check Liquidation Buffer (>= 3x SL)<br/>• Max 2 Correlated Directional Alts<br/>• Portfolio Total Open Risk <= $8.00"]
+        A5["Agent 5: Risk Gatekeeper<br/>• Fixed Dollar Risk (2.00 to 4.00 USD)<br/>• Dynamic Drawdown Scalar (-30% risk)<br/>• Pre-Check Liquidation Buffer (>= 3x SL)<br/>• Max 2 Correlated Directional Alts<br/>• Portfolio Total Open Risk <= 8.00 USD"]
         A6["Agent 6: Telegram Confirmation Gate<br/>• Proposal Card with Full Risk Metrics<br/>• Duplicate-Click Atomic Shield<br/>• Pre-Execution Price Drift Revalidation<br/>• Zero Orders Without Explicit Click"]
     end
 
@@ -174,13 +174,13 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Core Responsibilities:**
   1. **Cross-Asset Participation Breadth:** Computes the percentage of universe assets trading above their 21 EMA.
   2. **Altcoin Relative Strength (RS):** Measures whether altcoins are outperforming or lagging BTC momentum.
-  3. **Derivatives Funding Sentiment & Crowding:** Detects extreme long froth ($> +0.04\%$) or aggressive short cascades ($< -0.04\%$).
+  3. **Derivatives Funding Sentiment & Crowding:** Detects extreme long froth (&gt; +0.04%) or aggressive short cascades (&lt; -0.04%).
   4. **Portfolio Open Exposure Sizing:** Factored open positions count and margin utilization into Market Health calculation.
   5. **Global Market Posture Classification:**
      * **`AGGRESSIVE_EXPANSION` (Health >= 75):** 100% risk budget, up to 3 concurrent positions permitted.
      * **`MODERATE_SELECTIVE` (Health 50-74):** 75% risk budget, Tier-1 focus (`BTC`, `ETH`, `XAU`).
      * **`DEFENSIVE_CAUTION` (Health 32-49):** 50% risk budget, max 1 active position, secondary alts disabled.
-     * **`RECOVERY_POSTURE`:** Engaged after 2 consecutive stop losses; risk slashed to 50% ($2.00 max risk) and concurrency clamped to 1 position.
+     * **`RECOVERY_POSTURE`:** Engaged after 2 consecutive stop losses; risk slashed to 50% (2.00 USD max risk) and concurrency clamped to 1 position.
      * **`CASH_PRIORITY` (Health below 32):** **0% risk budget. All new entries blocked.** Capital is 100% in cash USD.
 
 ---
@@ -189,10 +189,10 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Module:** [`multiagent_team/strategy_agent.py`](multiagent_team/strategy_agent.py)
 * **Execution Timing:** Triggered when Market Posture authorizes trading.
 * **Core Responsibilities:**
-  1. **Separation of Hard Rejection from Scoring:** Rejects outright on news windows, excessive spread ($> 0.15\%$), or price deviation ($> 0.50\%$) before scoring.
+  1. **Separation of Hard Rejection from Scoring:** Rejects outright on news windows, excessive spread (&gt; 0.15%), or price deviation (&gt; 0.50%) before scoring.
   2. **Mandatory Market Structure Shift (MSS):** Rejects unconfirmed wicks. Requires candle body close breaking prior swing structure.
   3. **VWAP Institutional Alignment:** Longs must align with or reclaim VWAP; shorts must be rejected beneath VWAP (+5 / -5 point modifier).
-  4. **Dynamic ATR Stop Loss Calibration:** Calibrates Stop Loss distance dynamically between $0.8\times$ and $1.6\times$ 15m ATR to protect against normal market noise.
+  4. **Dynamic ATR Stop Loss Calibration:** Calibrates Stop Loss distance dynamically between 0.8x and 1.6x 15m ATR to protect against normal market noise.
   5. **Setup Expiration Timestamp:** Sets a 60-minute time-to-live (TTL) on proposals.
   6. **Institutional Score Floor:** Discards any setup scoring below **80 / 100** for Primary or **85 / 100** for Secondary assets.
 
@@ -205,9 +205,13 @@ The system divides trading responsibilities into **10 specialized autonomous age
   1. **Walk-Forward Historical Simulation:** Simulates identical historical pattern matches bar-by-bar across 400+ past candles.
   2. **Friction-Adjusted Backtesting:** Deducts taker fees (0.10% round-trip), slippage (0.06%), and funding (0.01%) from every simulated trade.
   3. **Wilson Score 95% Confidence Interval:** Computes the mathematical lower bound to guarantee that small samples (e.g. 2 wins out of 2 trades) cannot artificially trigger approval:
-     $$W_{\text{lower}} = \frac{\hat{p} + \frac{z^2}{2n} - z \sqrt{\frac{\hat{p}(1-\hat{p})}{n} + \frac{z^2}{4n^2}}}{1 + \frac{z^2}{n}}$$
+
+```text
+W_lower = [ p_hat + z²/(2n) - z * sqrt( (p_hat*(1-p_hat)/n) + z²/(4n²) ) ] / [ 1 + z²/n ]
+```
+
   4. **Out-of-Sample Validation:** 70% in-sample / 30% out-of-sample forward verification.
-  5. **Minimum Sample Size Gate:** Requires $\ge 6$ historical matches before trusting pattern edge.
+  5. **Minimum Sample Size Gate:** Requires >= 6 historical matches before trusting pattern edge.
   6. **Decision Standard:** Requires friction-adjusted Expected Value (EV >= +0.25R) and Profit Factor >= 1.35x.
 
 ---
@@ -217,17 +221,21 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Execution Timing:** Sizes approved setups and verifies account-level safety rules.
 * **Core Responsibilities:**
   1. **Dynamic Conviction Sizing Model (Maximizing Profit on Superior Setups):** Automatically scales up the contract amount and lot size on superior, high-conviction trade setups:
-     $$\text{Contracts} = \left\lfloor \frac{\text{Target Dollar Risk} \times \text{Conviction Multiplier}}{\text{Contract Value} \times \text{Stop Loss Distance} + \text{Friction}} \right\rfloor$$
+
+```text
+Contracts = floor( (Target Dollar Risk * Conviction Multiplier) / (Contract Value * Stop Loss Distance + Friction) )
+```
+
      * **A+ Prime Conviction Setup (Score >= 90 & (TM EV >= +0.40R or TM Win Rate >= 70% or Reinforced Pattern)):** Sizing multiplier **1.75x (+75% quantity/lot size boost)** on Primary assets (`BTC`, `ETH`, `XAU`).
      * **High Conviction Setup (Score >= 85 or TM EV >= +0.35R):** Sizing multiplier **1.40x (+40% quantity/lot size boost)**.
      * **Reinforced Historical Pattern:** Sizing multiplier **1.30x (+30% quantity boost)** for setups with verified rolling edge.
-     * **Baseline Setups (Score 80–84):** Standard 1.00x base sizing ($2.00–$4.00 USD risk).
-     * **Secondary Altcoins:** Hard ceiling at **$2.00 USD maximum risk** and **up to 10% margin** to avoid volatility drag.
+     * **Baseline Setups (Score 80–84):** Standard 1.00x base sizing (2.00 to 4.00 USD risk).
+     * **Secondary Altcoins:** Hard ceiling at **2.00 USD maximum risk** and **up to 10% margin** to avoid volatility drag.
   2. **Dynamic Drawdown Scaling:** Automatically reduces risk target by 30% if account drawdown > 2.0%.
   3. **Exchange Lot Multipliers:** Integrates Delta Exchange contract specifications and lot size precision into exact sizing math.
   4. **Correlated Exposure Gate:** Limits concurrent directional crypto positions to a maximum of 2 assets.
   5. **Liquidation Buffer Pre-Check:** Ensures isolated liquidation price is at least 3.0x the Stop Loss distance away; auto-clamps leverage if buffer is insufficient.
-  6. **Portfolio Open Risk Ceiling:** Hard cap of **$8.00 USD total open risk** across all active positions combined.
+  6. **Portfolio Open Risk Ceiling:** Hard cap of **8.00 USD total open risk** across all active positions combined.
 
 ---
 
@@ -238,7 +246,7 @@ The system divides trading responsibilities into **10 specialized autonomous age
   1. **Zero-Trust Human Authorization:** **Zero orders ever place automatically.** Every trade requires an explicit user button click.
   2. **Comprehensive Risk Breakdown Card:** Details asset, direction, limit entry, SL (with dollar risk & % risk), TP (with planned R:R), exact contracts, required margin, estimated liquidation price, and Wilson confidence.
   3. **Duplicate-Click Atomic Shield:** Atomic state lock prevents double order execution if user taps `[Confirm]` repeatedly.
-  4. **Pre-Execution Price Drift Revalidation:** Re-queries Delta Exchange mark price immediately upon confirmation click; aborts trade if price drifted $> 0.40\%$ during decision window.
+  4. **Pre-Execution Price Drift Revalidation:** Re-queries Delta Exchange mark price immediately upon confirmation click; aborts trade if price drifted > 0.40% during decision window.
   5. **Interactive Controls:** Supports `/pause` (kill switch), `/resume`, `/posture`, `/rules`, `/scorecard`, `/status`, `/scan`, `/positions`, and `/orders`.
   6. **Two-Step Safe `/closeall`:** High-risk operations require explicit secondary confirmation dialog (`[🚨 YES, FLATTEN ALL]` / `[❌ CANCEL]`).
 
@@ -278,8 +286,8 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Execution Timing:** Triggered automatically the moment a position exits (TP, BE, or SL).
 * **Core Responsibilities:**
   1. **20-Trade Rolling Performance Window:** Evaluates pattern win rates over the last 20 outcomes rather than lifetime statistics to prevent stale bias.
-  2. **Minimum 5-Trade Sample Size Gate:** Requires $\ge 5$ completed trades before granting the full **+8 point reinforcement bonus** (small exploratory +2 bonus for 2–4 trades).
-  3. **Safe Controlled Blacklisting:** Marks failing setups as `NEEDS_REVIEW_PENALIZED` ($-25$ pts) rather than instant permanent bans.
+  2. **Minimum 5-Trade Sample Size Gate:** Requires >= 5 completed trades before granting the full **+8 point reinforcement bonus** (small exploratory +2 bonus for 2–4 trades).
+  3. **Safe Controlled Blacklisting:** Marks failing setups as `NEEDS_REVIEW_PENALIZED` (-25 pts) rather than instant permanent bans.
   4. **Strategy vs Execution Attribution:** Separates market structure thesis quality from fill slippage and execution delay.
   5. **Telegram Post-Trade Reflection Alert:** Immediately pushes a detailed self-reflection card to Telegram with grade, lessons learned, and scorecard stats.
 
@@ -291,7 +299,7 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Core Responsibilities:**
   1. **Closed Trade Cohort Auditing:** Categorizes performance by asset, strategy, session (London / NY / Asia), and market regime.
   2. **Operating Rules Version Control:** Versions binding rules (`v1.0.0`, `v1.0.1`) stored persistently in SQLite.
-  3. **Automated Rollback Safeguard:** Automatically rolls back to the prior operating rules version if the last 5 trades show $< 20\%$ win rate.
+  3. **Automated Rollback Safeguard:** Automatically rolls back to the prior operating rules version if the last 5 trades show < 20% win rate.
   4. **Active Rule Governance Workflow:**
      ```
      Agent 9 (Pattern Audit) ──> Agent 10 (Propose Rule) ──> StateManager (Version) ──> Strategy & Risk (Enforce)
@@ -323,7 +331,7 @@ src/
 * **Gap & Missing Bar Detection:** Verifies timestamp continuity across expected candle intervals (15m = 900s, 1h = 3600s).
 * **Staleness Guard:** Flags and rejects data if the latest candle is older than 3 intervals.
 * **Price Spike Filter:** Detects flash-crash anomalies or fat-finger spikes exceeding 8% single-bar range.
-* **Ticker Spread Sanity:** Validates spot vs mark price disparity ($< 5\%$).
+* **Ticker Spread Sanity:** Validates spot vs mark price disparity (< 5%).
 
 ### 3. Global Kill Switch & Emergency Controller (`src/emergency_controller.py`)
 * **Emergency Halt:** Immediately blocks all new scan evaluations via `/pause` or script.
@@ -345,8 +353,8 @@ The system is engineered specifically for **rapid intraday scalp resolutions (30
 
 | Tier | Assets | Leverage | Minimum Score | Primary Focus & Execution Rules |
 | :--- | :--- | :--- | :--- | :--- |
-| **Tier 1 (PRIMARY)** | **`BTCUSD`**, **`ETHUSD`**, **`XAUUSD` (Gold)** | **50x (BTC)<br/>25x (ETH/XAU)** | **Score >= 80** (+10 Priority Boost) | **Core Focus.** Deep institutional liquidity, tight spreads, and clean 15-minute microstructure sweeps. Capped at $2.00 - $4.00 max risk per trade. |
-| **Tier 2 (SECONDARY)** | `SOLUSD`, `ADAUSD`, `DOGEUSD`, `XRPUSD` | **25x Isolated** | **Score >= 85** | Secondary alts evaluated only in prime setups. **Strict Safety Cap:** Max $2.00 USD risk, max 10% equity margin to prevent outsized volatility drag. |
+| **Tier 1 (PRIMARY)** | **`BTCUSD`**, **`ETHUSD`**, **`XAUUSD` (Gold)** | **50x (BTC)<br/>25x (ETH/XAU)** | **Score >= 80** (+10 Priority Boost) | **Core Focus.** Deep institutional liquidity, tight spreads, and clean 15-minute microstructure sweeps. Capped at 2.00 to 4.00 USD max risk per trade. |
+| **Tier 2 (SECONDARY)** | `SOLUSD`, `ADAUSD`, `DOGEUSD`, `XRPUSD` | **25x Isolated** | **Score >= 85** | Secondary alts evaluated only in prime setups. **Strict Safety Cap:** Max 2.00 USD risk, max 10% equity margin to prevent outsized volatility drag. |
 
 ### 🛑 The Core Discipline Mandate
 * **Target:** Seek up to **~1 to 2 high-conviction trades daily** on primary focus assets (`BTC`, `ETH`, `XAU`).
@@ -354,7 +362,7 @@ The system is engineered specifically for **rapid intraday scalp resolutions (30
   1. 6-Timeframe Regime Analyst (Score >= 80)
   2. Exposure Coach (Market Health >= 32)
   3. Time Machine Simulation (Past Win Rate >= 65%, +0.25R minimum EV)
-  4. Risk Gatekeeper (Dollar risk capped at $2.00 - $4.00)
+  4. Risk Gatekeeper (Dollar risk capped at 2.00 to 4.00 USD)
   5. User explicit confirmation in Telegram
 * **Capital Preservation Above All:** If the market is choppy, noisy, or consolidating without clean liquidity sweeps, **TAKE ZERO TRADES**. Capital preservation is priority #1.
 
@@ -369,7 +377,7 @@ The bot operates **100% silently** in the background, only pushing notifications
 1. 🎯 **Trade Setup Found:** Proposal card with `[✅ Confirm & Execute]` / `[❌ Reject Setup]`.
 2. ⚡ **Order Filled:** Fill price, contracts, margin, and orderbook status.
 3. 🛡️ **Micro-Trailing Activated:** Stops moved to Breakeven (+0.50R) or profits locked (+0.80R, +1.20R, +1.60R).
-4. 💰 **Take Profit / Stop Loss Hit:** Full exit report with realized profit ($), % return, and updated wallet balance.
+4. 💰 **Take Profit / Stop Loss Hit:** Full exit report with realized profit (USD), % return, and updated wallet balance.
 5. 🧠 **Post-Trade Reflection Card:** Self-score (0–100), root cause analysis, and pattern reinforcement update.
 6. 🧹 **Stale Order Expiry:** Automatically cancels unfilled limit entry orders older than 90m to eliminate stale fills if market structure shifts.
 
@@ -382,7 +390,7 @@ The bot operates **100% silently** in the background, only pushing notifications
 | `/posture` | Displays live Market Posture (`AGGRESSIVE`, `MODERATE`, `DEFENSIVE`, `RECOVERY`, `CASH_PRIORITY`), Health Score, and Breadth. |
 | `/rules` | Displays dynamic version-controlled Next-Session Operating Rules synthesized by Agent 10: Performance Coach. |
 | `/scorecard` | Displays Agent 9's rolling self-learning audit, live win rate %, average trade score (/100), and active reinforced patterns. |
-| `/positions` | Displays active positions: direction, contracts, entry, current mark price, SL, TP, and unrealized PnL ($ and %). |
+| `/positions` | Displays active positions: direction, contracts, entry, current mark price, SL, TP, and unrealized PnL (USD and %). |
 | `/status` | Returns 24/7 cloud health, active positions, open orders, and available wallet balance. |
 | `/scan` | Triggers an immediate multi-timeframe scan across all primary and secondary assets. |
 | `/orders` | Displays active bracket Stop-Loss and Take-Profit orders on Delta Exchange. |

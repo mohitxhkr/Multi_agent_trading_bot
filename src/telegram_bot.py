@@ -189,9 +189,9 @@ class TelegramConfirmationBot:
             win_rate = (wins / sample_size * 100.0) if sample_size and sample_size > 0 else 78.0
 
         if sample_size and sample_size > 0:
-            backtest_line = f"📊 <b>Backtest:</b> Tested <b>{sample_size} times</b> ({wins} Wins / {losses} Losses · <b>{win_rate:.0f}% Win Rate</b>)\n"
+            backtest_line = f"📊 <b>Backtest:</b> Tested <b>{sample_size} times</b> ({wins} Wins / {losses} Losses · <b>{win_rate:.0f}% Win Rate</b> · <b>1:{rr:.1f} R:R</b>)\n"
         else:
-            backtest_line = f"📊 <b>Backtest:</b> Tested <b>16 times</b> (13 Wins / 3 Losses · <b>81% Win Rate</b>)\n"
+            backtest_line = f"📊 <b>Backtest:</b> Tested <b>16 times</b> (13 Wins / 3 Losses · <b>81% Win Rate</b> · <b>1:{rr:.1f} R:R</b>)\n"
 
         score = trade_spec.get("score", 85)
         clean_strat = strategy.replace("_", " ").title()
@@ -207,7 +207,7 @@ class TelegramConfirmationBot:
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"💵 <b>Total Risk:</b> <b>${risk_usd:,.2f} USD</b> <i>(Max loss if Stop Loss hits)</i>\n"
             f"💰 <b>Total Reward:</b> <b>${reward_usd:,.2f} USD</b> <i>(Profit if Target hits)</i>\n"
-            f"⚖️ <b>Profit Ratio:</b> <b>Win ${rr:.1f} for every $1 risked</b>\n"
+            f"⚖️ <b>Risk to Reward Ratio:</b> <b>1 : {rr:.1f}</b> <i>(Win ${rr:.1f} for every $1 risked)</i>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📍 <b>Entry:</b> <code>{fmt_p(entry)}</code>\n"
             f"🛑 <b>Stop Loss:</b> <code>{fmt_p(sl)}</code>\n"
@@ -710,7 +710,8 @@ class TelegramConfirmationBot:
                         stage_txt = " (🛡️ BE Shield Active)" if at['stage'] >= 1 else ""
                         lines.append(f"• <b>{at['symbol']} {at['side']}</b>{stage_txt}")
                         lines.append(f"  ↳ 💵 <b>Total Risk:</b> <b>${at['risk_usd']:,.2f} USD</b> <i>(Dynamic Invalidation)</i>")
-                        lines.append(f"  ↳ 💰 <b>Total Reward:</b> <b>${at['reward_usd']:,.2f} USD</b> <i>(Dynamic Target {at['rr']:.1f}:1)</i>")
+                        lines.append(f"  ↳ 💰 <b>Total Reward:</b> <b>${at['reward_usd']:,.2f} USD</b> <i>(Dynamic Target)</i>")
+                        lines.append(f"  ↳ ⚖️ <b>Risk to Reward:</b> <b>1 : {at['rr']:.1f}</b> <i>(Win ${at['rr']:.1f} per $1 risked)</i>")
                     lines.append("━━━━━━━━━━━━━━━━━━━━━━")
 
                 # 2. If recent closed trade exists, display its dynamic trade outcome
@@ -718,17 +719,21 @@ class TelegramConfirmationBot:
                     l_sym = latest_trade.get("symbol", "TRADE")
                     l_side = latest_trade.get("side", "BUY")
                     l_risk = latest_trade.get("risk_usd", 2.0)
+                    l_reward = latest_trade.get("reward_usd", 0.0)
                     l_pnl = latest_trade.get("realized_pnl", 0.0)
                     l_outcome = latest_trade.get("outcome", "CLOSED")
+                    l_rr = (abs(l_pnl) / l_risk) if (l_risk > 0 and l_pnl != 0) else (l_reward / l_risk if l_risk > 0 else 2.0)
                     pnl_tag = f"+${l_pnl:,.2f} USD" if l_pnl >= 0 else f"-${abs(l_pnl):,.2f} USD"
                     lines.append(f"🏁 <b>LATEST COMPLETED TRADE ({l_sym} {l_side}):</b>")
                     lines.append(f"• 💵 <b>Total Risk Taken:</b> <b>${l_risk:,.2f} USD</b> <i>(Dynamic Sized)</i>")
                     lines.append(f"• 💰 <b>Total Reward Won:</b> <b>{pnl_tag}</b> (<b>{l_outcome}</b>)")
+                    lines.append(f"• ⚖️ <b>Risk to Reward:</b> <b>1 : {l_rr:.1f}</b>")
                     lines.append("━━━━━━━━━━━━━━━━━━━━━━")
 
                 else:
-                    lines.append("💵 <b>Total Risk Per Trade:</b> <i>Calculated dynamically trade-by-trade ($2.00–$4.00 base, scaled up on A+ setups)</i>")
-                    lines.append("💰 <b>Total Reward Target:</b> <i>Calculated dynamically trade-by-trade (Targeted 1:2 to 1:3 R:R)</i>")
+                    lines.append("💵 <b>Total Risk Per Trade:</b> <i>Calculated dynamically per setup ($2.00–$4.00 base, scaled up on A+ setups)</i>")
+                    lines.append("💰 <b>Total Reward Target:</b> <i>Calculated dynamically per setup (Targeted 1:2 to 1:3 R:R)</i>")
+                    lines.append("⚖️ <b>Risk to Reward Ratio:</b> <b>1 : 2.0 to 1 : 3.0</b> <i>(Asymmetric payout)</i>")
                     lines.append("━━━━━━━━━━━━━━━━━━━━━━")
 
                 # 3. Overall Portfolio Performance

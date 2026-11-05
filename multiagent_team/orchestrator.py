@@ -253,6 +253,19 @@ class MultiAgentTradingOrchestrator:
         print("\n💡 [Layer 2: Strategy Generator] Filtering alpha setups with VWAP & spread checks...")
         candidates = self.strategy_agent.find_best_candidates(scan_results)
 
+        # Directional bias filter
+        direction_bias = posture_data.get("direction_bias", "BOTH")
+        if direction_bias == "SHORTS_ONLY" and candidates:
+            shorts_only = [c for c in candidates if c.get("side") == "sell"]
+            if len(shorts_only) < len(candidates):
+                print(f"   🧭 [{posture_data['posture']}] Filtered out long setups. Enforcing SHORTS_ONLY direction bias.")
+            candidates = shorts_only
+        elif direction_bias == "LONGS_ONLY" and candidates:
+            longs_only = [c for c in candidates if c.get("side") == "buy"]
+            if len(longs_only) < len(candidates):
+                print(f"   🧭 [{posture_data['posture']}] Filtered out short setups. Enforcing LONGS_ONLY direction bias.")
+            candidates = longs_only
+
         # Defensive caution filter
         if posture_data.get("posture") in ["DEFENSIVE_CAUTION", "RECOVERY_POSTURE"] and candidates:
             tier1_only = [c for c in candidates if c.get("symbol") in ["BTCUSD", "ETHUSD", "XAUUSD"]]

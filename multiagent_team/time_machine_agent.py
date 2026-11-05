@@ -143,18 +143,24 @@ class TimeMachineAgent:
 
             if side == "buy":
                 recent_low = min(lows[max(0, i - 10):i]) if i >= 10 else lows[i]
+                recent_high = max(highs[max(0, i - 10):i]) if i >= 10 else highs[i]
                 swept_low = lows[i] < recent_low and closes[i] > recent_low
                 is_oversold_bounce = c_rsi < 40 and closes[i] > opens[i]
                 trend_aligned = c_price >= c_ema21 or c_ema21 >= c_ema50
-                if (swept_low or is_oversold_bounce) and trend_aligned:
+                is_breakout = highs[i] > recent_high and trend_aligned
+                is_ema_bounce = lows[i] <= c_ema21 * 1.002 and closes[i] >= c_ema21 and trend_aligned
+                if (swept_low or is_oversold_bounce or is_breakout or is_ema_bounce) and trend_aligned:
                     is_match = True
 
             elif side == "sell":
                 recent_high = max(highs[max(0, i - 10):i]) if i >= 10 else highs[i]
+                recent_low = min(lows[max(0, i - 10):i]) if i >= 10 else lows[i]
                 swept_high = highs[i] > recent_high and closes[i] < recent_high
                 is_overbought_reject = c_rsi > 60 and closes[i] < opens[i]
                 trend_aligned = c_price <= c_ema21 or c_ema21 <= c_ema50
-                if (swept_high or is_overbought_reject) and trend_aligned:
+                is_breakdown = lows[i] < recent_low and trend_aligned
+                is_ema_reject = highs[i] >= c_ema21 * 0.998 and closes[i] <= c_ema21 and trend_aligned
+                if (swept_high or is_overbought_reject or is_breakdown or is_ema_reject) and trend_aligned:
                     is_match = True
 
             if is_match:

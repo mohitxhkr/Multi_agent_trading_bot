@@ -116,14 +116,25 @@ class ExposureCoachAgent:
                 alt_strengths.append(d_pct - btc_rsi)
 
         breadth_pct = (above_ema_count / total_symbols) * 100.0
+        bearish_breadth_pct = ((total_symbols - above_ema_count) / total_symbols) * 100.0
         avg_alt_rs = (sum(alt_strengths) / len(alt_strengths)) if alt_strengths else 0.0
         
-        # 2. BTC Anchor Health (35 pts max)
+        # 2. BTC Anchor Health (35 pts max) & Directional Trend Detection
         btc_h4 = btc_data.get("macro_4h", {}).get("regime", "MACRO_NEUTRAL")
-        btc_trend_score = 35 if "BULLISH" in btc_h4 else (10 if "BEARISH" in btc_h4 else 20)
+        is_macro_bearish = "BEARISH" in btc_h4 or (macro_bear_count >= macro_bull_count and macro_bear_count >= total_symbols * 0.5)
 
-        # 3. Breadth Contribution (45 pts max)
-        breadth_score = (breadth_pct / 100.0) * 45.0
+        # Detect Unified Bearish Trend Expansion (Sell-off / Dump regime)
+        is_bearish_expansion = is_macro_bearish and bearish_breadth_pct >= 60.0
+
+        if is_bearish_expansion:
+            direction_bias = "SHORTS_ONLY"
+            # In a macro sell-off, bearish alignment gives full directional conviction
+            btc_trend_score = 35
+            breadth_score = (bearish_breadth_pct / 100.0) * 45.0
+        else:
+            direction_bias = "LONGS_ONLY" if ("BULLISH" in btc_h4 and breadth_pct >= 60.0) else "BOTH"
+            btc_trend_score = 35 if "BULLISH" in btc_h4 else (10 if "BEARISH" in btc_h4 else 20)
+            breadth_score = (breadth_pct / 100.0) * 45.0
 
         # 4. Funding Rate Sentiment Alignment (20 pts max)
         avg_funding = (sum(funding_rates) / len(funding_rates)) if funding_rates else 0.0001
@@ -161,6 +172,7 @@ class ExposureCoachAgent:
         if in_recovery_mode:
             posture = "RECOVERY_POSTURE"
             cash_priority = False
+            direction_bias = "BOTH"
             exposure_ceiling_pct = 15.0
             max_positions = 1
             risk_mult = 0.50
@@ -168,9 +180,21 @@ class ExposureCoachAgent:
                 f"RECOVERY POSTURE ENGAGED after {consecutive_losses} consecutive stop losses. "
                 f"Risk slashed to 50% ($2.00 max risk) and concurrency clamped to 1 position until win confirmed."
             )
+        elif is_bearish_expansion and health_score >= 50:
+            posture = "BEARISH_TREND_EXPANSION"
+            cash_priority = False
+            direction_bias = "SHORTS_ONLY"
+            exposure_ceiling_pct = 35.0
+            max_positions = 2
+            risk_mult = 0.90
+            rationale = (
+                f"Unified Bearish Trend Expansion ({bearish_breadth_pct:.0f}% assets < EMA21, BTC 4H Bearish). "
+                f"High-conviction SHORT setups authorized. Counter-trend longs strictly vetoed."
+            )
         elif health_score >= 75:
             posture = "AGGRESSIVE_EXPANSION"
             cash_priority = False
+            direction_bias = "LONGS_ONLY" if breadth_pct >= 65.0 else "BOTH"
             exposure_ceiling_pct = 35.0
             max_positions = 3
             risk_mult = 1.0
@@ -178,6 +202,7 @@ class ExposureCoachAgent:
         elif health_score >= 50:
             posture = "MODERATE_SELECTIVE"
             cash_priority = False
+            direction_bias = "BOTH"
             exposure_ceiling_pct = 25.0
             max_positions = 2
             risk_mult = 0.85
@@ -185,6 +210,7 @@ class ExposureCoachAgent:
         elif health_score >= 32:
             posture = "DEFENSIVE_CAUTION"
             cash_priority = False
+            direction_bias = "BOTH"
             exposure_ceiling_pct = 15.0
             max_positions = 1
             risk_mult = 0.65
@@ -192,6 +218,7 @@ class ExposureCoachAgent:
         else:
             posture = "CASH_PRIORITY"
             cash_priority = True
+            direction_bias = "NEUTRAL"
             exposure_ceiling_pct = 0.0
             max_positions = 0
             risk_mult = 0.0
@@ -211,7 +238,9 @@ class ExposureCoachAgent:
             "health_score": health_score,
             "posture": posture,
             "cash_priority": cash_priority,
+            "direction_bias": direction_bias,
             "breadth_pct": round(breadth_pct, 1),
+            "bearish_breadth_pct": round(bearish_breadth_pct, 1),
             "btc_macro_regime": btc_h4,
             "btc_volatility_state": btc_vol_state,
             "avg_funding_rate": round(avg_funding, 6),

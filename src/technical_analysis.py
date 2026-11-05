@@ -846,6 +846,8 @@ def analyze_multi_timeframe(
     calc_entry = current_price
     thesis = ""
     rejection_reason = ""
+    long_rejection_reason = ""
+    short_rejection_reason = ""
     strategy_label = ""
 
     # Priority A: Intraday Liquidity Sweep Scalp (15m / 1H)
@@ -858,9 +860,9 @@ def analyze_multi_timeframe(
         if sweep_type == "BULLISH_SSL_SWEEP":
             # STRICT VETO 1: Cannot go long if 1H or 4H is strongly bearish
             if macro_4h_regime == "MACRO_BEARISH" or (daily_regime == "DAILY_BEARISH" and weekly_regime == "WEEKLY_BEARISH" and rsi_1d >= 32.0):
-                rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily Bearish)."
+                long_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily Bearish)."
             elif not mss_confirmed:
-                rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
+                long_rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
             else:
                 setup_score = 40  # Base confirmed sweep
                 setup_score += 25  # MSS confirmed (mandatory)
@@ -904,9 +906,9 @@ def analyze_multi_timeframe(
         elif sweep_type == "BEARISH_BSL_SWEEP":
             # STRICT VETO 1: Cannot short if 1H or 4H is strongly bullish
             if macro_4h_regime == "MACRO_BULLISH" or (daily_regime == "DAILY_BULLISH" and weekly_regime == "WEEKLY_BULLISH" and rsi_1d <= 68.0):
-                rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily Bullish expansion)."
+                short_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily Bullish expansion)."
             elif not mss_confirmed:
-                rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
+                short_rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
             else:
                 setup_score = 40  # Base confirmed sweep
                 setup_score += 25  # MSS confirmed (mandatory)
@@ -948,7 +950,7 @@ def analyze_multi_timeframe(
                     )
 
     # Priority B: 15m High-Momentum Trend Pullback / EMA Re-test Scalp
-    if not setup_qualified and not rejection_reason:
+    if not setup_qualified:
         regime_1h = analysis_1h.get("regime", "NEUTRAL")
         
         # Bullish Pullback: 1H & 4H Bullish, 15m testing EMA dynamic support
@@ -956,7 +958,7 @@ def analyze_multi_timeframe(
             "BULLISH" in regime_1h
             and macro_4h_regime != "MACRO_BEARISH"
             and current_price >= ema21_15m * 0.995
-            and 42.0 <= rsi_15m <= 75.0
+            and 40.0 <= rsi_15m <= 75.0
         ):
             setup_score = 70 + (10 if is_primary else 0)
             sl_dist = max(min_sl_dist, min(1.1 * atr_15m, max_sl_dist))
@@ -976,7 +978,7 @@ def analyze_multi_timeframe(
             "BEARISH" in regime_1h
             and macro_4h_regime != "MACRO_BULLISH"
             and current_price <= ema21_15m * 1.005
-            and 25.0 <= rsi_15m <= 58.0
+            and 18.0 <= rsi_15m <= 58.0
         ):
             setup_score = 70 + (10 if is_primary else 0)
             sl_dist = max(min_sl_dist, min(1.1 * atr_15m, max_sl_dist))
@@ -990,6 +992,57 @@ def analyze_multi_timeframe(
                 f"Intraday 15m EMA Trend Rejection (Score {setup_score}/100): 1H {regime_1h}, capped under 15m EMA21 (${ema21_15m:.2f}). "
                 f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.0:1."
             )
+
+    # Priority C: Institutional Bearish Breakdown Short (Trend continuation during sell-offs / market dumps)
+    if not setup_qualified:
+        regime_1h = analysis_1h.get("regime", "NEUTRAL")
+        vwap_val = float(analysis_1h.get("vwap") or current_price)
+
+        is_bearish_regime = ("BEARISH" in regime_1h) or (macro_4h_regime in ["MACRO_BEARISH", "MACRO_NEUTRAL"] and "BEARISH" in regime_1h)
+        is_below_ema = current_price <= ema21_15m * 1.003
+        has_bearish_momentum = 16.0 <= rsi_15m <= 50.0
+
+        if is_bearish_regime and is_below_ema and has_bearish_momentum:
+            bd_score = 50
+            if macro_4h_regime == "MACRO_BEARISH":
+                bd_score += 20
+            elif macro_4h_regime == "MACRO_NEUTRAL":
+                bd_score += 10
+
+            if "BEARISH" in regime_1h:
+                bd_score += 15
+
+            if vwap_val > 0 and current_price <= vwap_val:
+                bd_score += 10
+
+            if is_primary:
+                bd_score += 10
+
+            if is_killzone:
+                bd_score += 5
+
+            qual_threshold = 80 if is_primary else 85
+            if bd_score >= qual_threshold:
+                calc_entry = current_price
+                raw_sl = max(ema21_15m, calc_entry + (0.9 * atr_15m))
+                raw_risk = raw_sl - calc_entry
+                sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
+                invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
+                target_tp = round_price(calc_entry - (2.2 * sl_dist), calc_entry)
+
+                setup_qualified = True
+                setup_side = "sell"
+                setup_score = min(98, bd_score)
+                strategy_label = "Institutional_Bearish_Breakdown_Short"
+                thesis = (
+                    f"Institutional Bearish Breakdown Short (Score {setup_score}/100 · {session_label}): "
+                    f"Unified 4H {macro_4h_regime} & 1H {regime_1h} momentum continuation. "
+                    f"Trading below EMA21 (${ema21_15m:.2f}) with RSI {rsi_15m:.1f}. "
+                    f"Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned R:R: 2.2:1."
+                )
+
+    if not setup_qualified:
+        rejection_reason = short_rejection_reason or long_rejection_reason or "No high-probability trend or mean-reversion edge qualified (min score 80)."
 
     real_rr = round(abs(target_tp - calc_entry) / abs(calc_entry - invalidation_sl), 2) if (setup_qualified and abs(calc_entry - invalidation_sl) > 0) else 0.0
 

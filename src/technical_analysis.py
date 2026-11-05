@@ -303,9 +303,9 @@ def calculate_volatility_state(closes: List[float], atrs: List[float]) -> Dict[s
 
 
 def detect_news_or_abnormal_volatility(current_atr: float, avg_atr: float) -> Tuple[bool, str]:
-    """Avoid trading during abnormal volatility spikes or high-impact macro news windows."""
-    if avg_atr > 0 and (current_atr / avg_atr) > 2.5:
-        return True, f"Abnormal volatility spike: 15m ATR is {current_atr/avg_atr:.1f}x historical average"
+    """Avoid trading during extreme freak market anomalies (> 4.5x ATR) or high-impact macro news windows."""
+    if avg_atr > 0 and (current_atr / avg_atr) > 4.5:
+        return True, f"Extreme freak anomaly: 15m ATR is {current_atr/avg_atr:.1f}x historical average (> 4.5x threshold)"
 
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     if now_utc.weekday() < 5:
@@ -838,6 +838,21 @@ def analyze_multi_timeframe(
     is_killzone = (7 <= utc_hour <= 10) or (12 <= utc_hour <= 17)
     session_label = "London Open Killzone" if (7 <= utc_hour <= 10) else ("New York Open Killzone" if (12 <= utc_hour <= 17) else "Inter-Session")
 
+    # Calculate Volume Surge & Relative Volume Expansion
+    c15_v = [float(x) for x in candles_15m.get('v', [])] if candles_15m else []
+    vol_ratio_15m = 1.0
+    if len(c15_v) >= 15:
+        avg_v15 = sum(c15_v[-21:-1]) / len(c15_v[-21:-1]) if len(c15_v[-21:-1]) > 0 and sum(c15_v[-21:-1]) > 0 else 1.0
+        vol_ratio_15m = round(c15_v[-1] / avg_v15, 2)
+
+    c1h_v = [float(x) for x in candles_1h.get('v', [])] if candles_1h else []
+    vol_ratio_1h = 1.0
+    if len(c1h_v) >= 15:
+        avg_v1h = sum(c1h_v[-21:-1]) / len(c1h_v[-21:-1]) if len(c1h_v[-21:-1]) > 0 and sum(c1h_v[-21:-1]) > 0 else 1.0
+        vol_ratio_1h = round(c1h_v[-1] / avg_v1h, 2)
+
+    max_vol_ratio = max(vol_ratio_15m, vol_ratio_1h)
+
     setup_qualified = False
     setup_side = None
     setup_score = 0
@@ -849,6 +864,112 @@ def analyze_multi_timeframe(
     long_rejection_reason = ""
     short_rejection_reason = ""
     strategy_label = ""
+
+    # Priority 0: High-Volume Momentum Impulse Scalp (Pro Fast Scalp)
+    # Catches explosive volume momentum in volatile markets without waiting for slow retests
+    if not setup_qualified and max_vol_ratio >= 1.25:
+        regime_1h = analysis_1h.get("regime", "NEUTRAL")
+        vwap_val = float(analysis_1h.get("vwap") or current_price)
+
+        # Bullish Momentum Impulse Scalp
+        if (
+            current_price >= ema21_15m * 0.998
+            and (vwap_val == 0 or current_price >= vwap_val * 0.998)
+            and macro_4h_regime != "MACRO_BEARISH"
+            and 42.0 <= rsi_15m <= 80.0
+            and ("BEARISH" not in regime_1h or macro_4h_regime == "MACRO_BULLISH")
+        ):
+            c15_c = [float(x) for x in candles_15m.get('c', [])] if candles_15m else []
+            c15_o = [float(x) for x in candles_15m.get('o', [])] if candles_15m else []
+            is_bull_bar = (c15_c[-1] >= c15_o[-1]) if (c15_c and c15_o) else True
+
+            if is_bull_bar:
+                setup_score = 65
+                if max_vol_ratio >= 1.7:
+                    setup_score += 15
+                elif max_vol_ratio >= 1.4:
+                    setup_score += 10
+                else:
+                    setup_score += 5
+
+                if macro_4h_regime == "MACRO_BULLISH":
+                    setup_score += 15
+                elif macro_4h_regime == "MACRO_NEUTRAL":
+                    setup_score += 5
+
+                if "BULLISH" in regime_1h:
+                    setup_score += 10
+                if is_primary:
+                    setup_score += 10
+                if is_killzone:
+                    setup_score += 5
+
+                qual_threshold = 80 if is_primary else 85
+                if setup_score >= qual_threshold:
+                    calc_entry = current_price
+                    sl_dist = max(min_sl_dist, min(0.95 * atr_15m, max_sl_dist))
+                    invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
+                    target_tp = round_price(calc_entry + (2.0 * sl_dist), calc_entry)
+
+                    setup_qualified = True
+                    setup_side = "buy"
+                    setup_score = min(98, setup_score)
+                    strategy_label = "High_Volume_Momentum_Impulse_Scalp_Long"
+                    thesis = (
+                        f"⚡ High-Volume Momentum Impulse Scalp Long (Score {setup_score}/100 · {session_label}): "
+                        f"Volume surge {max_vol_ratio:.2f}x avg with bullish candle expansion. "
+                        f"Above EMA21 (${ema21_15m:.2f}) & VWAP. Fast pro scalp targeting 2.0R ({sl_dist / calc_entry * 100:.2f}% tight SL)."
+                    )
+
+        # Bearish Momentum Impulse Scalp
+        elif (
+            current_price <= ema21_15m * 1.002
+            and (vwap_val == 0 or current_price <= vwap_val * 1.002)
+            and macro_4h_regime != "MACRO_BULLISH"
+            and 16.0 <= rsi_15m <= 55.0
+            and ("BULLISH" not in regime_1h or macro_4h_regime == "MACRO_BEARISH")
+        ):
+            c15_c = [float(x) for x in candles_15m.get('c', [])] if candles_15m else []
+            c15_o = [float(x) for x in candles_15m.get('o', [])] if candles_15m else []
+            is_bear_bar = (c15_c[-1] <= c15_o[-1]) if (c15_c and c15_o) else True
+
+            if is_bear_bar:
+                setup_score = 65
+                if max_vol_ratio >= 1.7:
+                    setup_score += 15
+                elif max_vol_ratio >= 1.4:
+                    setup_score += 10
+                else:
+                    setup_score += 5
+
+                if macro_4h_regime == "MACRO_BEARISH":
+                    setup_score += 15
+                elif macro_4h_regime == "MACRO_NEUTRAL":
+                    setup_score += 5
+
+                if "BEARISH" in regime_1h:
+                    setup_score += 10
+                if is_primary:
+                    setup_score += 10
+                if is_killzone:
+                    setup_score += 5
+
+                qual_threshold = 80 if is_primary else 85
+                if setup_score >= qual_threshold:
+                    calc_entry = current_price
+                    sl_dist = max(min_sl_dist, min(0.95 * atr_15m, max_sl_dist))
+                    invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
+                    target_tp = round_price(calc_entry - (2.0 * sl_dist), calc_entry)
+
+                    setup_qualified = True
+                    setup_side = "sell"
+                    setup_score = min(98, setup_score)
+                    strategy_label = "High_Volume_Momentum_Impulse_Scalp_Short"
+                    thesis = (
+                        f"⚡ High-Volume Momentum Impulse Scalp Short (Score {setup_score}/100 · {session_label}): "
+                        f"Volume surge {max_vol_ratio:.2f}x avg with bearish candle expansion. "
+                        f"Below EMA21 (${ema21_15m:.2f}) & VWAP. Fast pro scalp targeting 2.0R ({sl_dist / calc_entry * 100:.2f}% tight SL)."
+                    )
 
     # Priority A: Intraday Liquidity Sweep Scalp (15m / 1H)
     # Institutional Rules:

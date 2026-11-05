@@ -224,11 +224,10 @@ class ExposureCoachAgent:
             risk_mult = 0.0
             rationale = f"Market structure broken / severe chop ({breadth_pct:.0f}% breadth, Health: {health_score}/100). ZERO new trades authorized. 100% Cash Priority."
 
-        # Volatility Posture Adjustment
+        # Volatility Posture Adjustment - Enable Pro Momentum Scalp Execution
         if btc_vol_state == "EXPANSION" and not cash_priority:
-            exposure_ceiling_pct = round(exposure_ceiling_pct * 0.8, 1)
-            risk_mult = round(risk_mult * 0.85, 2)
-            rationale += " [Vol Expansion: Risk Budget compressed by 15%]."
+            risk_mult = max(0.90, risk_mult)
+            rationale += " [High Volatility Expansion: Pro Momentum Scalp Mode active with tight ATR stops]."
 
         if extreme_crowding and crowding_note:
             rationale += f" [{crowding_note}]"

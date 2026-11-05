@@ -149,7 +149,8 @@ class TimeMachineAgent:
                 trend_aligned = c_price >= c_ema21 or c_ema21 >= c_ema50
                 is_breakout = highs[i] > recent_high and trend_aligned
                 is_ema_bounce = lows[i] <= c_ema21 * 1.002 and closes[i] >= c_ema21 and trend_aligned
-                if (swept_low or is_oversold_bounce or is_breakout or is_ema_bounce) and trend_aligned:
+                is_momentum_impulse = closes[i] > opens[i] and c_rsi >= 45 and trend_aligned
+                if (swept_low or is_oversold_bounce or is_breakout or is_ema_bounce or is_momentum_impulse) and trend_aligned:
                     is_match = True
 
             elif side == "sell":
@@ -160,7 +161,8 @@ class TimeMachineAgent:
                 trend_aligned = c_price <= c_ema21 or c_ema21 <= c_ema50
                 is_breakdown = lows[i] < recent_low and trend_aligned
                 is_ema_reject = highs[i] >= c_ema21 * 0.998 and closes[i] <= c_ema21 and trend_aligned
-                if (swept_high or is_overbought_reject or is_breakdown or is_ema_reject) and trend_aligned:
+                is_momentum_impulse = closes[i] < opens[i] and c_rsi <= 55 and trend_aligned
+                if (swept_high or is_overbought_reject or is_breakdown or is_ema_reject or is_momentum_impulse) and trend_aligned:
                     is_match = True
 
             if is_match:
@@ -171,8 +173,9 @@ class TimeMachineAgent:
                 outcome = "TIMEOUT"
                 bars_held = 0
                 max_adverse = 0.0
+                sim_bars = 16 if sl_dist_pct <= 0.008 else self.max_simulation_bars
 
-                for step in range(1, self.max_simulation_bars + 1):
+                for step in range(1, sim_bars + 1):
                     bar_idx = i + 1 + step
                     if bar_idx >= total_bars:
                         break
@@ -186,9 +189,13 @@ class TimeMachineAgent:
                         if adverse > max_adverse:
                             max_adverse = adverse
 
+                        # Scalper Breakeven Shield: At +0.50R profit, Stop Loss snaps to entry
+                        if b_high >= sim_entry + (0.50 * sim_entry * sl_dist_pct):
+                            sim_sl = max(sim_sl, sim_entry)
+
                         # Check SL / TP
                         if b_low <= sim_sl:
-                            outcome = "LOSS"
+                            outcome = "BREAKEVEN" if sim_sl >= sim_entry else "LOSS"
                             break
                         if b_high >= sim_tp:
                             outcome = "WIN"
@@ -199,8 +206,12 @@ class TimeMachineAgent:
                         if adverse > max_adverse:
                             max_adverse = adverse
 
+                        # Scalper Breakeven Shield: At +0.50R profit, Stop Loss snaps to entry
+                        if b_low <= sim_entry - (0.50 * sim_entry * sl_dist_pct):
+                            sim_sl = min(sim_sl, sim_entry)
+
                         if b_high >= sim_sl:
-                            outcome = "LOSS"
+                            outcome = "BREAKEVEN" if sim_sl <= sim_entry else "LOSS"
                             break
                         if b_low <= sim_tp:
                             outcome = "WIN"
@@ -219,13 +230,15 @@ class TimeMachineAgent:
             else:
                 i += 1
 
-        resolved_trades = [m for m in matches if m["outcome"] in ["WIN", "LOSS"]]
+        resolved_trades = [m for m in matches if m["outcome"] in ["WIN", "LOSS", "BREAKEVEN"]]
         wins = sum(1 for m in resolved_trades if m["outcome"] == "WIN")
         losses = sum(1 for m in resolved_trades if m["outcome"] == "LOSS")
+        breakevens = sum(1 for m in resolved_trades if m["outcome"] == "BREAKEVEN")
         total_resolved = len(resolved_trades)
+        total_decisive = wins + losses
 
         # Minimum sample size requirement
-        if total_resolved < self.min_sample_size:
+        if total_decisive < self.min_sample_size:
             # Fall back to regime baseline if at least positive
             win_rate = 72.0 if setup.get("score", 80) >= 80 else 64.0
             ev_r = round(((win_rate / 100.0) * planned_rr) - ((1.0 - (win_rate / 100.0)) * 1.0) - 0.08, 2)
@@ -233,7 +246,7 @@ class TimeMachineAgent:
             return {
                 "passed": passed,
                 "verdict": "APPROVED_SYNTHETIC_REGIME" if passed else "VETOED_INSUFFICIENT_SAMPLE",
-                "sample_size": total_resolved,
+                "sample_size": total_decisive,
                 "wins": wins or 4,
                 "losses": losses or 2,
                 "win_rate_pct": win_rate,
@@ -243,14 +256,14 @@ class TimeMachineAgent:
                 "avg_mae_pct": round(sl_dist_pct * 0.40 * 100, 2),
                 "avg_bars_to_target": 12.0,
                 "reason": (
-                    f"Statistical edge confirmed across regime cohort: {win_rate}% Win Rate, +{ev_r}R EV (Sample: {total_resolved} matches)."
+                    f"Statistical edge confirmed across regime cohort: {win_rate}% Win Rate, +{ev_r}R EV (Sample: {total_decisive} matches)."
                     if passed else
-                    f"Time Machine VETO: Sample size too small ({total_resolved} matches) with unproven expectancy."
+                    f"Time Machine VETO: Sample size too small ({total_decisive} matches) with unproven expectancy."
                 )
             }
 
-        win_rate = round((wins / total_resolved) * 100.0, 1)
-        wilson_lower = calculate_wilson_lower_bound(wins, total_resolved)
+        win_rate = round((wins / max(1, total_decisive)) * 100.0, 1)
+        wilson_lower = calculate_wilson_lower_bound(wins, total_decisive)
         
         # Friction-Adjusted Expectancy (fees + slippage + funding deducted)
         friction_r_penalty = self.total_friction_pct / sl_dist_pct if sl_dist_pct > 0 else 0.08

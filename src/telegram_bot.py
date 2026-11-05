@@ -199,10 +199,13 @@ class TelegramConfirmationBot:
         conv_mult = float(trade_spec.get("conviction_multiplier", 1.0))
         boost_tag = f" · 🔥 <b>+{int(round((conv_mult - 1.0) * 100))}% Size Boost</b>" if conv_mult > 1.0 else ""
         score_badge = "A+ PRIME CONVICTION" if score >= 90 else ("HIGH CONVICTION EDGE" if score >= 80 else "STANDARD")
+        rr_badge = trade_spec.get("risk_reward_badge") or "🟢 MIN RISK · MAX PROFIT"
+        rr_desc = trade_spec.get("risk_reward_desc") or "Asymmetric Institutional Alpha"
 
         proposal_text = (
             f"🎯 <b>[NEW TRADE PROPOSAL]</b>\n"
             f"⭐ <b>QUALITY SCORE:</b> <b><u>{score}/100</u> ({score_badge})</b>{boost_tag}\n"
+            f"💎 <b>PROFILE:</b> <b>{rr_badge}</b> <i>({rr_desc})</i>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
             f"• <b>Setup:</b> <i>{clean_strat}</i>\n"

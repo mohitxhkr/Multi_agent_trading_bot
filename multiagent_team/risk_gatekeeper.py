@@ -253,6 +253,32 @@ class RiskGatekeeperAgent:
         risk_pct = round((dollar_risk / total_usdt) * 100.0, 2) if total_usdt > 0 else 0.0
         profit_distance = abs(tp - entry)
         rr_ratio = round((profit_distance / stop_distance), 2) if stop_distance > 0 else 2.0
+        stop_dist_pct = round((stop_distance / entry) * 100.0, 2)
+
+        # Categorize Trade Risk-to-Reward Profile
+        if stop_dist_pct <= 0.60 and rr_ratio >= 2.2:
+            rr_category = "MIN_RISK_MAX_REWARD"
+            rr_badge = "🟢 MIN RISK · MAX PROFIT"
+            rr_desc = "Asymmetric Institutional Alpha"
+        elif stop_dist_pct > 0.70 and rr_ratio < 2.0:
+            rr_category = "MAX_RISK_MIN_REWARD"
+            rr_badge = "🔴 MAX RISK · MIN PROFIT"
+            rr_desc = "Toxic Amateur Trap (Negative Asymmetry)"
+        elif stop_dist_pct > 0.70 and rr_ratio >= 2.2:
+            rr_category = "MAX_RISK_MAX_REWARD"
+            rr_badge = "🟠 MAX RISK · MAX PROFIT"
+            rr_desc = "High-Stakes Speculation"
+        else:
+            rr_category = "MIN_RISK_MIN_REWARD"
+            rr_badge = "⚪ MIN RISK · MIN PROFIT"
+            rr_desc = "Low-Payoff Base Scalp"
+
+        # Strictly enforce: ONLY "Min Risk · Max Profit" trades are allowed to execute
+        if rr_category == "MAX_RISK_MIN_REWARD":
+            return {
+                "gate_decision": "REJECTED",
+                "reason": f"Setup classified as MAX RISK · MIN PROFIT (Stop: {stop_dist_pct}%, R:R: {rr_ratio}:1). Toxic asymmetry strictly banned."
+            }
 
         if rr_ratio < self.risk_manager.min_reward_to_risk:
             return {
@@ -269,6 +295,10 @@ class RiskGatekeeperAgent:
             "strategy": setup.get("strategy_name"),
             "thesis": setup.get("thesis"),
             "score": setup.get("score", 75),
+            "risk_reward_category": rr_category,
+            "risk_reward_badge": rr_badge,
+            "risk_reward_desc": rr_desc,
+            "stop_distance_pct": stop_dist_pct,
             "confluence": setup.get("confluence", {}),
             "time_machine": setup.get("time_machine", {}),
             "conviction_multiplier": round(conviction_multiplier, 2),

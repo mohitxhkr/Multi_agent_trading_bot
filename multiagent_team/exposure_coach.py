@@ -195,8 +195,8 @@ class ExposureCoachAgent:
             posture = "AGGRESSIVE_EXPANSION"
             cash_priority = False
             direction_bias = "LONGS_ONLY" if breadth_pct >= 65.0 else "BOTH"
-            exposure_ceiling_pct = 35.0
-            max_positions = 3
+            exposure_ceiling_pct = 30.0
+            max_positions = 2
             risk_mult = 1.0
             rationale = f"Strong multi-asset breadth ({breadth_pct:.0f}% > EMA21) & aligned BTC macro momentum. Full risk authorized."
         elif health_score >= 50:

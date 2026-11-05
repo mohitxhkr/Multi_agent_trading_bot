@@ -41,8 +41,8 @@ class TimeMachineAgent:
     def __init__(
         self,
         client: Optional[DeltaExchangeClient] = None,
-        min_win_rate_pct: float = 65.0,
-        min_expected_value_r: float = 0.25,
+        min_win_rate_pct: float = 70.0,
+        min_expected_value_r: float = 0.35,
         lookback_candles: int = 400,
         max_simulation_bars: int = 48,
         min_sample_size: int = 6
@@ -283,10 +283,10 @@ class TimeMachineAgent:
         oos_win_rate = round((oos_wins / len(oos_matches) * 100.0), 1) if oos_matches else win_rate
 
         # Decision standard:
-        # 1. Win Rate >= 65% (or Wilson lower bound >= 45%)
-        # 2. Friction-adjusted EV >= +0.25R
-        # 3. Profit Factor >= 1.40x
-        passed = (win_rate >= self.min_win_rate_pct or (planned_rr >= 2.4 and win_rate >= 58.0)) and (ev_r >= self.min_expected_value_r) and (profit_factor >= 1.35)
+        # 1. Win Rate >= 70% (or Wilson lower bound >= 48%)
+        # 2. Friction-adjusted EV >= +0.35R
+        # 3. Profit Factor >= 1.50x
+        passed = (win_rate >= self.min_win_rate_pct or (planned_rr >= 2.4 and win_rate >= 62.0)) and (ev_r >= self.min_expected_value_r) and (profit_factor >= 1.50)
 
         verdict = "APPROVED_BY_TIME_MACHINE" if passed else "VETOED_BY_TIME_MACHINE"
         reason = (

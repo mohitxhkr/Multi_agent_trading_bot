@@ -122,8 +122,9 @@ class StrategyAgent:
         elif pat_adj < 0:
             thesis = f"⚠️ [PENALIZED PATTERN {pat_adj}pts] {thesis}"
 
-        # Quality Floor: 80 / 100 for Primary, 85 / 100 for Secondary
-        min_threshold = 80 if is_primary else 85
+        # Strict Sniper Quality Floor: 85 / 100 for Primary (BTC, ETH, XAU), 90 / 100 for Secondary
+        # Enforces 'Take less trades, but more accurate for maximum profit'
+        min_threshold = 85 if is_primary else 90
         if adjusted_score < min_threshold:
             return None
 

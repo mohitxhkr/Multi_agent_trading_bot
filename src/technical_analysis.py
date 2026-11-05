@@ -904,7 +904,7 @@ def analyze_multi_timeframe(
                 if is_killzone:
                     setup_score += 5
 
-                qual_threshold = 80 if is_primary else 85
+                qual_threshold = 85 if is_primary else 90
                 if setup_score >= qual_threshold:
                     calc_entry = current_price
                     sl_dist = max(min_sl_dist, min(0.95 * atr_15m, max_sl_dist))
@@ -954,7 +954,7 @@ def analyze_multi_timeframe(
                 if is_killzone:
                     setup_score += 5
 
-                qual_threshold = 80 if is_primary else 85
+                qual_threshold = 85 if is_primary else 90
                 if setup_score >= qual_threshold:
                     calc_entry = current_price
                     sl_dist = max(min_sl_dist, min(0.95 * atr_15m, max_sl_dist))
@@ -1000,7 +1000,7 @@ def analyze_multi_timeframe(
                 if is_killzone:
                     setup_score += 5   # Peak liquidity session boost
 
-                qual_threshold = 80 if is_primary else 85
+                qual_threshold = 85 if is_primary else 90
                 if setup_score >= qual_threshold:
                     # Optimal Trade Entry (OTE): If candle expanded > 1 ATR, wait for 0.382 pullback limit
                     displacement = current_price - sweep_wick
@@ -1046,7 +1046,7 @@ def analyze_multi_timeframe(
                 if is_killzone:
                     setup_score += 5   # Peak liquidity session boost
 
-                qual_threshold = 80 if is_primary else 85
+                qual_threshold = 85 if is_primary else 90
                 if setup_score >= qual_threshold:
                     # Optimal Trade Entry (OTE): If candle expanded > 1 ATR, wait for 0.382 pullback limit
                     displacement = sweep_wick - current_price
@@ -1073,6 +1073,7 @@ def analyze_multi_timeframe(
     # Priority B: 15m High-Momentum Trend Pullback / EMA Re-test Scalp
     if not setup_qualified:
         regime_1h = analysis_1h.get("regime", "NEUTRAL")
+        vwap_val = float(analysis_1h.get("vwap") or current_price)
         
         # Bullish Pullback: 1H & 4H Bullish, 15m testing EMA dynamic support
         if (
@@ -1081,18 +1082,26 @@ def analyze_multi_timeframe(
             and current_price >= ema21_15m * 0.995
             and 40.0 <= rsi_15m <= 75.0
         ):
-            setup_score = 70 + (10 if is_primary else 0)
-            sl_dist = max(min_sl_dist, min(1.1 * atr_15m, max_sl_dist))
-            invalidation_sl = round_price(current_price - sl_dist, current_price)
-            target_tp = round_price(current_price + (2.0 * sl_dist), current_price)
-            
-            setup_qualified = True
-            setup_side = "buy"
-            strategy_label = "Intraday_EMA_Pullback_Scalp_Long"
-            thesis = (
-                f"Intraday 15m EMA Trend Bounce (Score {setup_score}/100): 1H {regime_1h}, holding 15m EMA21 support (${ema21_15m:.2f}). "
-                f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.0:1."
-            )
+            pb_score = 65 + (10 if is_primary else 0)
+            if vwap_val > 0 and current_price >= vwap_val:
+                pb_score += 10
+            if is_killzone:
+                pb_score += 5
+
+            qual_threshold = 85 if is_primary else 90
+            if pb_score >= qual_threshold:
+                setup_score = pb_score
+                sl_dist = max(min_sl_dist, min(1.1 * atr_15m, max_sl_dist))
+                invalidation_sl = round_price(current_price - sl_dist, current_price)
+                target_tp = round_price(current_price + (2.0 * sl_dist), current_price)
+                
+                setup_qualified = True
+                setup_side = "buy"
+                strategy_label = "Intraday_EMA_Pullback_Scalp_Long"
+                thesis = (
+                    f"Intraday 15m EMA Trend Bounce (Score {setup_score}/100): 1H {regime_1h}, holding 15m EMA21 support (${ema21_15m:.2f}). "
+                    f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.0:1."
+                )
 
         # Bearish Pullback: 1H & 4H Bearish, 15m capped by EMA dynamic resistance
         elif (
@@ -1101,18 +1110,26 @@ def analyze_multi_timeframe(
             and current_price <= ema21_15m * 1.005
             and 18.0 <= rsi_15m <= 58.0
         ):
-            setup_score = 70 + (10 if is_primary else 0)
-            sl_dist = max(min_sl_dist, min(1.1 * atr_15m, max_sl_dist))
-            invalidation_sl = round_price(current_price + sl_dist, current_price)
-            target_tp = round_price(current_price - (2.0 * sl_dist), current_price)
+            pb_score = 65 + (10 if is_primary else 0)
+            if vwap_val > 0 and current_price <= vwap_val:
+                pb_score += 10
+            if is_killzone:
+                pb_score += 5
 
-            setup_qualified = True
-            setup_side = "sell"
-            strategy_label = "Intraday_EMA_Pullback_Scalp_Short"
-            thesis = (
-                f"Intraday 15m EMA Trend Rejection (Score {setup_score}/100): 1H {regime_1h}, capped under 15m EMA21 (${ema21_15m:.2f}). "
-                f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.0:1."
-            )
+            qual_threshold = 85 if is_primary else 90
+            if pb_score >= qual_threshold:
+                setup_score = pb_score
+                sl_dist = max(min_sl_dist, min(1.1 * atr_15m, max_sl_dist))
+                invalidation_sl = round_price(current_price + sl_dist, current_price)
+                target_tp = round_price(current_price - (2.0 * sl_dist), current_price)
+
+                setup_qualified = True
+                setup_side = "sell"
+                strategy_label = "Intraday_EMA_Pullback_Scalp_Short"
+                thesis = (
+                    f"Intraday 15m EMA Trend Rejection (Score {setup_score}/100): 1H {regime_1h}, capped under 15m EMA21 (${ema21_15m:.2f}). "
+                    f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.0:1."
+                )
 
     # Priority C: Institutional Bearish Breakdown Short (Trend continuation during sell-offs / market dumps)
     if not setup_qualified:
@@ -1142,7 +1159,7 @@ def analyze_multi_timeframe(
             if is_killzone:
                 bd_score += 5
 
-            qual_threshold = 80 if is_primary else 85
+            qual_threshold = 85 if is_primary else 90
             if bd_score >= qual_threshold:
                 calc_entry = current_price
                 raw_sl = max(ema21_15m, calc_entry + (0.9 * atr_15m))
@@ -1163,7 +1180,7 @@ def analyze_multi_timeframe(
                 )
 
     if not setup_qualified:
-        rejection_reason = short_rejection_reason or long_rejection_reason or "No high-probability trend or mean-reversion edge qualified (min score 80)."
+        rejection_reason = short_rejection_reason or long_rejection_reason or "No high-probability trend or mean-reversion edge qualified (min score 85)."
 
     real_rr = round(abs(target_tp - calc_entry) / abs(calc_entry - invalidation_sl), 2) if (setup_qualified and abs(calc_entry - invalidation_sl) > 0) else 0.0
 

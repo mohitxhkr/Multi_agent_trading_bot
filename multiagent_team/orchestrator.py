@@ -397,6 +397,7 @@ class MultiAgentTradingOrchestrator:
                     tp_order_id=exec_res.get("take_profit_order_id"),
                     is_high_volatility=is_high_vol,
                 )
+                self.risk_gatekeeper.register_execution(trade["symbol"])
 
                 # Journal execution into persistent memory
                 self.portfolio_monitor.journal_execution(exec_res, trade)

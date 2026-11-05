@@ -19,11 +19,19 @@ class RiskGatekeeperAgent:
         self,
         client: DeltaExchangeClient,
         risk_manager: RiskManager,
-        max_portfolio_open_risk_usd: float = 8.00
+        max_portfolio_open_risk_usd: float = 8.00,
+        cooldown_seconds: int = 1800
     ):
         self.client = client
         self.risk_manager = risk_manager
         self.max_portfolio_open_risk_usd = max_portfolio_open_risk_usd
+        self.cooldown_seconds = cooldown_seconds
+        self.last_trade_time: Dict[str, float] = {}
+
+    def register_execution(self, symbol: str):
+        """Record trade entry timestamp to enforce selective post-trade cooldown."""
+        import time
+        self.last_trade_time[symbol] = time.time()
 
     def evaluate_candidate(
         self,
@@ -72,10 +80,28 @@ class RiskGatekeeperAgent:
                 "reason": "Account USD/USDT balance is zero or depleted."
             }
 
+        # 1.5. Selective Post-Trade Cooldown Check (Prevents overtrading the same symbol)
+        import time
+        last_t = self.last_trade_time.get(symbol, 0.0)
+        time_since_last = time.time() - last_t
+        if last_t > 0 and time_since_last < self.cooldown_seconds:
+            remaining_mins = int((self.cooldown_seconds - time_since_last) / 60)
+            return {
+                "gate_decision": "REJECTED",
+                "reason": f"Symbol {symbol} in selective sniper cooldown ({remaining_mins}m remaining). Quality over quantity enforced."
+            }
+
         # 2. Check open positions and portfolio correlation
         pos_res = self.client.get_positions()
         raw_positions = pos_res.get("result", []) if pos_res.get("success") else []
         active_positions = [p for p in raw_positions if float(p.get("size", 0)) != 0]
+
+        # Strict Portfolio Concurrency Cap (Max 2 active positions total across portfolio)
+        if len(active_positions) >= 2:
+            return {
+                "gate_decision": "REJECTED",
+                "reason": f"Maximum portfolio concurrency limit reached ({len(active_positions)}/2 active positions). Selective quality enforcement active."
+            }
 
         # Duplicate symbol check
         for p in active_positions:

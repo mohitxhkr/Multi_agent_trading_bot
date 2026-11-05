@@ -47,7 +47,7 @@ class RiskManager:
         max_concurrent_positions: int = 3,          # max 3 simultaneous positions
         max_daily_drawdown_pct: float = 0.05,       # 5% max daily drawdown
         max_allowed_leverage: int = 10,             # 10x max leverage ceiling
-        min_reward_to_risk: float = 1.5             # 1.5:1 minimum R:R for intraday/scalp agility
+        min_reward_to_risk: float = 2.2             # 2.2:1 strict minimum R:R for asymmetric profit vs risk
     ):
         self.max_risk_per_trade_pct = max_risk_per_trade_pct
         self.max_concurrent_positions = max_concurrent_positions

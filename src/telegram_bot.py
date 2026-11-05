@@ -217,7 +217,7 @@ class TelegramConfirmationBot:
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"💼 <b>Position:</b> <code>{contracts} contracts</code> ({leverage}x Isolated | Margin: ~${margin:,.2f})\n"
             f"{backtest_line}"
-            f"🛡️ <b>Protection:</b> Auto-Breakeven at +0.50R (Zero Risk)\n"
+            f"🛡️ <b>Protection:</b> Risk Slashed at +0.80R · Green Profit Locked at +1.10R\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>"
         )

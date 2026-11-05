@@ -55,7 +55,7 @@ class MultiAgentTradingOrchestrator:
         symbols: Optional[List[str]] = None,
         interactive: bool = True,
         leverage: int = 25,
-        target_rr_ratio: float = 2.0
+        target_rr_ratio: float = 2.5
     ):
         self.client = client or DeltaExchangeClient()
         
@@ -341,6 +341,18 @@ class MultiAgentTradingOrchestrator:
             print("\n   All prospective setups rejected by Risk Gatekeeper. Capital protected.")
             first_reason = reject_reasons[0] if reject_reasons else "Risk limits or capital allocation exceeded."
             return {"status": "REJECTED", "code": "RISK_GATE_REJECTED", "reason": first_reason}
+
+        # Sort approved trades by Asymmetric Edge: Minimum Risk & Maximum Profit
+        # Prioritize: Tier-1 Primary assets, Highest Reward-to-Risk, Highest Time Machine EV, Highest Quality Score
+        approved_trades.sort(
+            key=lambda t: (
+                1 if any(p in t.get("symbol", "").upper() for p in ["BTC", "ETH", "XAU"]) else 0,
+                float(t.get("reward_to_risk_ratio", 2.0)),
+                float(t.get("time_machine", {}).get("expected_value_r", 0.0)),
+                float(t.get("score", 75))
+            ),
+            reverse=True
+        )
 
         # Agent 6: Telegram 2-Way Human Authorization Gate
         executed_records = []

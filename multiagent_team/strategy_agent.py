@@ -14,7 +14,7 @@ logger = logging.getLogger("strategy-agent")
 
 
 class StrategyAgent:
-    def __init__(self, target_rr_ratio: float = 2.0, max_allowed_spread_pct: float = 0.15):
+    def __init__(self, target_rr_ratio: float = 2.5, max_allowed_spread_pct: float = 0.15):
         self.target_rr_ratio = target_rr_ratio
         self.max_allowed_spread_pct = max_allowed_spread_pct
         self.adaptive_learner = AdaptiveLearningEngine()
@@ -65,19 +65,20 @@ class StrategyAgent:
         macro_15m = analysis.get("macro_15m", {})
         liq = analysis.get("liquidity", {})
 
-        # ATR-Adjusted Stop Loss Dynamic Calibration
-        atr_15m = float(macro_15m.get("atr_14") or analysis.get("atr_14") or (entry * 0.005))
-        min_sl_dist = 0.8 * atr_15m
-        max_sl_dist = 1.6 * atr_15m
+        # Structural Invalidation Stop Loss & Asymmetric R:R Calibration (Minimum Risk, Maximum Profit)
         raw_sl_dist = abs(entry - sl)
-        calibrated_sl_dist = max(min_sl_dist, min(raw_sl_dist, max_sl_dist))
-
-        if side == "buy":
-            sl = round(entry - calibrated_sl_dist, 4)
-            tp = round(entry + (self.target_rr_ratio * calibrated_sl_dist), 4)
+        if raw_sl_dist > 0 and sl > 0:
+            calibrated_sl_dist = raw_sl_dist
+            planned_rr = abs(tp - entry) / calibrated_sl_dist if calibrated_sl_dist > 0 else 0.0
+            if planned_rr < self.target_rr_ratio or tp <= 0:
+                tp = round(entry + (self.target_rr_ratio * calibrated_sl_dist), 4) if side == "buy" else round(entry - (self.target_rr_ratio * calibrated_sl_dist), 4)
         else:
-            sl = round(entry + calibrated_sl_dist, 4)
-            tp = round(entry - (self.target_rr_ratio * calibrated_sl_dist), 4)
+            atr_15m = float(macro_15m.get("atr_14") or analysis.get("atr_14") or (entry * 0.005))
+            min_sl_dist = 0.8 * atr_15m
+            max_sl_dist = 1.2 * atr_15m
+            calibrated_sl_dist = max(min_sl_dist, min(raw_sl_dist if raw_sl_dist > 0 else atr_15m, max_sl_dist))
+            sl = round(entry - calibrated_sl_dist, 4) if side == "buy" else round(entry + calibrated_sl_dist, 4)
+            tp = round(entry + (self.target_rr_ratio * calibrated_sl_dist), 4) if side == "buy" else round(entry - (self.target_rr_ratio * calibrated_sl_dist), 4)
 
         stop_distance = abs(entry - sl)
         if stop_distance <= 0 or entry <= 0:
@@ -174,12 +175,12 @@ class StrategyAgent:
             if setup:
                 candidates.append(setup)
                 
-        # Rank by: Primary tier first, then score, then R:R ratio descending
+        # Rank by: Primary tier first, then Asymmetric Profit Ratio (planned R:R), then score
         candidates.sort(
             key=lambda s: (
                 1 if s.get("is_primary") else 0,
-                s.get("score", 0),
-                s.get("planned_rr_ratio", 0.0)
+                s.get("planned_rr_ratio", 0.0),
+                s.get("score", 0)
             ),
             reverse=True
         )

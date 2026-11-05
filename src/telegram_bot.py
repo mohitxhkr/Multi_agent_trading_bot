@@ -207,6 +207,17 @@ class TelegramConfirmationBot:
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
             )
 
+        conviction_mult = float(trade_spec.get("conviction_multiplier", 1.0))
+        conviction_tier = trade_spec.get("conviction_tier", "STANDARD")
+        conviction_badge = ""
+        if conviction_mult > 1.0:
+            boost_pct = int(round((conviction_mult - 1.0) * 100))
+            conviction_badge = (
+                f"🔥 <b>CONVICTION SIZING BOOST:</b> <b>+{boost_pct}% LOT SIZE ({conviction_tier})</b>\n"
+                f"   ↳ <i>High-probability edge confirmed: Scaled up to maximize profit.</i>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            )
+
         proposal_text = (
             f"🎯 <b>[NEW TRADE PROPOSAL — AWAITING YOUR CONFIRMATION]</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -221,6 +232,7 @@ class TelegramConfirmationBot:
             f"🎯 <b>Target 1 (1:2 R:R):</b> <code>{fmt_p(tp)}</code> (Initial TP)\n"
             f"⚖️ <b>Initial R:R:</b> <b>{rr:.2f} : 1</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{conviction_badge}"
             f"📈 <b>Scalper Trailing Roadmap:</b>\n"
             f"  1️⃣ <b>At +0.50R:</b> Breakeven Shield (<code>{fmt_p(entry)}</code> + fee buffer — Zero Risk)\n"
             f"  2️⃣ <b>At +0.80R:</b> Micro-Lock +0.35R green profit in bank\n"

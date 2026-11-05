@@ -163,12 +163,17 @@ class TelegramNotifier:
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
             )
 
+        conv_mult = float(trade_spec.get("conviction_multiplier", 1.0))
+        conv_tier = trade_spec.get("conviction_tier", "STANDARD")
+        conv_line = f"• <b>Conviction Sizing:</b> 🔥 <b>+{int(round((conv_mult - 1.0) * 100))}% Boost ({conv_tier})</b>\n" if conv_mult > 1.0 else ""
+
         message = (
             f"🚀 <b>[TRADE EXECUTED ON DELTA EXCHANGE]</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"• <b>Status:</b> ✅ <b>ORDER PLACED ON ORDERBOOK</b>\n"
             f"• <b>Order ID:</b> <code>{order_id}</code>\n"
             f"• <b>Action:</b> {emoji_dir} <code>{contracts} contracts</code> of <b>{symbol}</b>\n"
+            f"{conv_line}"
             f"• <b>Leverage:</b> <code>{leverage}x Isolated</code> (Margin: ~${margin:,.2f})\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📍 <b>Order Price:</b> <code>{fmt_p(entry)}</code>\n"

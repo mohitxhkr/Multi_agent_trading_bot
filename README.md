@@ -216,14 +216,17 @@ The system divides trading responsibilities into **10 specialized autonomous age
 * **Module:** [`multiagent_team/risk_gatekeeper.py`](multiagent_team/risk_gatekeeper.py) & [`src/risk_manager.py`](src/risk_manager.py)
 * **Execution Timing:** Sizes approved setups and verifies account-level safety rules.
 * **Core Responsibilities:**
-  1. **Institutional Fixed Dollar Risk Model:** Eliminates catastrophic liquidation risks by strictly capping dollar loss:
-     $$\text{Contracts} = \left\lfloor \frac{\text{Target Dollar Risk}}{\text{Contract Value} \times \text{Stop Loss Distance}} \right\rfloor$$
-     * **Primary Assets (BTC, ETH, XAU):** Fixed dollar risk bounded between **$2.00 and $4.00 USD** (maximum 2% account equity).
-     * **Secondary Altcoins:** Hard ceiling at **$2.00 USD maximum risk** and **up to 10% margin**.
-  2. **Dynamic Drawdown Scaling:** Automatically reduces risk target by 30% if account drawdown $> 2.0\%$.
+  1. **Dynamic Conviction Sizing Model (Maximizing Profit on Superior Setups):** Automatically scales up the contract amount and lot size on superior, high-conviction trade setups:
+     $$\text{Contracts} = \left\lfloor \frac{\text{Target Dollar Risk} \times \text{Conviction Multiplier}}{\text{Contract Value} \times \text{Stop Loss Distance} + \text{Friction}} \right\rfloor$$
+     * **A+ Prime Conviction Setup (Score >= 90 & (TM EV >= +0.40R or TM Win Rate >= 70% or Reinforced Pattern)):** Sizing multiplier **1.75x (+75% quantity/lot size boost)** on Primary assets (`BTC`, `ETH`, `XAU`).
+     * **High Conviction Setup (Score >= 85 or TM EV >= +0.35R):** Sizing multiplier **1.40x (+40% quantity/lot size boost)**.
+     * **Reinforced Historical Pattern:** Sizing multiplier **1.30x (+30% quantity boost)** for setups with verified rolling edge.
+     * **Baseline Setups (Score 80–84):** Standard 1.00x base sizing ($2.00–$4.00 USD risk).
+     * **Secondary Altcoins:** Hard ceiling at **$2.00 USD maximum risk** and **up to 10% margin** to avoid volatility drag.
+  2. **Dynamic Drawdown Scaling:** Automatically reduces risk target by 30% if account drawdown > 2.0%.
   3. **Exchange Lot Multipliers:** Integrates Delta Exchange contract specifications and lot size precision into exact sizing math.
   4. **Correlated Exposure Gate:** Limits concurrent directional crypto positions to a maximum of 2 assets.
-  5. **Liquidation Buffer Pre-Check:** Ensures isolated liquidation price is at least $3.0\times$ the Stop Loss distance away; auto-clamps leverage if buffer is insufficient.
+  5. **Liquidation Buffer Pre-Check:** Ensures isolated liquidation price is at least 3.0x the Stop Loss distance away; auto-clamps leverage if buffer is insufficient.
   6. **Portfolio Open Risk Ceiling:** Hard cap of **$8.00 USD total open risk** across all active positions combined.
 
 ---

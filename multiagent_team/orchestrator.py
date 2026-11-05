@@ -309,7 +309,9 @@ class MultiAgentTradingOrchestrator:
             decision = self.risk_gatekeeper.evaluate_candidate(c, leverage=asset_leverage)
             status = decision.get("gate_decision")
             if status == "APPROVED":
-                print(f"   ✅ [APPROVED] {sym} ({decision.get('leverage')}x): {decision['contracts']} contracts | Risk: ${decision['dollar_risk_usd']} ({decision['risk_pct']}%) | Margin: ${decision['required_margin_usd']}")
+                conv_mult = decision.get('conviction_multiplier', 1.0)
+                conv_tier = decision.get('conviction_tier', 'STANDARD')
+                print(f"   ✅ [APPROVED] {sym} ({decision.get('leverage')}x): {decision['contracts']} contracts [Conviction: {conv_mult}x | {conv_tier}] | Risk: ${decision['dollar_risk_usd']} ({decision['risk_pct']}%) | Margin: ${decision['required_margin_usd']}")
                 decision["confluence"] = c.get("confluence", {})
                 decision["time_machine"] = c.get("time_machine", {})
                 approved_trades.append(decision)

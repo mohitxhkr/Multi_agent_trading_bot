@@ -143,9 +143,39 @@ class RiskGatekeeperAgent:
         current_dd_pct = cb_res.get("current_drawdown_pct", 0.0)
         dd_risk_scalar = 0.70 if current_dd_pct > 0.02 else 1.0
 
-        max_dollar_risk_cap = float(os.getenv("MAX_DOLLAR_RISK_PER_TRADE", "4.00" if is_primary else "2.00")) * dd_risk_scalar
-        target_risk_pct = (0.02 if is_primary else 0.015) * dd_risk_scalar
-        calculated_dollar_risk = min(max(total_usdt * target_risk_pct, 1.50), max_dollar_risk_cap)
+        # Conviction Sizing Engine:
+        # When a setup is of superior quality ("good" / high conviction), scale up quantity/lot size to maximize profit
+        score = int(setup.get("score") or 75)
+        tm = setup.get("time_machine", {})
+        tm_win_rate = float(tm.get("win_rate_pct") or 50.0)
+        tm_ev = float(tm.get("expected_value_r") or 0.0)
+        is_reinforced = "REINFORCED" in str(setup.get("thesis", "")) or "REINFORCED" in str(setup.get("strategy_name", ""))
+
+        conviction_multiplier = 1.0
+        conviction_tier = "STANDARD"
+        conviction_reasons = []
+
+        # Tier 1: A+ Prime Conviction Setup (Score >= 90 & (TM Win Rate >= 70% or TM EV >= 0.40R or Reinforced))
+        if score >= 90 and (tm_win_rate >= 70.0 or tm_ev >= 0.40 or is_reinforced):
+            conviction_multiplier = 1.75 if is_primary else 1.40  # +75% quantity boost for Primary A+ setups
+            conviction_tier = "A+_PRIME_CONVICTION"
+            conviction_reasons.append(f"A+ Setup (Score: {score}/100, TM EV: +{tm_ev}R, Win Rate: {tm_win_rate}%)")
+        # Tier 2: High Conviction Setup (Score >= 85 or (Score >= 80 and TM EV >= 0.35R))
+        elif score >= 85 or (score >= 80 and tm_ev >= 0.35):
+            conviction_multiplier = 1.40 if is_primary else 1.25  # +40% quantity boost
+            conviction_tier = "HIGH_CONVICTION"
+            conviction_reasons.append(f"High Quality Setup (Score: {score}/100, TM EV: +{tm_ev}R)")
+        # Tier 3: Empirically Reinforced Historical Pattern
+        elif is_reinforced:
+            conviction_multiplier = 1.30 if is_primary else 1.15  # +30% quantity boost
+            conviction_tier = "REINFORCED_EDGE"
+            conviction_reasons.append("Empirically Reinforced Historical Pattern")
+
+        base_dollar_risk_cap = float(os.getenv("MAX_DOLLAR_RISK_PER_TRADE", "4.00" if is_primary else "2.00"))
+        max_dollar_risk_cap = base_dollar_risk_cap * dd_risk_scalar * conviction_multiplier
+
+        target_risk_pct = (0.02 if is_primary else 0.015) * dd_risk_scalar * conviction_multiplier
+        calculated_dollar_risk = min(max(total_usdt * target_risk_pct, 1.50 * conviction_multiplier), max_dollar_risk_cap)
 
         # Include estimated round-trip taker fees (0.10%) + slippage (0.06%) into risk unit
         friction_per_contract = per_contract_notional * 0.0016
@@ -165,9 +195,9 @@ class RiskGatekeeperAgent:
                 logger.info(f"RiskGatekeeper: Clamping leverage on {symbol} from {leverage}x to {safe_leverage}x for liquidation safety.")
                 leverage = safe_leverage
 
-        # Margin guardrails
-        max_margin_pct = 0.25 if is_primary else 0.10
-        max_allowed_margin = min(usable_capital * max_margin_pct, 30.0 if is_primary else 10.0)
+        # Margin guardrails: expand margin ceiling for high conviction setups to allow the larger position
+        max_margin_pct = (0.35 if is_primary else 0.15) if conviction_multiplier > 1.2 else (0.25 if is_primary else 0.10)
+        max_allowed_margin = min(usable_capital * max_margin_pct, (50.0 if is_primary else 15.0) * conviction_multiplier)
         
         req_margin = (contracts * per_contract_notional) / leverage
         if req_margin > max_allowed_margin:
@@ -211,6 +241,10 @@ class RiskGatekeeperAgent:
             "score": setup.get("score", 75),
             "confluence": setup.get("confluence", {}),
             "time_machine": setup.get("time_machine", {}),
+            "conviction_multiplier": round(conviction_multiplier, 2),
+            "conviction_tier": conviction_tier,
+            "conviction_boost_pct": int(round((conviction_multiplier - 1.0) * 100)),
+            "conviction_reasons": conviction_reasons,
             "contracts": contracts,
             "entry_price": entry,
             "stop_loss_price": stop,

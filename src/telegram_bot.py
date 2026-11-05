@@ -197,10 +197,12 @@ class TelegramConfirmationBot:
         clean_strat = strategy.replace("_", " ").title()
 
         conv_mult = float(trade_spec.get("conviction_multiplier", 1.0))
-        boost_tag = f" · 🔥 +{int(round((conv_mult - 1.0) * 100))}% Size Boost" if conv_mult > 1.0 else ""
+        boost_tag = f" · 🔥 <b>+{int(round((conv_mult - 1.0) * 100))}% Size Boost</b>" if conv_mult > 1.0 else ""
+        score_badge = "A+ PRIME CONVICTION" if score >= 90 else ("HIGH CONVICTION EDGE" if score >= 80 else "STANDARD")
 
         proposal_text = (
             f"🎯 <b>[NEW TRADE PROPOSAL]</b>\n"
+            f"⭐ <b>QUALITY SCORE:</b> <b><u>{score}/100</u> ({score_badge})</b>{boost_tag}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
             f"• <b>Setup:</b> <i>{clean_strat}</i>\n"
@@ -215,7 +217,6 @@ class TelegramConfirmationBot:
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"💼 <b>Position:</b> <code>{contracts} contracts</code> ({leverage}x Isolated | Margin: ~${margin:,.2f})\n"
             f"{backtest_line}"
-            f"⭐ <b>Quality:</b> <b>Score {score}/100</b>{boost_tag}\n"
             f"🛡️ <b>Protection:</b> Auto-Breakeven at +0.50R (Zero Risk)\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>"

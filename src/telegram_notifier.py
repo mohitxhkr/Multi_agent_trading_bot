@@ -136,13 +136,10 @@ class TelegramNotifier:
         trade_spec: Dict[str, Any],
         wallet: Optional[Dict[str, Any]] = None
     ) -> bool:
-        """
-        Send instant receipt when order is submitted and live on Delta Exchange.
-        """
+        """Send instant receipt when order is submitted and live on Delta Exchange."""
         symbol = trade_spec.get("symbol", "N/A")
         side = trade_spec.get("side", "").upper()
-        emoji_dir = "🟢 BOUGHT (LONG)" if side == "BUY" else "🔴 SOLD (SHORT)"
-        order_id = exec_result.get("order_id", "N/A")
+        emoji_dir = "🟢 LONG" if side == "BUY" else "🔴 SHORT"
         contracts = trade_spec.get("contracts", 1)
         entry = trade_spec.get("entry_price", 0.0)
         sl = trade_spec.get("stop_loss_price", 0.0)
@@ -151,37 +148,17 @@ class TelegramNotifier:
         margin = trade_spec.get("required_margin_usd", 0.0)
         risk = trade_spec.get("dollar_risk_usd", 0.0)
 
-        wallet_lines = ""
-        if wallet:
-            avail_usd = wallet.get("available_usd", 0.0)
-            avail_inr = wallet.get("available_inr", 0.0)
-            net_equity = wallet.get("net_equity_usd", 0.0)
-            wallet_lines = (
-                f"💼 <b>ACCOUNT EQUITY &amp; BALANCES:</b>\n"
-                f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code> (₹{avail_inr:,.2f} INR)\n"
-                f"• <b>Total Account Equity:</b> <code>${net_equity:,.2f} USD</code>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            )
-
-        conv_mult = float(trade_spec.get("conviction_multiplier", 1.0))
-        conv_tier = trade_spec.get("conviction_tier", "STANDARD")
-        conv_line = f"• <b>Conviction Sizing:</b> 🔥 <b>+{int(round((conv_mult - 1.0) * 100))}% Boost ({conv_tier})</b>\n" if conv_mult > 1.0 else ""
-
         message = (
-            f"🚀 <b>[TRADE EXECUTED ON DELTA EXCHANGE]</b>\n"
+            f"🚀 <b>[ORDER PLACED ON DELTA]</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• <b>Status:</b> ✅ <b>ORDER PLACED ON ORDERBOOK</b>\n"
-            f"• <b>Order ID:</b> <code>{order_id}</code>\n"
-            f"• <b>Action:</b> {emoji_dir} <code>{contracts} contracts</code> of <b>{symbol}</b>\n"
-            f"{conv_line}"
-            f"• <b>Leverage:</b> <code>{leverage}x Isolated</code> (Margin: ~${margin:,.2f})\n"
+            f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
+            f"• <b>Size:</b> <code>{contracts} contracts</code> ({leverage}x Isolated | Margin: ~${margin:,.2f})\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📍 <b>Order Price:</b> <code>{fmt_p(entry)}</code>\n"
-            f"🛑 <b>Bracket SL:</b> <code>{fmt_p(sl)}</code> (Risk: ${risk:,.2f})\n"
-            f"🎯 <b>Bracket TP (1:2):</b> <code>{fmt_p(tp)}</code>\n"
+            f"📍 <b>Limit Entry:</b> <code>{fmt_p(entry)}</code>\n"
+            f"🛑 <b>Stop Loss:</b> <code>{fmt_p(sl)}</code> (Risk: ${risk:,.2f})\n"
+            f"🎯 <b>Take Profit:</b> <code>{fmt_p(tp)}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{wallet_lines}"
-            f"🛡️ <i>Trailing Stop Manager active (15s loop). Breakeven at +1.0R.</i>"
+            f"🛡️ <i>Orderbook bracket active. Trailing Stop Sentinel engaged.</i>"
         )
         return self.send_message(message)
 
@@ -198,30 +175,17 @@ class TelegramNotifier:
     ) -> bool:
         """Send instant notification when a pending order is FILLED on the orderbook."""
         emoji_dir = "🟢 LONG" if side.upper() == "BUY" else "🔴 SHORT"
-        wallet_lines = ""
-        if wallet:
-            avail_usd = wallet.get("available_usd", 0.0)
-            avail_inr = wallet.get("available_inr", 0.0)
-            net_equity = wallet.get("net_equity_usd", 0.0)
-            wallet_lines = (
-                f"💼 <b>UPDATED WALLET:</b>\n"
-                f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code> (₹{avail_inr:,.2f} INR)\n"
-                f"• <b>Total Account Equity:</b> <code>${net_equity:,.2f} USD</code>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            )
-
         message = (
             f"⚡ <b>[ORDER FILLED &amp; POSITION ACTIVE]</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• <b>Asset:</b> <code>{symbol}</code> ({emoji_dir})\n"
+            f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
             f"• <b>Fill Price:</b> <code>{fmt_p(fill_price)}</code>\n"
             f"• <b>Size:</b> <code>{contracts} contracts</code> ({leverage}x Isolated)\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🛑 <b>Stop Loss:</b> <code>{fmt_p(sl)}</code>\n"
             f"🎯 <b>Take Profit:</b> <code>{fmt_p(tp)}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{wallet_lines}"
-            f"🛡️ <i>Position is live! Trailing Stop Manager actively monitoring.</i>"
+            f"🛡️ <i>Position is live! Auto-Breakeven at +0.50R.</i>"
         )
         return self.send_message(message)
 
@@ -240,39 +204,17 @@ class TelegramNotifier:
     ) -> bool:
         """Send celebratory alert when Take Profit target is achieved!"""
         emoji_dir = "🟢 LONG" if side.upper() == "BUY" else "🔴 SHORT"
-        wallet_lines = ""
-        if wallet:
-            avail_usd = wallet.get("available_usd", 0.0)
-            avail_inr = wallet.get("available_inr", 0.0)
-            net_equity = wallet.get("net_equity_usd", 0.0)
-            wallet_lines = (
-                f"💼 <b>UPDATED WALLET &amp; PERFORMANCE:</b>\n"
-                f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code> (₹{avail_inr:,.2f} INR)\n"
-                f"• <b>Total Account Equity:</b> <code>${net_equity:,.2f} USD</code>\n"
-            )
-        if stats:
-            total_pnl = stats.get("total_realized_pnl_usd", 0.0)
-            win_rate = stats.get("win_rate_pct", 0.0)
-            total_trades = stats.get("total_trades", 0)
-            wins = stats.get("winning_trades", 0)
-            losses = stats.get("losing_trades", 0)
-            wallet_lines += (
-                f"• <b>Cumulative Realized PnL:</b> <b>{'+' if total_pnl >= 0 else ''}${total_pnl:,.2f} USD</b>\n"
-                f"• <b>Win Rate:</b> <b>{win_rate:.1f}%</b> ({wins}W / {losses}L in {total_trades} trades)\n"
-            )
-
+        pnl_line = f"+${realized_pnl:,.2f} USD (+{return_pct:.1f}%)"
         message = (
-            f"🎯 <b>[TARGET HIT — TAKE PROFIT EXECUTED!]</b> 🏆\n"
+            f"🎉 <b>[TAKE PROFIT TARGET HIT!]</b> 🏆\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• <b>Asset:</b> <code>{symbol}</code> ({emoji_dir})\n"
-            f"• <b>Contracts:</b> <code>{contracts}</code>\n"
-            f"• <b>Entry:</b> <code>{fmt_p(entry_price)}</code> ──► <b>Exit (TP):</b> <code>{fmt_p(exit_price)}</code>\n"
-            f"• <b>Realized Profit:</b> 🟢 <b>+${realized_pnl:,.2f} USD (+{return_pct:.1f}% Return)</b>\n"
-            f"• <b>R-Multiple:</b> <b>+{r_multiple:.2f}R</b> 🎯\n"
+            f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
+            f"• <b>Exit Price:</b> <code>{fmt_p(exit_price)}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{wallet_lines}"
+            f"💰 <b>Profit Won:</b> 🟢 <b>{pnl_line}</b>\n"
+            f"⚖️ <b>Payout:</b> <b>+{r_multiple:.2f}R Reward</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"⚡ <i>Profit banked successfully to cash balance. Hunting next high-probability setup.</i>"
+            f"⚡ <i>Profit banked successfully! Searching for next setup.</i>"
         )
         return self.send_message(message)
 
@@ -291,39 +233,14 @@ class TelegramNotifier:
     ) -> bool:
         """Send alert when Stop Loss is hit, detailing capital preservation."""
         emoji_dir = "🟢 LONG" if side.upper() == "BUY" else "🔴 SHORT"
-        wallet_lines = ""
-        if wallet:
-            avail_usd = wallet.get("available_usd", 0.0)
-            avail_inr = wallet.get("available_inr", 0.0)
-            net_equity = wallet.get("net_equity_usd", 0.0)
-            wallet_lines = (
-                f"💼 <b>UPDATED WALLET &amp; PERFORMANCE:</b>\n"
-                f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code> (₹{avail_inr:,.2f} INR)\n"
-                f"• <b>Total Account Equity:</b> <code>${net_equity:,.2f} USD</code>\n"
-            )
-        if stats:
-            total_pnl = stats.get("total_realized_pnl_usd", 0.0)
-            win_rate = stats.get("win_rate_pct", 0.0)
-            total_trades = stats.get("total_trades", 0)
-            wins = stats.get("winning_trades", 0)
-            losses = stats.get("losing_trades", 0)
-            wallet_lines += (
-                f"• <b>Cumulative Realized PnL:</b> <b>{'+' if total_pnl >= 0 else ''}${total_pnl:,.2f} USD</b>\n"
-                f"• <b>Win Rate:</b> <b>{win_rate:.1f}%</b> ({wins}W / {losses}L in {total_trades} trades)\n"
-            )
-
         message = (
-            f"🛑 <b>[STOP LOSS HIT — CAPITAL PROTECTED]</b>\n"
+            f"🛑 <b>[STOP LOSS HIT — CAPITAL SAFE]</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• <b>Asset:</b> <code>{symbol}</code> ({emoji_dir})\n"
-            f"• <b>Contracts:</b> <code>{contracts}</code>\n"
-            f"• <b>Entry:</b> <code>{fmt_p(entry_price)}</code> ──► <b>Exit (SL):</b> <code>{fmt_p(exit_price)}</code>\n"
-            f"• <b>Realized PnL:</b> 🔴 <b>-${abs(realized_pnl):,.2f} USD ({return_pct:.1f}%)</b>\n"
-            f"• <b>Exit Stage:</b> <i>{exit_stage}</i>\n"
+            f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
+            f"• <b>Exit Price:</b> <code>{fmt_p(exit_price)}</code>\n"
+            f"• <b>Realized Loss:</b> 🔴 <b>-${abs(realized_pnl):,.2f} USD</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{wallet_lines}"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🛡️ <i>Disciplined stop executed. Risk strictly bounded. Searching for next edge.</i>"
+            f"🛡️ <i>Disciplined stop executed. Risk strictly bounded.</i>"
         )
         return self.send_message(message)
 
@@ -340,35 +257,14 @@ class TelegramNotifier:
     ) -> bool:
         """Send alert when position exits at Breakeven (0 downside risk)."""
         emoji_dir = "🟢 LONG" if side.upper() == "BUY" else "🔴 SHORT"
-        wallet_lines = ""
-        if wallet:
-            avail_usd = wallet.get("available_usd", 0.0)
-            avail_inr = wallet.get("available_inr", 0.0)
-            net_equity = wallet.get("net_equity_usd", 0.0)
-            wallet_lines = (
-                f"💼 <b>UPDATED WALLET &amp; PERFORMANCE:</b>\n"
-                f"• <b>Available Cash:</b> <code>${avail_usd:,.2f} USD</code> (₹{avail_inr:,.2f} INR)\n"
-                f"• <b>Total Account Equity:</b> <code>${net_equity:,.2f} USD</code>\n"
-            )
-        if stats:
-            total_pnl = stats.get("total_realized_pnl_usd", 0.0)
-            win_rate = stats.get("win_rate_pct", 0.0)
-            wallet_lines += (
-                f"• <b>Cumulative Realized PnL:</b> <b>{'+' if total_pnl >= 0 else ''}${total_pnl:,.2f} USD</b>\n"
-                f"• <b>Win Rate:</b> <b>{win_rate:.1f}%</b>\n"
-            )
-
         message = (
             f"🛡️ <b>[BREAKEVEN EXIT — ZERO RISK ACHIEVED]</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• <b>Asset:</b> <code>{symbol}</code> ({emoji_dir})\n"
-            f"• <b>Contracts:</b> <code>{contracts}</code>\n"
-            f"• <b>Entry:</b> <code>{fmt_p(entry_price)}</code> ──► <b>Exit (BE):</b> <code>{fmt_p(exit_price)}</code>\n"
+            f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
+            f"• <b>Exit Price:</b> <code>{fmt_p(exit_price)}</code>\n"
             f"• <b>Realized PnL:</b> 🟢 <b>+${realized_pnl:,.2f} USD</b> (Fees Covered)\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{wallet_lines}"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"⚡ <i>Trade exited risk-free. Capital 100% intact.</i>"
+            f"⚡ <i>Trade exited risk-free. Capital 100% intact!</i>"
         )
         return self.send_message(message)
 

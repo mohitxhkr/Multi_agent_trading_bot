@@ -179,76 +179,33 @@ class TelegramConfirmationBot:
         r3_tp = round_price(entry + (3.0 * risk_per_unit) if side == "BUY" else entry - (3.0 * risk_per_unit), entry)
         r5_tp = round_price(entry + (5.0 * risk_per_unit) if side == "BUY" else entry - (5.0 * risk_per_unit), entry)
 
-        conf_lines = ""
-        if confluence:
-            conf_lines = (
-                f"📊 <b>5-Timeframe Confluence Matrix (Score: {trade_spec.get('score', 80)}/100):</b>\n"
-                f"• <b>1M Monthly:</b> <code>{confluence.get('monthly', 'ALIGNED')}</code>\n"
-                f"• <b>1W Weekly:</b> <code>{confluence.get('weekly', 'ALIGNED')}</code>\n"
-                f"• <b>1D Daily:</b> <code>{confluence.get('daily', 'ALIGNED')}</code>\n"
-                f"• <b>4H Cycle:</b> <code>{confluence.get('macro_4h', 'ALIGNED')}</code>\n"
-                f"• <b>1H Trigger:</b> {confluence.get('structure_detail', 'Liquidity Sweep + MSS')}\n"
-                f"• <b>Momentum:</b> {confluence.get('volume_rsi', 'Aligned')}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            )
-
-        tm = trade_spec.get("time_machine", {})
-        tm_lines = ""
-        if tm:
-            tm_status = "🟢 HIGH MATHEMATICAL PROBABILITY" if tm.get("passed") else "🟡 STATISTICAL EDGE"
-            tm_lines = (
-                f"⏳ <b>Time Machine Historical Backtest Simulation:</b>\n"
-                f"• <b>Historical Lookback:</b> <code>{tm.get('sample_size', 0)} identical setups tested</code>\n"
-                f"• <b>Empirical Win Rate:</b> <b>{tm.get('win_rate_pct', 0.0)}%</b> ({tm.get('wins', 0)} Wins / {tm.get('losses', 0)} Losses)\n"
-                f"• <b>Expected Value (EV):</b> <b>+{tm.get('expected_value_r', 0.0)}R</b> per trade\n"
-                f"• <b>Profit Factor:</b> <code>{tm.get('profit_factor', 0.0)}x</code>\n"
-                f"• <b>Avg Max Adverse (MAE):</b> <code>{tm.get('avg_mae_pct', 0.0)}%</code>\n"
-                f"• <b>Simulation Status:</b> {tm_status}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            )
-
-        conviction_mult = float(trade_spec.get("conviction_multiplier", 1.0))
-        conviction_tier = trade_spec.get("conviction_tier", "STANDARD")
-        conviction_badge = ""
-        if conviction_mult > 1.0:
-            boost_pct = int(round((conviction_mult - 1.0) * 100))
-            conviction_badge = (
-                f"🔥 <b>CONVICTION SIZING BOOST:</b> <b>+{boost_pct}% LOT SIZE ({conviction_tier})</b>\n"
-                f"   ↳ <i>High-probability edge confirmed: Scaled up to maximize profit.</i>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            )
-
         reward_usd = risk_usd * (rr if rr > 0 else 2.0)
+        tm = trade_spec.get("time_machine", {})
+        win_rate = tm.get("win_rate_pct", 80.0)
+        score = trade_spec.get("score", 85)
+        clean_strat = strategy.replace("_", " ").title()
+
+        conv_mult = float(trade_spec.get("conviction_multiplier", 1.0))
+        boost_tag = f" · 🔥 +{int(round((conv_mult - 1.0) * 100))}% Sizing Boost" if conv_mult > 1.0 else ""
+
         proposal_text = (
-            f"🎯 <b>[NEW TRADE PROPOSAL — AWAITING YOUR CONFIRMATION]</b>\n"
+            f"🎯 <b>[NEW TRADE PROPOSAL]</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• <b>Asset:</b> <code>{symbol}</code>\n"
-            f"• <b>Direction:</b> <b>{emoji_dir}</b>\n"
-            f"• <b>Strategy:</b> <i>{strategy}</i>\n"
+            f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
+            f"• <b>Setup:</b> <i>{clean_strat}</i>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{conf_lines}"
-            f"{tm_lines}"
-            f"💵 <b>Total Risk:</b> <b>${risk_usd:,.2f} USD</b> <i>(Maximum loss if Stop Loss hits)</i>\n"
-            f"💰 <b>Total Reward:</b> <b>${reward_usd:,.2f} USD</b> <i>(Estimated profit if Target hits)</i>\n"
-            f"⚖️ <b>Risk to Reward:</b> <b>Win ${rr:.1f} for every $1 risked</b>\n"
+            f"💵 <b>Total Risk:</b> <b>${risk_usd:,.2f} USD</b> <i>(Max loss if Stop Loss hits)</i>\n"
+            f"💰 <b>Total Reward:</b> <b>${reward_usd:,.2f} USD</b> <i>(Profit if Target hits)</i>\n"
+            f"⚖️ <b>Profit Ratio:</b> <b>Win ${rr:.1f} for every $1 risked</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📍 <b>Entry Price:</b> <code>{fmt_p(entry)}</code>\n"
+            f"📍 <b>Entry:</b> <code>{fmt_p(entry)}</code>\n"
             f"🛑 <b>Stop Loss:</b> <code>{fmt_p(sl)}</code>\n"
-            f"🎯 <b>Target 1:</b> <code>{fmt_p(tp)}</code>\n"
+            f"🎯 <b>Take Profit:</b> <code>{fmt_p(tp)}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{conviction_badge}"
-            f"📈 <b>Scalper Trailing Roadmap:</b>\n"
-            f"  1️⃣ <b>At +0.50R:</b> Breakeven Shield (<code>{fmt_p(entry)}</code> + fee buffer — Zero Risk)\n"
-            f"  2️⃣ <b>At +0.80R:</b> Micro-Lock +0.35R green profit in bank\n"
-            f"  3️⃣ <b>At +1.20R:</b> Core Lock +0.75R profit in bank\n"
-            f"  4️⃣ <b>At +1.60R:</b> Pre-Target Lock +1.25R profit in bank\n"
-            f"  5️⃣ <b>At +2.00R:</b> Full Take Profit collected\n"
+            f"💼 <b>Position:</b> <code>{contracts} contracts</code> ({leverage}x Isolated | Margin: ~${margin:,.2f})\n"
+            f"⭐ <b>Quality:</b> <b>Score {score}/100</b> · <b>{win_rate:.0f}% Past Win Rate</b>{boost_tag}\n"
+            f"🛡️ <b>Protection:</b> Auto-Breakeven at +0.50R (Zero Risk)\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"⚡ <b>Leverage:</b> <code>{leverage}x Isolated</code>\n"
-            f"💼 <b>Size:</b> <code>{contracts} contracts</code> (Margin: ~${margin:,.2f})\n"
-            f"💡 <i>{thesis}</i>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"⚠️ <b>NO TRADE EXECUTES WITHOUT YOUR CLICK.</b>\n"
             f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>"
         )
 
@@ -304,9 +261,9 @@ class TelegramConfirmationBot:
                                             self.answer_callback(cb_id, "⚠️ Execution aborted: Price drifted > 0.40%!")
                                             drift_text = (
                                                 proposal_text.replace(
-                                                    "⚠️ <b>NO TRADE EXECUTES WITHOUT YOUR CLICK.</b>\n<i>Tap below to approve or decline",
+                                                    f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
                                                     f"🛑 <b>ABORTED: PRICE DRIFTED ({price_drift_pct:.2f}% shift).</b>\n"
-                                                    f"<i>Mark moved to ${cur_mark:.4f} while awaiting confirmation. Capital protected."
+                                                    f"<i>Mark moved to ${cur_mark:.4f} while awaiting confirmation. Capital protected.</i>"
                                                 )
                                             )
                                             self.edit_message_text(msg_id, drift_text, reply_markup={"inline_keyboard": []})
@@ -318,8 +275,8 @@ class TelegramConfirmationBot:
                             self.answer_callback(cb_id, "✅ Confirmed! Executing on Delta Exchange...")
                             confirmed_text = (
                                 proposal_text.replace(
-                                    "⚠️ <b>NO TRADE EXECUTES WITHOUT YOUR CLICK.</b>\n<i>Tap below to approve or decline",
-                                    "⚡ <b>CONFIRMED BY USER! EXECUTING ON DELTA EXCHANGE...</b>\n<i>Received"
+                                    f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
+                                    "⚡ <b>CONFIRMED BY USER! EXECUTING ON DELTA EXCHANGE...</b>"
                                 )
                             )
                             self.edit_message_text(msg_id, confirmed_text, reply_markup={"inline_keyboard": []})
@@ -330,8 +287,8 @@ class TelegramConfirmationBot:
                             self.answer_callback(cb_id, "❌ Trade proposal rejected.")
                             rejected_text = (
                                 proposal_text.replace(
-                                    "⚠️ <b>NO TRADE EXECUTES WITHOUT YOUR CLICK.</b>\n<i>Tap below to approve or decline",
-                                    "❌ <b>REJECTED BY USER — CAPITAL PROTECTED.</b>\n<i>Declined"
+                                    f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
+                                    "❌ <b>REJECTED BY USER — CAPITAL PROTECTED.</b>"
                                 )
                             )
                             self.edit_message_text(msg_id, rejected_text, reply_markup={"inline_keyboard": []})
@@ -346,8 +303,8 @@ class TelegramConfirmationBot:
         # Timeout reached
         timeout_text = (
             proposal_text.replace(
-                "⚠️ <b>NO TRADE EXECUTES WITHOUT YOUR CLICK.</b>\n<i>Tap below to approve or decline",
-                f"⌛ <b>PROPOSAL EXPIRED ({timeout_seconds // 60}m TIMEOUT) — NO ORDER PLACED.</b>\n<i>Expired"
+                f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
+                f"⌛ <b>PROPOSAL EXPIRED ({timeout_seconds // 60}m) — NO ORDER PLACED.</b>"
             )
         )
         self.edit_message_text(msg_id, timeout_text, reply_markup={"inline_keyboard": []})

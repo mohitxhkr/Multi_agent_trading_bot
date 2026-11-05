@@ -380,7 +380,12 @@ class MultiAgentTradingOrchestrator:
             if exec_res.get("success"):
                 print(f"   🎉 Order successfully placed! Trade ID: {exec_res['trade_id']} | Order ID: #{exec_res.get('order_id')}")
                 
-                # Register into TrailingStopManager
+                # Register into TrailingStopManager with Volatility Buffer
+                is_high_vol = (
+                    posture_data.get("btc_volatility_state") == "EXPANSION"
+                    or "EXPANSION" in posture_data.get("posture", "")
+                    or trade.get("is_high_volatility", False)
+                )
                 self.trailing_stop_manager.register_initial_trade(
                     symbol=trade["symbol"],
                     side=trade["side"],
@@ -390,6 +395,7 @@ class MultiAgentTradingOrchestrator:
                     contracts=trade["contracts"],
                     sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
                     tp_order_id=exec_res.get("take_profit_order_id"),
+                    is_high_volatility=is_high_vol,
                 )
 
                 # Journal execution into persistent memory

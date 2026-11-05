@@ -522,46 +522,78 @@ class TelegramConfirmationBot:
 
         elif cmd in ["/trade", "/findtrade", "/find_trade"]:
             try:
-                self.send_message("🎯 <i>Running institutional scalp scan for A+ setups on BTC, ETH, and XAU...</i>")
-                res = orchestrator.run_trading_cycle()
-                status = res.get("status") if isinstance(res, dict) else None
-                if status == "NO_SETUPS_FOUND":
+                self.send_message("🎯 <i>Running institutional scalp scan on BTC, ETH, and XAU...</i>")
+                res = orchestrator.run_trading_cycle(symbols=["BTCUSD", "ETHUSD", "XAUUSD"])
+                if not isinstance(res, dict):
+                    res = {}
+
+                status = res.get("status", "")
+                code = res.get("code", "")
+                reason = res.get("reason", "")
+                regime = res.get("regime", "NEUTRAL")
+
+                if code == "NO_SETUPS_FOUND" or status == "NO_SETUPS_FOUND":
                     self.send_message(
                         "🛡️ <b>[ON-DEMAND SCALP SCAN RESULT]</b>\n"
                         "━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "• <b>Status:</b> <b>No perfect trade or setup found in the market right now.</b>\n"
-                        "• <b>Reason:</b> No asset currently meets the strict \u2265 75 institutional confluence score and 0.20%-0.40% tight scalp bounds.\n"
-                        "• <b>Discipline Rule:</b> Capital is 100% protected. Zero forced trades.\n"
+                        "• <b>Status:</b> <b>No trade found right now.</b>\n"
+                        f"• <b>Market Regime:</b> <code>{regime}</code>\n"
+                        "• <b>Reason:</b> No asset currently meets the strict 80+ institutional score and tight scalp bounds.\n"
+                        "• <b>Discipline Rule:</b> Capital is 100% protected in cash USD. Zero forced trades.\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━\n"
                         "⚡ <i>The 24/7 background engine will immediately alert you when an A+ setup triggers!</i>"
                     )
-                elif status == "CASH_PRIORITY_HALT":
-                    reason = res.get("reason", "Market participation collapsed.")
+                elif code == "CASH_PRIORITY" or status == "CASH_PRIORITY_HALT":
                     posture_info = res.get("posture", {})
                     self.send_message(
-                        f"🛑 <b>[CASH PRIORITY ENGAGED — ZERO TRADES]</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"• <b>Status:</b> Market Posture has engaged 100% Cash Priority.\n"
+                        "🛑 <b>[CASH DEFENSE ACTIVE — ZERO TRADES]</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "• <b>Status:</b> Market breadth is choppy. 100% Cash Priority.\n"
                         f"• <b>Health Score:</b> <b>{posture_info.get('health_score', 0)}/100</b> | Breadth: <b>{posture_info.get('breadth_pct', 0)}%</b>\n"
-                        f"• <b>Reason:</b> {reason}\n"
-                        f"• <b>Discipline Rule:</b> When market breadth is broken, capital is 100% preserved in cash USD. No trades permitted."
+                        f"• <b>Reason:</b> {reason or 'Participation breadth collapsed.'}\n"
+                        "• <b>Discipline Rule:</b> Capital preserved in cash USD until clean momentum resumes."
                     )
-                elif status == "REJECTED_BY_TIME_MACHINE":
-                    reason = res.get("reason", "No setup met >= 68% historical win-rate edge with positive EV.")
+                elif code == "TIME_MACHINE_VETO" or status == "REJECTED_BY_TIME_MACHINE":
                     self.send_message(
-                        f"⏳ <b>[REJECTED BY TIME MACHINE SIMULATION]</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"• <b>Status:</b> Prospective setup failed historical simulation.\n"
-                        f"• <b>Reason:</b> {reason}\n"
-                        f"• <b>Discipline Rule:</b> Capital is protected from negative-EV setups."
+                        "⏳ <b>[REJECTED BY TIME MACHINE SIMULATION]</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "• <b>Status:</b> Prospective setup failed historical backtesting.\n"
+                        f"• <b>Reason:</b> {reason or 'Win rate below 65% or negative Expected Value.'}\n"
+                        "• <b>Discipline Rule:</b> Capital protected from negative-EV trades."
                     )
-                elif status == "REJECTED_BY_RISK_GATE":
-                    reason = res.get("reason", "Risk limits or margin constraints exceeded.")
+                elif code == "RISK_GATE_REJECTED" or status == "REJECTED_BY_RISK_GATE":
                     self.send_message(
-                        f"🛡️ <b>[SETUP REJECTED BY RISK GATEKEEPER]</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"• <b>Status:</b> Prospective setup filtered by pre-trade discipline.\n"
-                        f"• <b>Reason:</b> {reason}\n"
-                        f"• <b>Rule:</b> Capital protected from excessive exposure."
+                        "🛡️ <b>[FILTERED BY RISK GATEKEEPER]</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "• <b>Status:</b> Setup filtered by risk management rules.\n"
+                        f"• <b>Reason:</b> {reason or 'Risk limit or correlation ceiling reached.'}\n"
+                        "• <b>Rule:</b> Capital protected from excessive exposure."
+                    )
+                elif code == "EMERGENCY_HALT_ACTIVE" or status == "SKIPPED":
+                    self.send_message(
+                        "🛑 <b>[BOT CURRENTLY PAUSED]</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "• <b>Status:</b> Trading is paused via Emergency Controller.\n"
+                        f"• <b>Reason:</b> {reason or 'Manual pause active.'}\n"
+                        "• <i>Send <code>/resume</code> to re-enable automated trading.</i>"
+                    )
+                elif status in ["SUCCESS", "ORDER_EXECUTED"]:
+                    # Already dispatched proposal card or executed
+                    pass
+                elif status == "TIMEOUT" or code == "USER_REJECTED_OR_EXPIRED":
+                    self.send_message(
+                        "⌛ <b>[TRADE PROPOSAL RESOLVED]</b>\n"
+                        "• <b>Result:</b> User declined or proposal timed out. Capital intact."
+                    )
+                else:
+                    # Universal fallback so the bot NEVER stays stuck or silent
+                    self.send_message(
+                        "🛡️ <b>[ON-DEMAND SCALP SCAN RESULT]</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "• <b>Status:</b> <b>No trade found right now.</b>\n"
+                        "• <b>Discipline Rule:</b> Capital is 100% protected in cash USD. Zero forced trades.\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "⚡ <i>The 24/7 engine scans continuously and will alert you the moment an A+ setup triggers!</i>"
                     )
             except Exception as e:
                 self.send_message(f"⚠️ Error running scalp scan: {e}")

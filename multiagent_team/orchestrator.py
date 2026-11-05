@@ -144,13 +144,15 @@ class MultiAgentTradingOrchestrator:
         lines.append("⚡ <i>Send /positions, /scan, or /pause anytime!</i>")
         return "\n".join(lines)
 
-    def run_trading_cycle(self) -> Dict[str, Any]:
+    def run_trading_cycle(self, symbols: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Execute one complete multi-agent cycle through Layers 1 to 5.
         Returns standardized status: SUCCESS, REJECTED, FAILED, TIMEOUT, SKIPPED.
         """
         cycle_start = time.time()
         self.system_monitor.increment_cycle()
+
+        active_symbols = symbols or self.symbols
 
         print("\n" + "=" * 70)
         print("🤖 [DELTA MULTI-AGENT ARCHITECTURE] Executing Trading Decision Cycle")
@@ -200,8 +202,8 @@ class MultiAgentTradingOrchestrator:
         # Layer 1: Market Intelligence (DataValidator + Agent 1 + Agent 2)
         # -----------------------------------------------------------------
         t1 = time.time()
-        print(f"\n🔍 [Layer 1: Regime Analyst] Validating feeds & scanning {len(self.symbols)} symbols...")
-        scan_results = self.regime_analyst.scan_universe(self.symbols, resolution="60")
+        print(f"\n🔍 [Layer 1: Regime Analyst] Validating feeds & scanning {len(active_symbols)} symbols...")
+        scan_results = self.regime_analyst.scan_universe(active_symbols, resolution="60")
         market_regime = scan_results.get("overall_market_regime", "NEUTRAL")
         btc_adx = scan_results.get("btc_adx", 20.0)
         btc_vol = scan_results.get("btc_volatility_state", "NORMAL")

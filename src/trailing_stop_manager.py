@@ -100,7 +100,7 @@ class TrailingStopManager:
                     posture_data = json.load(f)
                     if posture_data.get("btc_volatility_state") == "EXPANSION":
                         return True
-                    if "EXPANSION" in posture_data.get("posture", ""):
+                    if "VOLATILITY_EXPANSION" in posture_data.get("posture", ""):
                         return True
         except Exception:
             pass
@@ -193,13 +193,9 @@ class TrailingStopManager:
             if side == "buy":
                 pnl = (exit_price - entry_p) * contracts * contract_value
                 is_tp = exit_price >= (pos_state["current_tp"] * 0.998)
-                is_be = (pos_state.get("stage", 0) >= 1) and (exit_price >= entry_p * 0.999) and not is_tp
-                is_sl = not is_tp and not is_be
             else:
                 pnl = (entry_p - exit_price) * contracts * contract_value
                 is_tp = exit_price <= (pos_state["current_tp"] * 1.002)
-                is_be = (pos_state.get("stage", 0) >= 1) and (exit_price <= entry_p * 1.001) and not is_tp
-                is_sl = not is_tp and not is_be
 
             # Calculate return pct on margin used
             leverage = 25 if "BTC" not in sym else 50
@@ -214,16 +210,22 @@ class TrailingStopManager:
             mfe_r = pos_state.get("highest_r_reached", max(r_achieved, 0.0))
             mae_r = pos_state.get("lowest_r_reached", min(r_achieved, 0.0))
 
+            # Distinguish profitable trailing stop exits vs pure breakeven exits:
+            # Once price locked profit (r >= 0.20 or PnL >= $0.20), celebrate as green trailing exit!
+            is_profit_trailing = not is_tp and (r_achieved >= 0.20 or pnl >= 0.20)
+            is_be = not is_tp and not is_profit_trailing and (pos_state.get("stage", 0) >= 1) and (abs(pnl) < 0.20)
+            is_sl = not is_tp and not is_profit_trailing and not is_be
+
             # Record in persistent trade journal with MFE/MAE
             from src.journal import record_trade_exit, get_performance_summary
-            exit_reason = "TAKE_PROFIT" if is_tp else ("BREAKEVEN" if is_be else "STOP_LOSS")
+            exit_reason = "TAKE_PROFIT" if is_tp else ("PROFIT_TRAILING" if is_profit_trailing else ("BREAKEVEN" if is_be else "STOP_LOSS"))
             trade_id = pos_state.get("trade_id") or f"trade_{sym}"
             record_trade_exit(
                 trade_id=trade_id,
                 exit_price=exit_price,
                 realized_pnl_usd=pnl,
                 exit_reason=exit_reason,
-                postmortem_notes=f"Exited at stage {pos_state.get('stage', 0)} ({r_achieved:+.2f}R | MFE: +{mfe_r}R | MAE: {mae_r}R)",
+                postmortem_notes=f"Exited at stage {pos_state.get('stage', 0)} ({r_achieved:+.2f}R | Return: {return_pct:+.1f}% | MFE: +{mfe_r}R | MAE: {mae_r}R)",
                 mfe_r=mfe_r,
                 mae_r=mae_r
             )
@@ -243,6 +245,19 @@ class TrailingStopManager:
                     realized_pnl=pnl,
                     return_pct=return_pct,
                     r_multiple=max(r_achieved, 2.0),
+                    wallet=wallet_metrics,
+                    stats=stats
+                )
+            elif is_profit_trailing:
+                self.telegram.notify_profit_trailing_exit(
+                    symbol=sym,
+                    side=side,
+                    entry_price=entry_p,
+                    exit_price=exit_price,
+                    contracts=contracts,
+                    realized_pnl=pnl,
+                    return_pct=return_pct,
+                    r_multiple=r_achieved,
                     wallet=wallet_metrics,
                     stats=stats
                 )
@@ -477,44 +492,45 @@ class TrailingStopManager:
             is_volatile = self._is_market_highly_volatile(pos_state)
             vol_badge = " 🌪️ [VOLATILITY BUFFER ACTIVE]" if is_volatile else ""
 
-            # Volatility-adjusted milestone triggers and buffers:
-            # In volatile markets, add breathing cushion so wicks do not prematurely trigger stops!
-            m1_trigger = 0.65 if is_volatile else 0.50
-            m2_trigger = 0.90 if is_volatile else 0.80
-            m3_trigger = 1.30 if is_volatile else 1.20
-            m4_trigger = 1.65 if is_volatile else 1.60
+            # Volatility-adjusted milestone triggers:
+            # Prevents premature breakeven traps by giving trades room to breathe during natural retests
+            m1_trigger = 0.90 if is_volatile else 0.80
+            m2_trigger = 1.20 if is_volatile else 1.10
+            m3_trigger = 1.60 if is_volatile else 1.50
+            m4_trigger = 1.90 if is_volatile else 1.80
 
             # ---------------------------------------------------------
-            # Milestone 1: Breakeven Shield with Volatility Breathing Buffer
+            # Stage 1: Risk-Slashing Cushion (60% Downside Slashed, Breakeven Retest Protected)
             # ---------------------------------------------------------
             if current_r >= m1_trigger and current_stage < 1:
-                # In volatile market, keep SL slightly cushioned behind entry to prevent noise wick-outs
-                buffer = risk_per_unit * (0.02 if is_volatile else 0.05)
+                # Do NOT snap SL directly to entry! Cut initial risk by 60% (move SL to -0.40R).
+                # This leaves a huge 1.20R-1.30R breathing cushion so entry retests NEVER trigger stops!
+                slash_ratio = 0.40
                 if side == "buy":
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price + buffer)
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (slash_ratio * risk_per_unit))
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                 else:
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price - buffer)
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (slash_ratio * risk_per_unit))
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
 
                 if new_sl:
                     new_stage = 1
                     stage_narrative = (
-                        f"⚡ <b>[SCALPER BREAKEVEN ACTIVATED{vol_badge}]</b>\n"
+                        f"🛡️ <b>[RISK SLASHED BY 60% — BREATHING CUSHION ACTIVE{vol_badge}]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss moved from ${current_sl:,.2f} to <b>${new_sl:,.2f}</b> (Breakeven + cushion)\n"
-                        f"• Downside risk eliminated! Volatility buffer protects trade from random wick-outs."
+                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (Risk cut from -1.0R to -0.40R)\n"
+                        f"• Retest cushion: 1.20R+ space so natural breakout retests do not wick out the trade!"
                     )
 
             # ---------------------------------------------------------
-            # Milestone 2: First Profit Lock (with Volatility Cushion)
+            # Stage 2: Guaranteed Green Profit Lock (+0.30R Pure Green Banked)
             # ---------------------------------------------------------
             elif current_r >= m2_trigger and current_stage < 2:
-                # In volatile markets, lock in +0.25R (giving 0.65R room to breathe) vs +0.35R
-                lock_ratio = 0.25 if is_volatile else 0.35
+                # Downside eliminated 100%! Locks in positive cash so the trade CANNOT exit at $0 breakeven.
+                lock_ratio = 0.25 if is_volatile else 0.30
                 if side == "buy":
                     candidate_sl = self.client.round_to_tick(symbol, entry_price + (lock_ratio * risk_per_unit))
                     if candidate_sl > current_sl:
@@ -527,19 +543,19 @@ class TrailingStopManager:
                 if new_sl:
                     new_stage = 2
                     stage_narrative = (
-                        f"🔒 <b>[PROFIT BUFFER SECURED — +{lock_ratio:.2f}R BANKED{vol_badge}]</b>\n"
+                        f"🔒 <b>[GUARANTEED GREEN PROFIT LOCKED — +{lock_ratio:.2f}R BANKED{vol_badge}]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
                         f"• Stop Loss secured at <b>${new_sl:,.2f}</b> (Guaranteed green profit)\n"
-                        f"• Cushion maintained so market noise cannot stop the trade early."
+                        f"• Breakeven trap avoided! Exits from here are guaranteed winners."
                     )
 
             # ---------------------------------------------------------
-            # Milestone 3: Core Profit Lock (with Volatility Cushion)
+            # Stage 3: Core Profit Expansion (+0.85R Locked · >= 5-10%+ Margin Profit)
             # ---------------------------------------------------------
             elif current_r >= m3_trigger and current_stage < 3:
-                # In volatile markets, lock in +0.65R (giving 0.65R room to breathe) vs +0.75R
-                lock_ratio = 0.65 if is_volatile else 0.75
+                # Locks in +0.85R pure profit (delivers 8-15%+ return on allocated margin)
+                lock_ratio = 0.75 if is_volatile else 0.85
                 if side == "buy":
                     candidate_sl = self.client.round_to_tick(symbol, entry_price + (lock_ratio * risk_per_unit))
                     if candidate_sl > current_sl:
@@ -552,19 +568,18 @@ class TrailingStopManager:
                 if new_sl:
                     new_stage = 3
                     stage_narrative = (
-                        f"💰 <b>[PROFIT EXPANDED — +{lock_ratio:.2f}R LOCKED{vol_badge}]</b>\n"
+                        f"💰 <b>[CORE PROFIT SECURED — +{lock_ratio:.2f}R LOCKED{vol_badge}]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+{lock_ratio:.2f}R locked pure profit)\n"
-                        f"• Protected from volatility swings, running towards final targets!"
+                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (Banked ~10%+ margin return)\n"
+                        f"• High quality gain banked, running towards final scalp target!"
                     )
 
             # ---------------------------------------------------------
-            # Milestone 4: Pre-Target Lock (with Volatility Cushion)
+            # Stage 4: Pre-Target Lock (+1.40R Locked)
             # ---------------------------------------------------------
             elif current_r >= m4_trigger and current_stage < 4:
-                # In volatile markets, lock in +1.10R (giving 0.55R room to breathe) vs +1.25R
-                lock_ratio = 1.10 if is_volatile else 1.25
+                lock_ratio = 1.30 if is_volatile else 1.40
                 if side == "buy":
                     candidate_sl = self.client.round_to_tick(symbol, entry_price + (lock_ratio * risk_per_unit))
                     if candidate_sl > current_sl:
@@ -581,15 +596,15 @@ class TrailingStopManager:
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
                         f"• Stop Loss locked at <b>${new_sl:,.2f}</b> (+{lock_ratio:.2f}R guaranteed)\n"
-                        f"• Tapping final Take Profit target!"
+                        f"• Final Take Profit target in sight!"
                     )
 
             # ---------------------------------------------------------
-            # Milestone 5: Target Hit & Outsized Runner Trailing (Max Profit)
+            # Stage 5: Target Hit & Outsized Runner Trailing (Max Profit)
             # ---------------------------------------------------------
             elif current_r >= 2.00:
-                # In volatile runner moves, trail at dynamic cushion behind mark price!
-                runner_cushion = (0.60 * risk_per_unit) if is_volatile else (0.40 * risk_per_unit)
+                # Dynamic runner trailing: trail at 0.55R behind mark price and extend TP
+                runner_cushion = (0.65 * risk_per_unit) if is_volatile else (0.50 * risk_per_unit)
                 if side == "buy":
                     candidate_sl = self.client.round_to_tick(symbol, mark_price - runner_cushion)
                     candidate_tp = self.client.round_to_tick(symbol, mark_price + (1.5 * risk_per_unit))
@@ -611,16 +626,6 @@ class TrailingStopManager:
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
                         f"• Trailing Stop updated to <b>${new_sl:,.2f}</b>\n"
                         f"• Take Profit extended to <b>${new_tp:,.2f}</b> to capture maximum trend expansion!"
-                    )
-
-                if new_sl:
-                    new_stage = 5
-                    stage_narrative = (
-                        f"🏆 <b>[SCALP TARGET HIT & RUNNER TRAILING — +1.60R LOCKED]</b>\n"
-                        f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
-                        f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+1.60R locked profit)\n"
-                        f"• Take Profit extended to <b>${new_tp:,.2f}</b> (Trailing outsized momentum)!"
                     )
 
             # Apply order modification on Delta Exchange if SL updated

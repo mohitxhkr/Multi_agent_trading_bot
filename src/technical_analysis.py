@@ -909,7 +909,7 @@ def analyze_multi_timeframe(
                     calc_entry = current_price
                     sl_dist = max(min_sl_dist, min(0.95 * atr_15m, max_sl_dist))
                     invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry + (2.0 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry + (2.25 * sl_dist), calc_entry)
 
                     setup_qualified = True
                     setup_side = "buy"
@@ -918,7 +918,7 @@ def analyze_multi_timeframe(
                     thesis = (
                         f"⚡ High-Volume Momentum Impulse Scalp Long (Score {setup_score}/100 · {session_label}): "
                         f"Volume surge {max_vol_ratio:.2f}x avg with bullish candle expansion. "
-                        f"Above EMA21 (${ema21_15m:.2f}) & VWAP. Fast pro scalp targeting 2.0R ({sl_dist / calc_entry * 100:.2f}% tight SL)."
+                        f"Above EMA21 (${ema21_15m:.2f}) & VWAP. Fast pro scalp targeting 2.25R ({sl_dist / calc_entry * 100:.2f}% tight SL)."
                     )
 
         # Bearish Momentum Impulse Scalp
@@ -959,7 +959,7 @@ def analyze_multi_timeframe(
                     calc_entry = current_price
                     sl_dist = max(min_sl_dist, min(0.95 * atr_15m, max_sl_dist))
                     invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry - (2.0 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry - (2.25 * sl_dist), calc_entry)
 
                     setup_qualified = True
                     setup_side = "sell"
@@ -968,7 +968,7 @@ def analyze_multi_timeframe(
                     thesis = (
                         f"⚡ High-Volume Momentum Impulse Scalp Short (Score {setup_score}/100 · {session_label}): "
                         f"Volume surge {max_vol_ratio:.2f}x avg with bearish candle expansion. "
-                        f"Below EMA21 (${ema21_15m:.2f}) & VWAP. Fast pro scalp targeting 2.0R ({sl_dist / calc_entry * 100:.2f}% tight SL)."
+                        f"Below EMA21 (${ema21_15m:.2f}) & VWAP. Fast pro scalp targeting 2.25R ({sl_dist / calc_entry * 100:.2f}% tight SL)."
                     )
 
     # Priority A: Intraday Liquidity Sweep Scalp (15m / 1H)
@@ -1093,14 +1093,14 @@ def analyze_multi_timeframe(
                 setup_score = pb_score
                 sl_dist = max(min_sl_dist, min(1.1 * atr_15m, max_sl_dist))
                 invalidation_sl = round_price(current_price - sl_dist, current_price)
-                target_tp = round_price(current_price + (2.0 * sl_dist), current_price)
+                target_tp = round_price(current_price + (2.25 * sl_dist), current_price)
                 
                 setup_qualified = True
                 setup_side = "buy"
                 strategy_label = "Intraday_EMA_Pullback_Scalp_Long"
                 thesis = (
                     f"Intraday 15m EMA Trend Bounce (Score {setup_score}/100): 1H {regime_1h}, holding 15m EMA21 support (${ema21_15m:.2f}). "
-                    f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.0:1."
+                    f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.25:1."
                 )
 
         # Bearish Pullback: 1H & 4H Bearish, 15m capped by EMA dynamic resistance
@@ -1121,14 +1121,14 @@ def analyze_multi_timeframe(
                 setup_score = pb_score
                 sl_dist = max(min_sl_dist, min(1.1 * atr_15m, max_sl_dist))
                 invalidation_sl = round_price(current_price + sl_dist, current_price)
-                target_tp = round_price(current_price - (2.0 * sl_dist), current_price)
+                target_tp = round_price(current_price - (2.25 * sl_dist), current_price)
 
                 setup_qualified = True
                 setup_side = "sell"
                 strategy_label = "Intraday_EMA_Pullback_Scalp_Short"
                 thesis = (
                     f"Intraday 15m EMA Trend Rejection (Score {setup_score}/100): 1H {regime_1h}, capped under 15m EMA21 (${ema21_15m:.2f}). "
-                    f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.0:1."
+                    f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned R:R: 2.25:1."
                 )
 
     # Priority C: Institutional Bearish Breakdown Short (Trend continuation during sell-offs / market dumps)

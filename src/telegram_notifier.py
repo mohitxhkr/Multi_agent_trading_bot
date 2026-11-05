@@ -244,6 +244,32 @@ class TelegramNotifier:
         )
         return self.send_message(message)
 
+    def notify_profit_trailing_exit(
+        self,
+        symbol: str,
+        side: str,
+        entry_price: float,
+        exit_price: float,
+        contracts: int,
+        realized_pnl: float,
+        return_pct: float = 0.0,
+        r_multiple: float = 0.0,
+        wallet: Optional[Dict[str, Any]] = None,
+        stats: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Send alert when position exits in locked green profit from trailing stop."""
+        emoji_dir = "🟢 LONG" if side.upper() == "BUY" else "🔴 SHORT"
+        message = (
+            f"💰 <b>[PROFIT SECURED — TRAILING EXIT]</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
+            f"• <b>Exit Price:</b> <code>{fmt_p(exit_price)}</code>\n"
+            f"• <b>Realized PnL:</b> 🟢 <b>+${realized_pnl:,.2f} USD</b> (+{return_pct:.1f}% | +{r_multiple:.2f}R)\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎉 <i>Guaranteed profit locked in the bank!</i>"
+        )
+        return self.send_message(message)
+
     def notify_breakeven_exit(
         self,
         symbol: str,

@@ -183,17 +183,17 @@ class RiskGatekeeperAgent:
 
         # Tier 1: A+ Prime Conviction Setup (Score >= 90 & (TM Win Rate >= 70% or TM EV >= 0.40R or Reinforced))
         if score >= 90 and (tm_win_rate >= 70.0 or tm_ev >= 0.40 or is_reinforced):
-            conviction_multiplier = 1.75 if is_primary else 1.40  # +75% quantity boost for Primary A+ setups
+            conviction_multiplier = 2.0 if is_primary else 1.50  # Up to 2.0x contract boost for Primary A+ setups
             conviction_tier = "A+_PRIME_CONVICTION"
             conviction_reasons.append(f"A+ Setup (Score: {score}/100, TM EV: +{tm_ev}R, Win Rate: {tm_win_rate}%)")
         # Tier 2: High Conviction Setup (Score >= 85 or (Score >= 80 and TM EV >= 0.35R))
         elif score >= 85 or (score >= 80 and tm_ev >= 0.35):
-            conviction_multiplier = 1.40 if is_primary else 1.25  # +40% quantity boost
+            conviction_multiplier = 1.60 if is_primary else 1.30  # +60% contract boost
             conviction_tier = "HIGH_CONVICTION"
             conviction_reasons.append(f"High Quality Setup (Score: {score}/100, TM EV: +{tm_ev}R)")
         # Tier 3: Empirically Reinforced Historical Pattern
         elif is_reinforced:
-            conviction_multiplier = 1.30 if is_primary else 1.15  # +30% quantity boost
+            conviction_multiplier = 1.35 if is_primary else 1.20  # +35% contract boost
             conviction_tier = "REINFORCED_EDGE"
             conviction_reasons.append("Empirically Reinforced Historical Pattern")
 
@@ -201,7 +201,11 @@ class RiskGatekeeperAgent:
         max_dollar_risk_cap = base_dollar_risk_cap * dd_risk_scalar * conviction_multiplier
 
         target_risk_pct = (0.02 if is_primary else 0.015) * dd_risk_scalar * conviction_multiplier
-        calculated_dollar_risk = min(max(total_usdt * target_risk_pct, 1.50 * conviction_multiplier), max_dollar_risk_cap)
+        # When trade setup is good/high conviction, scale up contract risk to the max budget for maximum profit
+        if conviction_multiplier >= 1.5:
+            calculated_dollar_risk = max_dollar_risk_cap
+        else:
+            calculated_dollar_risk = min(max(total_usdt * target_risk_pct, 1.50 * conviction_multiplier), max_dollar_risk_cap)
 
         # Include estimated round-trip taker fees (0.10%) + slippage (0.06%) into risk unit
         friction_per_contract = per_contract_notional * 0.0016
@@ -222,8 +226,8 @@ class RiskGatekeeperAgent:
                 leverage = safe_leverage
 
         # Margin guardrails: expand margin ceiling for high conviction setups to allow the larger position
-        max_margin_pct = (0.35 if is_primary else 0.15) if conviction_multiplier > 1.2 else (0.25 if is_primary else 0.10)
-        max_allowed_margin = min(usable_capital * max_margin_pct, (50.0 if is_primary else 15.0) * conviction_multiplier)
+        max_margin_pct = (0.45 if is_primary else 0.25) if conviction_multiplier >= 1.4 else (0.25 if is_primary else 0.10)
+        max_allowed_margin = min(usable_capital * max_margin_pct, (100.0 if is_primary else 35.0) * conviction_multiplier)
         
         req_margin = (contracts * per_contract_notional) / leverage
         if req_margin > max_allowed_margin:

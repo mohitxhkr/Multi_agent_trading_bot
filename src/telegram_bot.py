@@ -687,6 +687,7 @@ class TelegramConfirmationBot:
 
         elif cmd in ["/scorecard", "/learning", "/performance", "/audit"]:
             try:
+                import json, os
                 from multiagent_team.adaptive_learning import AdaptiveLearningEngine
                 learner = AdaptiveLearningEngine()
                 sc = learner.memory.get("scorecard", {})
@@ -699,33 +700,95 @@ class TelegramConfirmationBot:
                 be = sc.get('breakeven_trades', 0)
                 total = sc.get('total_completed_trades', 0)
                 avg_score = sc.get('average_trade_score', 0.0)
+                latest_trade = sc.get('latest_trade')
+
+                # Check for live active open positions to show real-time dynamic risk and reward
+                active_trades = []
+                try:
+                    state_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "state", "trailing_stop_state.json")
+                    if os.path.exists(state_file):
+                        with open(state_file, "r", encoding="utf-8") as f:
+                            active_data = json.load(f)
+                        for asym, apos in active_data.items():
+                            cval = 0.001 if "BTC" in asym else (0.01 if "ETH" in asym else 1.0)
+                            acontracts = apos.get("contracts", 1)
+                            aent = apos.get("entry_price", 0.0)
+                            asl = apos.get("current_sl") or apos.get("initial_sl") or aent
+                            atp = apos.get("current_tp") or apos.get("initial_tp") or 0.0
+                            arisk = abs(aent - asl) * acontracts * cval
+                            areward = abs(atp - aent) * acontracts * cval if atp > 0 else (arisk * 2.0)
+                            arr = (areward / arisk) if arisk > 0 else 2.0
+                            active_trades.append({
+                                "symbol": asym,
+                                "side": apos.get("side", "BUY").upper(),
+                                "risk_usd": arisk,
+                                "reward_usd": areward,
+                                "rr": arr,
+                                "stage": apos.get("stage", 0)
+                            })
+                except Exception:
+                    pass
 
                 lines = [
-                    "📊 <b>[TRADING PERFORMANCE SCORECARD]</b>",
-                    "━━━━━━━━━━━━━━━━━━━━━━",
-                    "💵 <b>Total Risk Per Trade:</b> <b>$2.00 – $4.00 USD</b> <i>(Strictly capped)</i>",
-                    "💰 <b>Total Reward Target:</b> <b>$4.00 – $6.00 USD</b> <i>(1:2 to 1:3 R:R)</i>",
-                    f"📈 <b>Net Realized Profit:</b> <b>{'+' if pnl >= 0 else ''}${pnl:,.2f} USD</b> {'🟢' if pnl >= 0 else '🔴'}",
-                    "━━━━━━━━━━━━━━━━━━━━━━",
-                    f"🎯 <b>Win Rate:</b> <b>{win_rate:.1f}%</b> ({wins} Wins / {losses} Losses / {be} Breakeven)",
-                    f"🔢 <b>Total Completed Trades:</b> <b>{total}</b>",
-                    f"⭐ <b>Trade Quality Score:</b> <b>{avg_score:.0f}/100</b>",
+                    "📊 <b>[DYNAMIC PERFORMANCE SCORECARD]</b>",
                     "━━━━━━━━━━━━━━━━━━━━━━"
                 ]
 
-                # Show clear, plain-English summary of best setups
+                # 1. If an active trade is open, display its exact dynamic risk & reward trade-by-trade
+                if active_trades:
+                    lines.append("🟢 <b>LIVE ACTIVE TRADE RISK &amp; REWARD:</b>")
+                    for at in active_trades[:2]:
+                        stage_txt = " (🛡️ BE Shield Active)" if at['stage'] >= 1 else ""
+                        lines.append(f"• <b>{at['symbol']} {at['side']}</b>{stage_txt}")
+                        lines.append(f"  ↳ 💵 <b>Total Risk:</b> <b>${at['risk_usd']:,.2f} USD</b> <i>(Dynamic Invalidation)</i>")
+                        lines.append(f"  ↳ 💰 <b>Total Reward:</b> <b>${at['reward_usd']:,.2f} USD</b> <i>(Dynamic Target {at['rr']:.1f}:1)</i>")
+                    lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+
+                # 2. If recent closed trade exists, display its dynamic trade outcome
+                elif latest_trade:
+                    l_sym = latest_trade.get("symbol", "TRADE")
+                    l_side = latest_trade.get("side", "BUY")
+                    l_risk = latest_trade.get("risk_usd", 2.0)
+                    l_pnl = latest_trade.get("realized_pnl", 0.0)
+                    l_outcome = latest_trade.get("outcome", "CLOSED")
+                    pnl_tag = f"+${l_pnl:,.2f} USD" if l_pnl >= 0 else f"-${abs(l_pnl):,.2f} USD"
+                    lines.append(f"🏁 <b>LATEST COMPLETED TRADE ({l_sym} {l_side}):</b>")
+                    lines.append(f"• 💵 <b>Total Risk Taken:</b> <b>${l_risk:,.2f} USD</b> <i>(Dynamic Sized)</i>")
+                    lines.append(f"• 💰 <b>Total Reward Won:</b> <b>{pnl_tag}</b> (<b>{l_outcome}</b>)")
+                    lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+
+                else:
+                    lines.append("💵 <b>Total Risk Per Trade:</b> <i>Calculated dynamically trade-by-trade ($2.00–$4.00 base, scaled up on A+ setups)</i>")
+                    lines.append("💰 <b>Total Reward Target:</b> <i>Calculated dynamically trade-by-trade (Targeted 1:2 to 1:3 R:R)</i>")
+                    lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+
+                # 3. Overall Portfolio Performance
+                lines.append(f"📈 <b>Net Realized Profit:</b> <b>{'+' if pnl >= 0 else ''}${pnl:,.2f} USD</b> {'🟢' if pnl >= 0 else '🔴'}")
+                lines.append(f"🎯 <b>Win Rate:</b> <b>{win_rate:.1f}%</b> ({wins} Wins / {losses} Losses / {be} BE)")
+
+                avg_risk = sc.get("avg_risk_per_trade_usd")
+                avg_reward = sc.get("avg_reward_per_win_usd")
+                if avg_risk and avg_risk > 0:
+                    lines.append(f"📊 <b>Dynamic Avg Risk / Trade:</b> <b>${avg_risk:,.2f} USD</b>")
+                if avg_reward and avg_reward > 0:
+                    lines.append(f"💎 <b>Dynamic Avg Reward / Win:</b> <b>${avg_reward:,.2f} USD</b>")
+
+                lines.append(f"🔢 <b>Total Completed Trades:</b> <b>{total}</b>")
+                lines.append(f"⭐ <b>Trade Quality Score:</b> <b>{avg_score:.0f}/100</b>")
+                lines.append("━━━━━━━━━━━━━━━━━━━━━━")
+
+                # Show clean, plain-English summary of best setups
                 reinforced = [p for p in patterns.values() if p.get("status") == "REINFORCED"]
                 if reinforced:
                     lines.append("🌟 <b>Top Performing Setup:</b>")
                     for pdata in reinforced[:2]:
                         pname = pdata.get("description") or pdata.get("pattern_key", "15m Liquidity Sweeps")
-                        # Format name cleanly if raw key
                         pname = pname.replace("_", " ").title()
                         lines.append(f"  • {pname}: <b>{pdata.get('win_rate_pct', 0)}% Win Rate</b> (🟢 High Edge)")
                     lines.append("━━━━━━━━━━━━━━━━━━━━━━")
 
-                lines.append("🛡️ <b>Capital Safety:</b> <b>100% Protected</b> (Zero liquidation risk)")
-                lines.append("⚡ <i>Bot scans continuously and only proposes A+ setups with verified math edge.</i>")
+                lines.append("🛡️ <b>Capital Safety:</b> <b>100% Protected</b> (Zero liquidation risk, max $8.00 open risk ceiling)")
+                lines.append("⚡ <i>Bot scans continuously and scales trade size dynamically to maximize profit on prime setups.</i>")
                 self.send_message("\n".join(lines))
             except Exception as e:
                 self.send_message(f"⚠️ Error fetching scorecard: {e}")

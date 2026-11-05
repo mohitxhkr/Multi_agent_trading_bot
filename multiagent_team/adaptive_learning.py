@@ -323,17 +323,47 @@ class AdaptiveLearningEngine:
 
         self.memory["patterns"][pattern_key] = pat_data
 
-        # 4. Update Global Scorecard
+        # 4. Calculate Dynamic Risk and Reward For This Specific Trade
+        cval = 0.001 if "BTC" in symbol.upper() else (0.01 if "ETH" in symbol.upper() else 1.0)
+        contracts = spec.get("contracts", 1)
+        entry_val = spec.get("entry_price") or entry_price
+        sl_val = spec.get("initial_sl") or spec.get("current_sl") or (entry_val * 0.99)
+        tp_val = spec.get("initial_tp") or spec.get("current_tp") or 0.0
+
+        trade_risk = spec.get("dollar_risk_usd") or spec.get("risk_usd")
+        if not trade_risk or trade_risk <= 0:
+            trade_risk = abs(entry_val - sl_val) * contracts * cval
+        if not trade_risk or trade_risk <= 0:
+            trade_risk = 2.0  # safe baseline fallback
+
+        if is_win:
+            trade_reward = realized_pnl
+        elif tp_val > 0:
+            trade_reward = abs(tp_val - entry_val) * contracts * cval
+        else:
+            trade_reward = trade_risk * 2.0
+
+        trade_risk = round(trade_risk, 2)
+        trade_reward = round(trade_reward, 2)
+
+        # 5. Update Global Dynamic Scorecard
         sc = self.memory["scorecard"]
         sc["total_completed_trades"] += 1
         if is_win:
             sc["winning_trades"] += 1
+            sc["total_reward_won_usd"] = round(sc.get("total_reward_won_usd", 0.0) + realized_pnl, 2)
         elif is_be:
             sc["breakeven_trades"] += 1
         else:
             sc["losing_trades"] += 1
+            sc["total_loss_realized_usd"] = round(sc.get("total_loss_realized_usd", 0.0) + abs(realized_pnl), 2)
 
-        sc["cumulative_pnl_usd"] = round(sc["cumulative_pnl_usd"] + realized_pnl, 2)
+        sc["total_risk_allocated_usd"] = round(sc.get("total_risk_allocated_usd", 0.0) + trade_risk, 2)
+        sc["avg_risk_per_trade_usd"] = round(sc["total_risk_allocated_usd"] / sc["total_completed_trades"], 2)
+        if sc.get("winning_trades", 0) > 0:
+            sc["avg_reward_per_win_usd"] = round(sc.get("total_reward_won_usd", 0.0) / sc["winning_trades"], 2)
+
+        sc["cumulative_pnl_usd"] = round(sc.get("cumulative_pnl_usd", 0.0) + realized_pnl, 2)
         total_res = sc["winning_trades"] + sc["losing_trades"]
         sc["win_rate_pct"] = round((sc["winning_trades"] / total_res * 100.0), 1) if total_res > 0 else 0.0
         
@@ -342,10 +372,24 @@ class AdaptiveLearningEngine:
         n = sc["total_completed_trades"]
         sc["average_trade_score"] = round(((current_avg * (n - 1)) + scoring["total_score"]) / n, 1)
 
+        # Record latest trade dynamically
+        sc["latest_trade"] = {
+            "symbol": symbol,
+            "side": side.upper(),
+            "risk_usd": trade_risk,
+            "reward_usd": trade_reward,
+            "realized_pnl": round(realized_pnl, 2),
+            "r_multiple": round(r_multiple, 2),
+            "outcome": "WIN" if is_win else ("BREAKEVEN" if is_be else "LOSS"),
+            "exit_reason": exit_reason
+        }
+
         reflection_summary = {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
             "symbol": symbol,
             "side": side.upper(),
+            "risk_usd": trade_risk,
+            "reward_usd": trade_reward,
             "realized_pnl": realized_pnl,
             "r_multiple": r_multiple,
             "exit_reason": exit_reason,
@@ -443,22 +487,22 @@ class AdaptiveLearningEngine:
 
         status_emoji = "🟢 REINFORCED (Repeat Pattern)" if pat["status"] == "REINFORCED" else ("🔴 BLACKLISTED (Avoid Pattern)" if pat["status"] == "VETOED_BLACKLISTED" else "🟡 EVALUATING")
 
-        initial_risk = refl.get("initial_risk_usd", 2.0)
+        trade_risk = refl.get("risk_usd", 2.0)
         lines = [
             "🧠 <b>[TRADE OUTCOME & LEARNING REFLECTION]</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",
             f"• <b>Asset:</b> <code>{sym}</code> ({emoji_dir})",
             f"• <b>Result:</b> <b>{outcome_tag}</b>",
-            f"• <b>Total Risk Taken:</b> <b>${initial_risk:.2f} USD</b>",
-            f"• <b>Total Realized Profit/Loss:</b> <b>{pnl_str}</b>",
+            f"💵 <b>Dynamic Total Risk:</b> <b>${trade_risk:.2f} USD</b>",
+            f"💰 <b>Dynamic Profit / Loss:</b> <b>{pnl_str}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",
             f"⭐ <b>Trade Quality Grade:</b> <b>{scoring['grade']} ({scoring['total_score']}/100)</b>",
             f"💡 <b>Key Lesson:</b> <i>{diag['actionable_lesson']}</i>",
             "━━━━━━━━━━━━━━━━━━━━━━",
             f"🎯 <b>Bot Win Rate:</b> <b>{sc['win_rate_pct']}%</b> ({sc['winning_trades']}W / {sc['losing_trades']}L)",
-            f"💰 <b>Total Profit to Date:</b> <b>{'+' if sc['cumulative_pnl_usd'] >= 0 else ''}${sc['cumulative_pnl_usd']:.2f} USD</b>",
+            f"📈 <b>Cumulative PnL:</b> <b>{'+' if sc['cumulative_pnl_usd'] >= 0 else ''}${sc['cumulative_pnl_usd']:.2f} USD</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",
-            "⚡ <i>Algorithm automatically applies this lesson to the next trade.</i>"
+            "⚡ <i>Algorithm automatically adapts and applies this lesson to the next trade.</i>"
         ]
 
         return "\n".join(lines)

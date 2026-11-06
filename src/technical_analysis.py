@@ -490,6 +490,131 @@ def analyze_liquidity_pools_and_sweeps(
     }
 
 
+def analyze_candlestick_and_chart_patterns(
+    opens: List[float],
+    highs: List[float],
+    lows: List[float],
+    closes: List[float],
+    lookback: int = 30
+) -> Dict[str, Any]:
+    """
+    Exhaustive Candlestick Pattern, Chart Pattern, and Trendline Analysis:
+    - Candlestick Patterns: Bullish/Bearish Engulfing, Hammer/Pinbar, Shooting Star, Doji
+    - Chart Patterns: Double Top (M-Shape/Equal Highs), Double Bottom (W-Shape/Equal Lows)
+    - Trendline: Linear regression slope & trendline dynamic angle
+    """
+    n = len(closes)
+    if n < 5:
+        return {
+            "candlestick_pattern": "NONE",
+            "candlestick_bias": "NEUTRAL",
+            "chart_pattern": "NONE",
+            "chart_pattern_bias": "NEUTRAL",
+            "trendline_direction": "FLAT",
+            "trendline_slope_pct": 0.0,
+            "patterns_detected": []
+        }
+
+    detected_patterns = []
+
+    # 1. Candlestick Pattern Detection (Last 1-2 bars)
+    o1, h1, l1, c1 = opens[-2], highs[-2], lows[-2], closes[-2]
+    o0, h0, l0, c0 = opens[-1], highs[-1], lows[-1], closes[-1]
+
+    rng0 = max(h0 - l0, 1e-6)
+    body0 = abs(c0 - o0)
+    rng1 = max(h1 - l1, 1e-6)
+    body1 = abs(c1 - o1)
+
+    candlestick_pattern = "NONE"
+    candlestick_bias = "NEUTRAL"
+
+    # Bullish Pinbar / Hammer
+    lower_wick0 = min(o0, c0) - l0
+    upper_wick0 = h0 - max(o0, c0)
+    if (lower_wick0 / rng0) >= 0.55 and (body0 / rng0) <= 0.35:
+        candlestick_pattern = "BULLISH_HAMMER_PINBAR"
+        candlestick_bias = "BULLISH"
+        detected_patterns.append("Bullish Hammer Pinbar")
+    # Bearish Pinbar / Shooting Star
+    elif (upper_wick0 / rng0) >= 0.55 and (body0 / rng0) <= 0.35:
+        candlestick_pattern = "BEARISH_SHOOTING_STAR_PINBAR"
+        candlestick_bias = "BEARISH"
+        detected_patterns.append("Bearish Shooting Star Pinbar")
+    # Bullish Engulfing
+    elif c1 < o1 and c0 > o0 and c0 >= o1 and o0 <= c1 and body0 > body1:
+        candlestick_pattern = "BULLISH_ENGULFING"
+        candlestick_bias = "BULLISH"
+        detected_patterns.append("Bullish Engulfing")
+    # Bearish Engulfing
+    elif c1 > o1 and c0 < o0 and c0 <= o1 and o0 >= c1 and body0 > body1:
+        candlestick_pattern = "BEARISH_ENGULFING"
+        candlestick_bias = "BEARISH"
+        detected_patterns.append("Bearish Engulfing")
+    # Doji / Indecision
+    elif (body0 / rng0) <= 0.10:
+        candlestick_pattern = "DOJI_INDECISION"
+        candlestick_bias = "NEUTRAL"
+        detected_patterns.append("Doji Indecision")
+
+    # 2. Chart Pattern Detection (Double Top / Double Bottom across lookback)
+    chart_pattern = "NONE"
+    chart_pattern_bias = "NEUTRAL"
+
+    pivots_h = []
+    pivots_l = []
+    start_bar = max(0, n - lookback)
+    for i in range(start_bar + 2, n - 2):
+        if highs[i] > highs[i - 1] and highs[i] > highs[i - 2] and highs[i] > highs[i + 1] and highs[i] > highs[i + 2]:
+            pivots_h.append((i, highs[i]))
+        if lows[i] < lows[i - 1] and lows[i] < lows[i - 2] and lows[i] < lows[i + 1] and lows[i] < lows[i + 2]:
+            pivots_l.append((i, lows[i]))
+
+    if len(pivots_h) >= 2:
+        last_h1, last_h2 = pivots_h[-2][1], pivots_h[-1][1]
+        diff_pct = abs(last_h1 - last_h2) / last_h1 * 100.0
+        if diff_pct <= 0.30:  # Within 0.30% tolerance
+            chart_pattern = "DOUBLE_TOP_M_PATTERN"
+            chart_pattern_bias = "BEARISH"
+            detected_patterns.append(f"Double Top (M-Pattern @ ${last_h2:,.2f})")
+
+    if len(pivots_l) >= 2 and chart_pattern == "NONE":
+        last_l1, last_l2 = pivots_l[-2][1], pivots_l[-1][1]
+        diff_pct = abs(last_l1 - last_l2) / last_l1 * 100.0
+        if diff_pct <= 0.30:
+            chart_pattern = "DOUBLE_BOTTOM_W_PATTERN"
+            chart_pattern_bias = "BULLISH"
+            detected_patterns.append(f"Double Bottom (W-Pattern @ ${last_l2:,.2f})")
+
+    # 3. Dynamic Trendline Slope (Linear regression on recent closes)
+    trend_bars = min(20, n)
+    x_vals = list(range(trend_bars))
+    y_vals = closes[-trend_bars:]
+    x_mean = sum(x_vals) / trend_bars
+    y_mean = sum(y_vals) / trend_bars
+    numerator = sum((x_vals[i] - x_mean) * (y_vals[i] - y_mean) for i in range(trend_bars))
+    denominator = sum((x_vals[i] - x_mean) ** 2 for i in range(trend_bars))
+    slope = (numerator / denominator) if denominator != 0 else 0.0
+    slope_pct = (slope / closes[-1] * 100.0) if closes[-1] > 0 else 0.0
+
+    if slope_pct > 0.05:
+        trendline_dir = "ASCENDING_BULLISH"
+    elif slope_pct < -0.05:
+        trendline_dir = "DESCENDING_BEARISH"
+    else:
+        trendline_dir = "HORIZONTAL_CONSOLIDATION"
+
+    return {
+        "candlestick_pattern": candlestick_pattern,
+        "candlestick_bias": candlestick_bias,
+        "chart_pattern": chart_pattern,
+        "chart_pattern_bias": chart_pattern_bias,
+        "trendline_direction": trendline_dir,
+        "trendline_slope_pct": round(slope_pct, 4),
+        "patterns_detected": detected_patterns
+    }
+
+
 def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
     """
     Perform a full technical regime & indicator analysis on Delta Exchange chart history.
@@ -581,6 +706,9 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
 
     # Smart Money Concepts (SMC) & Liquidity Sweep Engine
     liquidity_data = analyze_liquidity_pools_and_sweeps(highs, lows, closes, opens=opens, volumes=volumes)
+
+    # Exhaustive Candlestick Pattern, Chart Pattern, and Dynamic Trendline Analysis
+    patterns_info = analyze_candlestick_and_chart_patterns(opens, highs, lows, closes)
     
     return {
         "current_price": current_price,
@@ -609,6 +737,10 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
         "support": round(sr["support"], 2),
         "resistance": round(sr["resistance"], 2),
         "liquidity": liquidity_data,
+        "patterns": patterns_info,
+        "candlestick_pattern": patterns_info["candlestick_pattern"],
+        "chart_pattern": patterns_info["chart_pattern"],
+        "trendline_direction": patterns_info["trendline_direction"],
         "candle_count": len(closes)
     }
 

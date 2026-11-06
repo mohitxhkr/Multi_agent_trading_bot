@@ -157,6 +157,8 @@ class StrategyAgent:
                 "daily": f"{macro_daily.get('regime', 'NEUTRAL')} (EMA21: ${macro_daily.get('ema_21', 'N/A')} | RSI: {macro_daily.get('rsi_14', 'N/A')})",
                 "macro_4h": f"{macro_4h.get('regime', 'NEUTRAL')} (4H RSI: {macro_4h.get('rsi_14', 'N/A')})",
                 "structure_detail": f"{liq.get('sweep_type', 'Structure Test')} | MSS: {'YES' if liq.get('mss_confirmed') else 'ALIGNED'}",
+                "patterns_detail": f"Candle: {analysis.get('candlestick_pattern', 'Normal')} | Chart: {analysis.get('chart_pattern', 'Normal')} | Trendline: {analysis.get('trendline_direction', 'Aligned')}",
+                "levels_detail": f"Support: ${analysis.get('support', 0):,.2f} | Resistance: ${analysis.get('resistance', 0):,.2f} | BSL: ${liq.get('nearest_bsl', 0):,.2f} | SSL: ${liq.get('nearest_ssl', 0):,.2f}",
                 "volume_rsi": f"1H RSI: {analysis.get('rsi_14', 50.0)} | Vol: {'CONFIRMED' if liq.get('volume_confirmed') else 'NORMAL'}"
             }
         }

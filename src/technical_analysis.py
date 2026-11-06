@@ -959,8 +959,24 @@ def analyze_multi_timeframe(
     st_tf = "15m" if sweep_15 else ("1H" if sweep_1h else "None")
 
     is_primary = any(p in (symbol or "").upper() for p in ["BTC", "ETH", "XAU", "GOLD"])
-    min_sl_dist = current_price * (0.0018 if is_primary else 0.0028)  # 0.18% - 0.28% minimum tight risk
-    max_sl_dist = current_price * (0.0035 if is_primary else 0.0050)  # 0.35% - 0.50% strict tight risk ceiling (minimum risk)
+    is_btc = "BTC" in (symbol or "").upper()
+    is_eth = "ETH" in (symbol or "").upper()
+
+    # Dynamic Structural SL calibration:
+    # BTC requires >= 0.35% buffer to clear 15m ATR noise ($300-$500 on $80k BTC)
+    # ETH requires >= 0.25% buffer
+    if is_btc:
+        min_sl_dist = current_price * 0.0035
+        max_sl_dist = current_price * 0.0065
+    elif is_eth:
+        min_sl_dist = current_price * 0.0025
+        max_sl_dist = current_price * 0.0060
+    elif is_primary:
+        min_sl_dist = current_price * 0.0028
+        max_sl_dist = current_price * 0.0060
+    else:
+        min_sl_dist = current_price * 0.0035
+        max_sl_dist = current_price * 0.0075
 
     # High-Liquidity Institutional Killzones:
     # London Open: 07:00 - 10:00 UTC | New York Open: 12:00 - 17:00 UTC
@@ -997,9 +1013,9 @@ def analyze_multi_timeframe(
     short_rejection_reason = ""
     strategy_label = ""
 
-    # Priority 0: High-Volume Momentum Impulse Scalp (Pro Fast Scalp)
-    # Catches explosive volume momentum in volatile markets without waiting for slow retests
-    if not setup_qualified and max_vol_ratio >= 1.25:
+    # Priority B: High-Volume Momentum Impulse Scalp (Pro Fast Scalp)
+    # Triggers when volume expands aggressively in volatile markets and no liquidity sweep is present
+    if not setup_qualified and not sweep_detected and max_vol_ratio >= 1.25:
         regime_1h = analysis_1h.get("regime", "NEUTRAL")
         vwap_val = float(analysis_1h.get("vwap") or current_price)
 

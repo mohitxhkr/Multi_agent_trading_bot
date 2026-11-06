@@ -218,12 +218,12 @@ class MultiAgentTradingOrchestrator:
             scan_results=scan_results,
             active_positions_count=active_cnt
         )
-        print(f"   Market Health: {posture_data['health_score']}/100 | Posture: {posture_data['posture']} | Breadth: {posture_data['breadth_pct']}%")
+        print(f"   Market Health: {posture_data.get('health_score', 50)}/100 | Posture: {posture_data.get('posture', 'MODERATE')} | Breadth: {posture_data.get('breadth_pct', 50.0)}%")
         self.state_manager.save_market_posture(
-            posture=posture_data["posture"],
-            health_score=posture_data["health_score"],
-            breadth_pct=posture_data["breadth_pct"],
-            cash_priority=posture_data["cash_priority"],
+            posture=posture_data.get("posture", "MODERATE"),
+            health_score=posture_data.get("health_score", 50),
+            breadth_pct=posture_data.get("breadth_pct", 50.0),
+            cash_priority=posture_data.get("cash_priority", False),
             details=posture_data
         )
 

@@ -61,11 +61,13 @@ class TrailingStopManager:
         sl_order_id: Optional[int] = None,
         tp_order_id: Optional[int] = None,
         is_high_volatility: bool = False,
+        trade_id: Optional[str] = None,
     ) -> None:
         """Register newly entered trade parameters for exact R-multiple trailing calculations."""
         risk = abs(entry_price - initial_sl)
         self.state[symbol] = {
             "symbol": symbol,
+            "trade_id": trade_id or f"trade_{symbol}",
             "side": side.lower(),
             "entry_price": float(entry_price),
             "initial_sl": float(initial_sl),

@@ -95,21 +95,31 @@ def record_trade_exit(
     journal = load_journal()
     found = None
     
-    for t in journal["trades"]:
-        if t["trade_id"] == trade_id and t["status"] == "OPEN":
-            t["status"] = "CLOSED"
-            t["exit_price"] = exit_price
-            t["exit_time"] = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
-            t["realized_pnl_usd"] = round(realized_pnl_usd, 2)
-            t["exit_reason"] = exit_reason
-            t["postmortem_notes"] = postmortem_notes
-            t["mfe_r"] = round(mfe_r, 2)
-            t["mae_r"] = round(mae_r, 2)
+    # 1. Primary match: by exact trade_id
+    for t in reversed(journal["trades"]):
+        if t.get("trade_id") == trade_id and t.get("status") == "OPEN":
             found = t
             break
-            
+
+    # 2. Secondary fallback match: by symbol if trade_id was passed generically (e.g. trade_BTCUSD)
+    if not found:
+        sym_clean = trade_id.replace("trade_", "").upper()
+        for t in reversed(journal["trades"]):
+            if (t.get("symbol") == sym_clean or sym_clean in t.get("symbol", "")) and t.get("status") == "OPEN":
+                found = t
+                break
+
     if not found:
         return None
+
+    found["status"] = "CLOSED"
+    found["exit_price"] = exit_price
+    found["exit_time"] = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    found["realized_pnl_usd"] = round(realized_pnl_usd, 2)
+    found["exit_reason"] = exit_reason
+    found["postmortem_notes"] = postmortem_notes
+    found["mfe_r"] = round(mfe_r, 2)
+    found["mae_r"] = round(mae_r, 2)
         
     # Recalculate stats
     closed_trades = [t for t in journal["trades"] if t["status"] == "CLOSED"]

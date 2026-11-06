@@ -408,6 +408,7 @@ class MultiAgentTradingOrchestrator:
                     sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
                     tp_order_id=exec_res.get("take_profit_order_id"),
                     is_high_volatility=is_high_vol,
+                    trade_id=exec_res.get("trade_id"),
                 )
                 self.risk_gatekeeper.register_execution(trade["symbol"])
 

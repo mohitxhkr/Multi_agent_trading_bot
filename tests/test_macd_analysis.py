@@ -3,11 +3,33 @@ Unit tests for MACD indicator engine and multi-agent confluence integration.
 """
 
 import unittest
-from src.technical_analysis import analyze_macd, calculate_macd
+from src.technical_analysis import analyze_macd, calculate_macd, analyze_vwap, calculate_vwap
 from multiagent_team.strategy_agent import StrategyAgent
 
 
 class TestMACDAnalysis(unittest.TestCase):
+    def test_analyze_vwap_structure(self):
+        highs = [100.0 + i for i in range(30)]
+        lows = [98.0 + i for i in range(30)]
+        closes = [99.0 + i for i in range(30)]
+        volumes = [1000.0 + (i * 10) for i in range(30)]
+
+        vwap_res = analyze_vwap(highs, lows, closes, volumes)
+        self.assertIn("vwap", vwap_res)
+        self.assertIn("upper_band_1", vwap_res)
+        self.assertIn("lower_band_1", vwap_res)
+        self.assertIn("upper_band_2", vwap_res)
+        self.assertIn("lower_band_2", vwap_res)
+        self.assertIn("stance", vwap_res)
+        self.assertIn("band_location", vwap_res)
+        self.assertIn("slope", vwap_res)
+
+        self.assertGreater(vwap_res["upper_band_1"], vwap_res["vwap"])
+        self.assertLess(vwap_res["lower_band_1"], vwap_res["vwap"])
+        self.assertGreater(vwap_res["upper_band_2"], vwap_res["upper_band_1"])
+        self.assertLess(vwap_res["lower_band_2"], vwap_res["lower_band_1"])
+        self.assertEqual(vwap_res["slope"], "RISING_BULLISH")
+
     def test_analyze_macd_structure(self):
         # Generate 55 synthetic closing prices with an accelerating upward trend
         closes = [100.0 + (i ** 1.3) for i in range(55)]
@@ -72,6 +94,8 @@ class TestMACDAnalysis(unittest.TestCase):
         self.assertIn("confluence", setup)
         self.assertIn("macd_detail", setup["confluence"])
         self.assertIn("BULLISH_CROSS", setup["confluence"]["macd_detail"])
+        self.assertIn("vwap_detail", setup["confluence"])
+        self.assertIn("AT_VWAP", setup["confluence"]["vwap_detail"])
         # Score boosted by primary asset (+10), VWAP alignment (+5), and MACD impulse (+6)
         self.assertGreaterEqual(setup["score"], 90)
 

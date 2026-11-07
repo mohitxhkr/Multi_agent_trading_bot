@@ -372,6 +372,123 @@ def calculate_vwap(highs: List[float], lows: List[float], closes: List[float], v
     return round(cum_pv / cum_vol, 4) if cum_vol > 0 else round(closes[-1], 4)
 
 
+def analyze_vwap(highs: List[float], lows: List[float], closes: List[float], volumes: List[float]) -> Dict[str, Any]:
+    """
+    Computes institutional Volume-Weighted Average Price (VWAP) with Standard Deviation Bands:
+    - Base VWAP
+    - Upper Band +1 Sigma (+1σ) & Upper Band +2 Sigma (+2σ) [Overbought / Take Profit targets]
+    - Lower Band -1 Sigma (-1σ) & Lower Band -2 Sigma (-2σ) [Oversold / Discount Accumulation]
+    - Price Stance: ABOVE_VWAP, BELOW_VWAP, or AT_VWAP (within ±0.15%)
+    - Band Location: OVERBOUGHT_EXTENSION, PREMIUM_BAND, FAIR_VALUE_CORE, DISCOUNT_BAND, OVERSOLD_CAPITULATION
+    - Slope: RISING_BULLISH, FALLING_BEARISH, or FLAT
+    """
+    n = len(closes)
+    if n == 0:
+        return {
+            "vwap": 0.0,
+            "upper_band_1": 0.0,
+            "lower_band_1": 0.0,
+            "upper_band_2": 0.0,
+            "lower_band_2": 0.0,
+            "band_width_pct": 0.0,
+            "deviation_pct": 0.0,
+            "stance": "AT_VWAP",
+            "band_location": "FAIR_VALUE_CORE",
+            "slope": "FLAT"
+        }
+
+    current_price = closes[-1]
+    if not volumes or len(volumes) < n or sum(volumes) <= 0:
+        base_vwap = round(sum(closes) / n, 4)
+        dev_pct = ((current_price - base_vwap) / base_vwap * 100.0) if base_vwap > 0 else 0.0
+        return {
+            "vwap": base_vwap,
+            "upper_band_1": round(base_vwap * 1.01, 4),
+            "lower_band_1": round(base_vwap * 0.99, 4),
+            "upper_band_2": round(base_vwap * 1.02, 4),
+            "lower_band_2": round(base_vwap * 0.98, 4),
+            "band_width_pct": 2.0,
+            "deviation_pct": round(dev_pct, 2),
+            "stance": "ABOVE_VWAP" if current_price > base_vwap else ("BELOW_VWAP" if current_price < base_vwap else "AT_VWAP"),
+            "band_location": "FAIR_VALUE_CORE",
+            "slope": "FLAT"
+        }
+
+    cum_pv = 0.0
+    cum_vol = 0.0
+    typical_prices = []
+    vols = []
+    for i in range(n):
+        typ = (highs[i] + lows[i] + closes[i]) / 3.0
+        v = max(0.0, volumes[i])
+        cum_pv += typ * v
+        cum_vol += v
+        typical_prices.append(typ)
+        vols.append(v)
+
+    if cum_vol <= 0:
+        base_vwap = closes[-1]
+        sigma = 0.0
+    else:
+        base_vwap = cum_pv / cum_vol
+        variance = sum(v * ((typ - base_vwap) ** 2) for typ, v in zip(typical_prices, vols)) / cum_vol
+        sigma = math.sqrt(max(0.0, variance))
+
+    upper_1 = base_vwap + sigma
+    lower_1 = base_vwap - sigma
+    upper_2 = base_vwap + (2.0 * sigma)
+    lower_2 = base_vwap - (2.0 * sigma)
+
+    # Stance relative to base VWAP (within 0.15% is equilibrium AT_VWAP)
+    dev_pct = ((current_price - base_vwap) / base_vwap * 100.0) if base_vwap > 0 else 0.0
+    if abs(dev_pct) <= 0.15:
+        stance = "AT_VWAP"
+    elif dev_pct > 0:
+        stance = "ABOVE_VWAP"
+    else:
+        stance = "BELOW_VWAP"
+
+    # Band Location
+    if current_price >= upper_2:
+        band_loc = "OVERBOUGHT_EXTENSION"
+    elif current_price >= upper_1:
+        band_loc = "PREMIUM_BAND"
+    elif current_price <= lower_2:
+        band_loc = "OVERSOLD_CAPITULATION"
+    elif current_price <= lower_1:
+        band_loc = "DISCOUNT_BAND"
+    else:
+        band_loc = "FAIR_VALUE_CORE"
+
+    # Slope calculation (comparing recent VWAP vs previous window)
+    slope = "FLAT"
+    if n >= 6:
+        prev_n = n - 4
+        prev_pv = sum(typical_prices[i] * vols[i] for i in range(prev_n))
+        prev_v = sum(vols[:prev_n])
+        if prev_v > 0:
+            prev_vwap = prev_pv / prev_v
+            if base_vwap > prev_vwap * 1.0006:
+                slope = "RISING_BULLISH"
+            elif base_vwap < prev_vwap * 0.9994:
+                slope = "FALLING_BEARISH"
+
+    band_width_pct = round(((upper_2 - lower_2) / base_vwap * 100.0), 2) if base_vwap > 0 else 0.0
+
+    return {
+        "vwap": round(base_vwap, 4),
+        "upper_band_1": round(upper_1, 4),
+        "lower_band_1": round(lower_1, 4),
+        "upper_band_2": round(upper_2, 4),
+        "lower_band_2": round(lower_2, 4),
+        "band_width_pct": band_width_pct,
+        "deviation_pct": round(dev_pct, 2),
+        "stance": stance,
+        "band_location": band_loc,
+        "slope": slope
+    }
+
+
 def calculate_volatility_state(closes: List[float], atrs: List[float]) -> Dict[str, Any]:
     """Detect volatility expansion and contraction using Bollinger Band Width and ATR trend."""
     if len(closes) < 20 or not atrs:
@@ -783,8 +900,9 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
     # ADX Trend vs Range Filter
     adx_info = calculate_adx(highs, lows, closes, 14)
 
-    # Volume Profile / VWAP Institutional Anchor
+    # Volume Profile / VWAP Institutional Anchor & Standard Deviation Bands
     vwap_val = calculate_vwap(highs, lows, closes, volumes)
+    vwap_analysis = analyze_vwap(highs, lows, closes, volumes)
 
     # Regime Confidence Scoring (0 - 100)
     conf_score = 50
@@ -796,8 +914,14 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
         conf_score += 20
     elif "MILD" in regime:
         conf_score += 10
-    if (regime.startswith("STRONG_BULLISH") and current_price > vwap_val) or (regime.startswith("STRONG_BEARISH") and current_price < vwap_val):
-        conf_score += 15  # VWAP alignment
+
+    # Institutional VWAP Alignment & Slope Confirmation
+    if (regime.startswith("STRONG_BULLISH") and vwap_analysis["stance"] == "ABOVE_VWAP") or (regime.startswith("STRONG_BEARISH") and vwap_analysis["stance"] == "BELOW_VWAP"):
+        conf_score += 15  # Solid VWAP alignment
+        if (regime.startswith("STRONG_BULLISH") and vwap_analysis["slope"] == "RISING_BULLISH") or (regime.startswith("STRONG_BEARISH") and vwap_analysis["slope"] == "FALLING_BEARISH"):
+            conf_score += 5  # Trend slope aligned with VWAP
+    elif (regime.startswith("STRONG_BULLISH") and vwap_analysis["stance"] == "BELOW_VWAP") or (regime.startswith("STRONG_BEARISH") and vwap_analysis["stance"] == "ABOVE_VWAP"):
+        conf_score -= 10  # Fighting institutional VWAP value
 
     # MACD Momentum & Crossover Alignment in Regime Confidence
     if "BULLISH" in regime and macd_res["bias"] in ("BULLISH", "STRONG_BULLISH"):
@@ -831,6 +955,7 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
         "adx_14": adx_info["adx"],
         "trend_strength": adx_info["trend_strength"],
         "vwap": vwap_val,
+        "vwap_analysis": vwap_analysis,
         "regime_confidence": conf_score,
         "news_blocked": news_blocked,
         "news_reason": news_reason,
@@ -1344,8 +1469,18 @@ def analyze_multi_timeframe(
             and 40.0 <= rsi_15m <= 75.0
         ):
             pb_score = 65 + (10 if is_primary else 0)
-            if vwap_val > 0 and current_price >= vwap_val:
+            
+            # VWAP Institutional Alignment & Band Position
+            vwap_1h_info = analysis_1h.get("vwap_analysis", {})
+            v_stance = vwap_1h_info.get("stance", "AT_VWAP")
+            v_band = vwap_1h_info.get("band_location", "FAIR_VALUE_CORE")
+            v_slope = vwap_1h_info.get("slope", "FLAT")
+
+            if v_stance in ("ABOVE_VWAP", "AT_VWAP") or current_price >= vwap_val:
                 pb_score += 10
+            if v_band in ("FAIR_VALUE_CORE", "DISCOUNT_BAND") and v_slope == "RISING_BULLISH":
+                pb_score += 5
+
             if is_killzone:
                 pb_score += 5
 
@@ -1368,7 +1503,7 @@ def analyze_multi_timeframe(
                 strategy_label = "Intraday_EMA_Pullback_Scalp_Long"
                 m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
                 thesis = (
-                    f"Intraday 15m EMA Trend Bounce (Score {setup_score}/100{m_tag}): 1H {regime_1h}, holding 15m EMA21 support (${ema21_15m:.2f}). "
+                    f"Intraday 15m EMA Trend Bounce (Score {setup_score}/100{m_tag}): 1H {regime_1h}, holding 15m EMA21 support (${ema21_15m:.2f}) & VWAP (${vwap_val:.2f}). "
                     f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
                 )
 
@@ -1380,8 +1515,18 @@ def analyze_multi_timeframe(
             and 18.0 <= rsi_15m <= 58.0
         ):
             pb_score = 65 + (10 if is_primary else 0)
-            if vwap_val > 0 and current_price <= vwap_val:
+
+            # VWAP Institutional Alignment & Band Position
+            vwap_1h_info = analysis_1h.get("vwap_analysis", {})
+            v_stance = vwap_1h_info.get("stance", "AT_VWAP")
+            v_band = vwap_1h_info.get("band_location", "FAIR_VALUE_CORE")
+            v_slope = vwap_1h_info.get("slope", "FLAT")
+
+            if v_stance in ("BELOW_VWAP", "AT_VWAP") or current_price <= vwap_val:
                 pb_score += 10
+            if v_band in ("FAIR_VALUE_CORE", "PREMIUM_BAND") and v_slope == "FALLING_BEARISH":
+                pb_score += 5
+
             if is_killzone:
                 pb_score += 5
 

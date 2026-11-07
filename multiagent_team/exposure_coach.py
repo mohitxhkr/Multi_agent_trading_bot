@@ -123,16 +123,17 @@ class ExposureCoachAgent:
         bearish_breadth_pct = ((total_symbols - above_ema_count) / total_symbols) * 100.0
         avg_alt_rs = (sum(alt_strengths) / len(alt_strengths)) if alt_strengths else 0.0
 
-        # Technical Momentum: MACD Watchlist Breadth Confluence
+        # Technical Momentum: MACD & Institutional VWAP Watchlist Breadth Confluence
         macd_breadth_pct = scan_results.get("macd_breadth_pct", breadth_pct)
-        composite_breadth = (breadth_pct * 0.65) + (macd_breadth_pct * 0.35)
+        vwap_breadth_pct = scan_results.get("vwap_breadth_pct", breadth_pct)
+        composite_breadth = (breadth_pct * 0.50) + (macd_breadth_pct * 0.25) + (vwap_breadth_pct * 0.25)
         
         # 2. BTC Anchor Health (35 pts max) & Directional Trend Detection
         btc_h4 = btc_data.get("macro_4h", {}).get("regime", "MACRO_NEUTRAL")
         is_macro_bearish = "BEARISH" in btc_h4 or (macro_bear_count >= macro_bull_count and macro_bear_count >= total_symbols * 0.5)
 
         # Detect Unified Bearish Trend Expansion (Sell-off / Dump regime)
-        is_bearish_expansion = is_macro_bearish and (bearish_breadth_pct >= 60.0 or macd_breadth_pct <= 35.0)
+        is_bearish_expansion = is_macro_bearish and (bearish_breadth_pct >= 60.0 or (macd_breadth_pct <= 35.0 and vwap_breadth_pct <= 35.0))
 
         if is_bearish_expansion:
             direction_bias = "SHORTS_ONLY"

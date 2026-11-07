@@ -118,9 +118,10 @@ class RegimeAnalystAgent:
             btc_vol_state = btc_analysis.get("volatility_state", "NORMAL")
             btc_confidence = btc_analysis.get("regime_confidence", 50)
 
-        # 1. Market-Wide Breadth: % of watchlist trading above 20 EMA and MACD Momentum Breadth
+        # 1. Market-Wide Breadth: % of watchlist trading above 20 EMA, MACD, and VWAP
         above_ema_count = 0
         macd_bullish_count = 0
+        vwap_above_count = 0
         total_valid = 0
         funding_rates = []
         for s_data in results.values():
@@ -136,11 +137,17 @@ class RegimeAnalystAgent:
             if m_info.get("histogram", 0) > 0 or "BULLISH" in m_info.get("bias", ""):
                 macd_bullish_count += 1
 
+            # Watchlist Institutional VWAP Breadth
+            vwap_p = s_data.get("vwap", 0.0)
+            if c_price > 0 and vwap_p > 0 and c_price >= vwap_p:
+                vwap_above_count += 1
+
             if "funding_rate" in s_data:
                 funding_rates.append(s_data["funding_rate"])
 
         breadth_pct = round((above_ema_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
         macd_breadth_pct = round((macd_bullish_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
+        vwap_breadth_pct = round((vwap_above_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
 
         # 2. ETH/BTC Relative Strength
         eth_btc_relative_strength = 1.0
@@ -158,15 +165,18 @@ class RegimeAnalystAgent:
             funding_skew = "CROWDED_SHORTS"
 
         btc_macd = btc_analysis.get("macd", {}) if btc_analysis else {}
+        btc_vwap = btc_analysis.get("vwap_analysis", {}) if btc_analysis else {}
 
         return {
             "overall_market_regime": overall_regime,
             "btc_adx": btc_adx,
             "btc_volatility_state": btc_vol_state,
             "btc_macd": btc_macd,
+            "btc_vwap": btc_vwap,
             "regime_confidence_score": btc_confidence,
             "breadth_pct": breadth_pct,
             "macd_breadth_pct": macd_breadth_pct,
+            "vwap_breadth_pct": vwap_breadth_pct,
             "eth_btc_relative_strength": eth_btc_relative_strength,
             "avg_funding_rate": avg_funding,
             "funding_rate_skew": funding_skew,

@@ -272,11 +272,13 @@ class TelegramConfirmationBot:
 
         macd_detail = confluence.get("macd_detail")
         macd_tag = f" · <code>MACD {macd_detail.split('|')[0].replace('15m:', '').strip()}</code>" if macd_detail else " · <code>MACD Aligned</code>"
+        vwap_detail = confluence.get("vwap_detail")
+        vwap_line = f"• <b>Institutional Anchor:</b> <code>VWAP {vwap_detail}</code>\n" if vwap_detail else ""
 
         if sample_size and sample_size >= 6 and win_rate and win_rate > 0:
             backtest_line = f"📊 <b>Empirical Backtest:</b> Tested <b>{sample_size} times</b> ({wins}W / {losses}L · <b>{win_rate:.0f}% Win Rate</b> · <b>1:{rr:.1f} R:R</b>){macd_tag}\n"
         else:
-            backtest_line = f"📊 <b>Market Edge:</b> Multi-Timeframe SMC, VWAP &amp; MACD Aligned{macd_tag}\n"
+            backtest_line = f"📊 <b>Market Edge:</b> Multi-Timeframe SMC, VWAP Bands &amp; MACD Aligned{macd_tag}\n"
 
         score = trade_spec.get("score", 85)
         clean_strat = strategy.replace("_", " ").title()
@@ -335,6 +337,7 @@ class TelegramConfirmationBot:
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
             f"• <b>Setup:</b> <i>{clean_strat}</i>\n"
+            f"{vwap_line}"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🧠 <b>MARKET SENTIMENT &amp; MACRO PULSE:</b>\n"
             f"• <b>Fear &amp; Greed:</b> <code>{fng_val}/100 ({fng_class})</code>\n"

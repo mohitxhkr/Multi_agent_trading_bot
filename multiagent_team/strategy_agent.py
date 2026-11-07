@@ -98,13 +98,40 @@ class StrategyAgent:
         priority_tag = "PRIMARY" if is_primary else "SECONDARY"
         adjusted_score = score + (10 if is_primary else 0)
 
-        # VWAP Institutional Level Alignment
+        # VWAP Institutional Level & Standard Deviation Band Alignment
         vwap_val = float(analysis.get("vwap") or 0.0)
+        vwap_info = analysis.get("vwap_analysis") or {}
+        v_stance = vwap_info.get("stance", "AT_VWAP" if (vwap_val > 0 and abs(current_price - vwap_val)/vwap_val <= 0.002) else ("ABOVE_VWAP" if current_price > vwap_val else "BELOW_VWAP"))
+        v_band = vwap_info.get("band_location", "FAIR_VALUE_CORE")
+        v_slope = vwap_info.get("slope", "FLAT")
+
+        vwap_boost = 0
         if vwap_val > 0:
-            if (side == "buy" and current_price >= vwap_val * 0.998) or (side == "sell" and current_price <= vwap_val * 1.002):
-                adjusted_score += 5  # Aligned with institutional VWAP
-            else:
-                adjusted_score -= 5  # Fighting immediate VWAP gravity
+            if side == "buy":
+                if v_stance in ("ABOVE_VWAP", "AT_VWAP"):
+                    vwap_boost += 5
+                else:
+                    vwap_boost -= 5  # Fighting immediate VWAP gravity
+
+                if v_band in ("FAIR_VALUE_CORE", "DISCOUNT_BAND") and v_slope == "RISING_BULLISH":
+                    vwap_boost += 4  # Institutional pullback entry into rising VWAP
+                    thesis = f"💎 [INSTITUTIONAL VWAP ACCUMULATION] {thesis}"
+                elif v_band == "OVERBOUGHT_EXTENSION":
+                    vwap_boost -= 8  # Chasing overextended above +2 sigma band
+
+            elif side == "sell":
+                if v_stance in ("BELOW_VWAP", "AT_VWAP"):
+                    vwap_boost += 5
+                else:
+                    vwap_boost -= 5  # Fighting immediate VWAP gravity
+
+                if v_band in ("FAIR_VALUE_CORE", "PREMIUM_BAND") and v_slope == "FALLING_BEARISH":
+                    vwap_boost += 4  # Institutional rejection from falling VWAP
+                    thesis = f"💎 [INSTITUTIONAL VWAP DISTRIBUTION] {thesis}"
+                elif v_band == "OVERSOLD_CAPITULATION":
+                    vwap_boost -= 8  # Shorting into oversold exhaustion below -2 sigma band
+
+        adjusted_score += vwap_boost
 
         # MACD Multi-Timeframe Momentum Confluence
         macd_1h = analysis.get("macd", {})
@@ -197,7 +224,8 @@ class StrategyAgent:
                 "patterns_detail": f"Candle: {analysis.get('candlestick_pattern', 'Normal')} | Chart: {analysis.get('chart_pattern', 'Normal')} | Trendline: {analysis.get('trendline_direction', 'Aligned')}",
                 "levels_detail": f"Support: ${analysis.get('support', 0):,.2f} | Resistance: ${analysis.get('resistance', 0):,.2f} | BSL: ${liq.get('nearest_bsl', 0):,.2f} | SSL: ${liq.get('nearest_ssl', 0):,.2f}",
                 "volume_rsi": f"1H RSI: {analysis.get('rsi_14', 50.0)} | Vol: {'CONFIRMED' if liq.get('volume_confirmed') else 'NORMAL'}",
-                "macd_detail": f"15m: {m15_cross} ({m15_phase}) | 1H: {m1h_bias}"
+                "macd_detail": f"15m: {m15_cross} ({m15_phase}) | 1H: {m1h_bias}",
+                "vwap_detail": f"${vwap_val:,.2f} ({v_stance} | {v_band} | {v_slope})"
             }
         }
 

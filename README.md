@@ -89,11 +89,12 @@ flowchart TD
 * **Inputs:** 15m, 1H, 4H, Daily, Weekly, and Monthly candlestick series, live Level-2 order books, and ticker statistics.
 * **Processing Logic:**
   * Validates feed integrity via `MarketDataValidator`.
-  * Computes 21, 50, and 200 EMAs, 14-period RSI, 14-period ADX, intraday VWAP, and **MACD (12, 26, 9)**.
+  * Computes 21, 50, and 200 EMAs, 14-period RSI, 14-period ADX, **Institutional VWAP with ±1σ/±2σ Standard Deviation Bands**, and **MACD (12, 26, 9)**.
+  * Evaluates **VWAP Stance & Slope** (`ABOVE_VWAP` / `BELOW_VWAP`, `RISING_BULLISH` / `FALLING_BEARISH`, and Band Locations).
   * Evaluates **MACD Crossovers** (`BULLISH_CROSS` / `BEARISH_CROSS`), **Momentum Phase** (`BULLISH_EXPANSION` / `BEARISH_EXPANSION`), and **Zero-Line Stance**.
-  * Measures **Market-Wide Breadth** (% of watchlist assets trading above 20 EMA and % with Bullish MACD) and **ETH/BTC Relative Strength**.
+  * Measures **Market-Wide Breadth** (% of watchlist assets trading above 20 EMA, % with Bullish MACD, and % trading above Session VWAP) and **ETH/BTC Relative Strength**.
   * Identifies funding rate skew to filter crowded longs (> +0.03%) or short cascades.
-* **Output:** Regime classifications, trend directions, EMA/MACD breadth percentages, and support/resistance anchors.
+* **Output:** Regime classifications, trend directions, EMA/MACD/VWAP breadth percentages, and support/resistance anchors.
 
 ### 2️⃣ Agent 2: Autonomous News & Social Sentiment Intelligence Engine
 * **Module:** [`multiagent_team/news_sentiment_agent.py`](multiagent_team/news_sentiment_agent.py)
@@ -117,9 +118,9 @@ flowchart TD
 ### 3️⃣ Agent 3: Exposure Coach & Market Posture Engine
 * **Module:** [`multiagent_team/exposure_coach.py`](multiagent_team/exposure_coach.py)
 * **Core Task:** Dictates capital exposure, allowable leverage, and portfolio risk posture based on macro health and news sentiment.
-* **Inputs:** Agent 1 breadth & MACD metrics, Agent 2 news sentiment composite scores, account margin utilization, and consecutive loss history.
+* **Inputs:** Agent 1 breadth, VWAP, & MACD metrics, Agent 2 news sentiment composite scores, account margin utilization, and consecutive loss history.
 * **Processing Logic:**
-  * Assesses Market Health score (0 to 100) combining 21 EMA structure and **MACD Momentum Breadth**.
+  * Assesses Market Health score (0 to 100) combining 21 EMA structure, **Institutional VWAP Breadth**, and **MACD Momentum Breadth**.
   * Enforces Postures:
     * `AGGRESSIVE_EXPANSION` (Health >= 75): 100% risk budget, up to 2 concurrent positions.
     * `MODERATE_SELECTIVE` (Health 50-74): 75% risk budget, restricted to Tier-1 (`BTC`, `ETH`, `XAU`).
@@ -130,10 +131,13 @@ flowchart TD
 
 ### 4️⃣ Agent 4: Alpha Strategy Generator
 * **Module:** [`multiagent_team/strategy_agent.py`](multiagent_team/strategy_agent.py)
-* **Core Task:** Formulates precise entry, stop-loss, and take-profit trade setups using Smart Money Concepts and multi-timeframe MACD confluence.
-* **Inputs:** Multi-timeframe structures, VWAP levels, MACD momentum indicators, liquidity sweeps, and pattern memory adjustments.
+* **Core Task:** Formulates precise entry, stop-loss, and take-profit trade setups using Smart Money Concepts, VWAP bands, and multi-timeframe MACD confluence.
+* **Inputs:** Multi-timeframe structures, VWAP standard deviation bands (±1σ, ±2σ), MACD momentum indicators, liquidity sweeps, and pattern memory adjustments.
 * **Processing Logic:**
   * Rejects unconfirmed wicks: requires candle body close confirming Market Structure Shift (MSS).
+  * Enforces **Institutional VWAP & Band Confluence**:
+    * Long entries: Pullbacks into rising VWAP fair value core or discount -1σ accumulation award (+8 pts). Entries chasing overextended above +2σ are penalized (-8 pts).
+    * Short entries: Rejections from falling VWAP fair value core or premium +1σ distribution award (+8 pts). Entries shorting into oversold exhaustion below -2σ are penalized (-8 pts).
   * Enforces **MACD Confluence Verification**:
     * Long entries require Bullish MACD crossover, positive histogram, or expansion (+6 to +10 pts). Setups buying into expanding bearish MACD are penalized.
     * Short entries require Bearish MACD crossover, negative histogram, or expansion (+6 to +10 pts). Setups shorting into expanding bullish MACD are penalized.
@@ -145,10 +149,10 @@ flowchart TD
 ### 5️⃣ Agent 5: Time Machine Probability Engine
 * **Module:** [`multiagent_team/time_machine_agent.py`](multiagent_team/time_machine_agent.py)
 * **Core Task:** Forward-simulates candidate setups against historical data to ensure empirical positive expectancy.
-* **Inputs:** Setup parameters, 400+ historical 15m candles, and zero-lookahead MACD/RSI/EMA series.
+* **Inputs:** Setup parameters, 400+ historical 15m candles, rolling VWAP series, and zero-lookahead MACD/RSI/EMA series.
 * **Processing Logic:**
   * **Zero Synthetic Stats Mandate:** If candles < 60, returns `INSUFFICIENT_DATA`. If matches < 8, returns `INSUFFICIENT_SAMPLE`. Never fabricates hypothetical wins or win rates.
-  * **Historical Pattern Walk:** Matches candlestick setups confirmed by EMA trends and MACD histogram impulse states.
+  * **Historical Pattern Walk:** Matches candlestick setups confirmed by EMA trends, rolling VWAP alignment, and MACD histogram impulse states.
   * **Walk-Forward Separation:** 70% in-sample training / 30% out-of-sample forward verification.
   * **Institutional Friction:** Deducts Delta maker/taker fees (0.10%), expected slippage (0.06%), and funding drag.
   * **Wilson 95% Confidence Interval:** Requires lower CI bound >= 45% to prevent small-sample overfitting.
@@ -171,7 +175,7 @@ flowchart TD
 * **Core Task:** Provides secure human authorization through interactive Telegram messages with integrated market sentiment intelligence.
 * **Inputs:** Approved trade specifications from Agent 6 and sentiment report from Agent 2.
 * **Processing Logic:**
-  * **Comprehensive Trade Proposal Card:** Displays quality score, risk-to-reward profile, exact entry/SL/TP, contracts, margin, and backtest results.
+  * **Comprehensive Trade Proposal Card:** Displays quality score, risk-to-reward profile, exact entry/SL/TP, contracts, margin, backtest results, and **Institutional VWAP Anchor**.
   * **Market Sentiment & Fear/Greed Pulse:** Embeds live Alternative.me Fear & Greed index (`78/100 Extreme Greed`), macro composite polarity (`🟢 BULLISH BIAS`), and symbol-specific sentiment directly into the proposal card.
   * **Sender Authentication:** Authenticates Telegram user ID against `AUTHORIZED_TELEGRAM_USERS`.
   * **Parameter-Bound Nonces:** Binds approvals to exact trade parameters; replayed nonces are rejected.

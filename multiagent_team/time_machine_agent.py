@@ -16,7 +16,7 @@ import time
 import math
 import logging
 from src.delta_client import DeltaExchangeClient
-from src.technical_analysis import calculate_ema, calculate_rsi, calculate_macd
+from src.technical_analysis import calculate_ema, calculate_rsi, calculate_macd, calculate_vwap
 
 logger = logging.getLogger("time-machine-agent")
 
@@ -147,6 +147,18 @@ class TimeMachineAgent:
         macd_signal = macd_series.get("signal", [])
         macd_hist = macd_series.get("histogram", [])
 
+        # Calculate Rolling VWAP Series across history (strictly zero lookahead)
+        volumes = [float(x) for x in candles_15m.get("v", [])]
+        cum_pv = 0.0
+        cum_vol = 0.0
+        vwap_series = []
+        for idx in range(total_bars):
+            typ = (highs[idx] + lows[idx] + closes[idx]) / 3.0
+            v = volumes[idx] if idx < len(volumes) and volumes[idx] > 0 else 1.0
+            cum_pv += typ * v
+            cum_vol += v
+            vwap_series.append(cum_pv / cum_vol if cum_vol > 0 else closes[idx])
+
         # Out-of-sample partition (70% in-sample train, 30% out-of-sample validation)
         split_idx = int(total_bars * 0.70)
 
@@ -162,6 +174,7 @@ class TimeMachineAgent:
             c_ema50 = ema50_series[i]
             c_m_hist = macd_hist[i] if i < len(macd_hist) else 0.0
             p_m_hist = macd_hist[i - 1] if 0 < i < len(macd_hist) else c_m_hist
+            c_vwap = vwap_series[i] if i < len(vwap_series) else c_price
 
             is_match = False
 
@@ -175,7 +188,8 @@ class TimeMachineAgent:
                 is_ema_bounce = lows[i] <= c_ema21 * 1.002 and closes[i] >= c_ema21 and trend_aligned
                 is_momentum_impulse = closes[i] > opens[i] and c_rsi >= 45 and trend_aligned
                 is_macd_confirmed = c_m_hist >= 0 or c_m_hist > p_m_hist
-                if (swept_low or is_oversold_bounce or is_breakout or is_ema_bounce or is_momentum_impulse) and (trend_aligned or is_macd_confirmed):
+                is_vwap_aligned = c_price >= c_vwap * 0.995
+                if (swept_low or is_oversold_bounce or is_breakout or is_ema_bounce or is_momentum_impulse) and (trend_aligned or is_macd_confirmed) and is_vwap_aligned:
                     is_match = True
 
             elif side == "sell":
@@ -188,7 +202,8 @@ class TimeMachineAgent:
                 is_ema_reject = highs[i] >= c_ema21 * 0.998 and closes[i] <= c_ema21 and trend_aligned
                 is_momentum_impulse = closes[i] < opens[i] and c_rsi <= 55 and trend_aligned
                 is_macd_confirmed = c_m_hist <= 0 or c_m_hist < p_m_hist
-                if (swept_high or is_overbought_reject or is_breakdown or is_ema_reject or is_momentum_impulse) and (trend_aligned or is_macd_confirmed):
+                is_vwap_aligned = c_price <= c_vwap * 1.005
+                if (swept_high or is_overbought_reject or is_breakdown or is_ema_reject or is_momentum_impulse) and (trend_aligned or is_macd_confirmed) and is_vwap_aligned:
                     is_match = True
 
             if is_match:

@@ -380,3 +380,4 @@ python main.py test
 - **Orphan Bracket Cleanup**: Automatically cancels all leftover stop/limit child orders whenever a parent position closes.
 - **Liquidation Armor**: Rejects any trade where liquidation price is closer than $3\times$ the stop-loss distance.
 - **Emergency Killswitch**: Can be triggered at any time via terminal or Telegram to cancel all active orders and market-close all positions.
+

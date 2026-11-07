@@ -50,6 +50,7 @@ class NewsArticle(BaseModel):
     catalyst_category: str = Field(..., description="REGULATORY, MACRO_FED, INSTITUTIONAL, SECURITY_EXPLOIT, or MARKET_ACTION")
     affected_assets: List[str] = Field(default_factory=list, description="Target crypto assets (e.g. BTC, ETH, SOL)")
     summary: str = Field(..., description="Concise synopsis of the news item and its significance")
+    is_critical_market_mover: bool = Field(default=False, description="True ONLY for tier-1 breaking market-moving catalysts (major hacks, ETF rulings, Fed rate moves, bankruptcy)")
 
 
 class MarketSentimentReport(BaseModel):
@@ -63,6 +64,7 @@ class MarketSentimentReport(BaseModel):
     bearish_articles_count: int = Field(default=0, description="Count of bearish news items")
     neutral_articles_count: int = Field(default=0, description="Count of neutral news items")
     top_high_impact_news: List[NewsArticle] = Field(default_factory=list, description="Top breaking high-impact articles")
+    critical_market_movers: List[NewsArticle] = Field(default_factory=list, description="Strict tier-1 market-moving articles eligible for Telegram alerts")
     asset_sentiment_map: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Asset-specific sentiment breakdowns")
     trading_posture_recommendation: str = Field(..., description="Actionable guideline for execution agents")
     leverage_risk_multiplier: float = Field(default=1.0, description="Recommended leverage/risk scalar (0.5 to 1.0)")
@@ -74,7 +76,7 @@ class MarketSentimentReport(BaseModel):
 
 BULLISH_KEYWORDS = {
     # High Impact Institutional Inflows & Adoption (+0.8 to +1.0)
-    "etf approval": 1.0, "approved": 0.8, "record inflows": 0.9, "institutional inflow": 0.85,
+    "etf approval": 1.0, "approved": 0.8, "approves": 0.8, "approval": 0.8, "record inflows": 0.9, "institutional inflow": 0.85,
     "blackrock": 0.7, "fidelity": 0.6, "microstrategy": 0.7, "saylor": 0.6,
     "strategic reserve": 1.0, "treasury reserve": 0.9, "sovereign adoption": 0.95,
     "rate cut": 0.85, "fed pivots": 0.8, "dovish": 0.75, "easing": 0.7,
@@ -115,6 +117,33 @@ ASSET_REGEX_MAP = {
     "GOLD": [r"\bgold\b", r"\bpaxg\b", r"\bxau\b"],
     "STABLECOIN": [r"\busdt\b", r"\busdc\b", r"\btether\b"]
 }
+
+# Strict Tier-1 Market-Moving Catalyst Filter (Strictly for Telegram Notifications)
+# General/routine news is utilized internally by agents, but only true market movers alert Telegram
+CRITICAL_MARKET_MOVER_PHRASES = [
+    # Tier-1 Regulatory & ETF Decisions
+    "etf approved", "etf approval", "etf rejected", "sec approved", "sec approves", "sec rejects",
+    "spot etf", "sec lawsuit", "sec charges", "criminal charges", "indictment", "indicted",
+    "subpoena", "ban", "banned", "crackdown", "sanction", "sanctions", "sanctioned",
+    # Tier-1 Macroeconomic Central Bank Events
+    "rate cut", "rate hike", "fed cut", "fed hike", "interest rate cut", "interest rate hike",
+    "fomc", "cpi inflation spike", "cpi inflation drops",
+    # Severe Protocol Exploits & Exchange Insolvency
+    "hack", "hacked", "exploit", "exploited", "stolen", "drained", "drain",
+    "insolvent", "insolvency", "bankruptcy", "bankrupt", "chapter 11",
+    "halt withdrawals", "pause withdrawals", "halted withdrawals", "paused withdrawals", "freeze withdrawals",
+    # Sovereign & Large Scale Institutional Adoption
+    "strategic bitcoin reserve", "strategic reserve", "sovereign adoption", "legal tender",
+    # Extreme Market Disruption
+    "flash crash", "liquidation cascade", "circuit breaker", "all-time high", "new ath"
+]
+
+CLICKBAIT_NOISE_PHRASES = [
+    "here's why", "here is why", "why bitcoin", "what happened in crypto", "price prediction",
+    "analyst says", "analyst predicts", "expert predicts", "top 5", "top 3", "could reach",
+    "might surge", "could hit", "meme coin", "opinion", "explainer", "guide", "how to",
+    "crypto portfolio", "should you buy", "here's what", "here is what"
+]
 
 
 # -----------------------------------------------------------------------------
@@ -337,6 +366,19 @@ class NewsSentimentAgent:
         else:
             impact = "LOW"
 
+        # 5. Critical Market-Mover Determination (Strictly for Telegram Alerts)
+        is_noise = any(np in combined_text for np in CLICKBAIT_NOISE_PHRASES)
+        is_critical = False
+        if not is_noise and impact == "HIGH":
+            has_phrase = any(cp in combined_text for cp in CRITICAL_MARKET_MOVER_PHRASES)
+            has_etf_catalyst = "etf" in combined_text and any(w in combined_text for w in ["approv", "reject", "inflow", "filing"])
+            has_security_breach = any(w in combined_text for w in ["hack", "exploit", "stolen", "drained", "insolvent", "bankruptcy"])
+
+            if (has_phrase or has_etf_catalyst or has_security_breach) and abs(normalized_score) >= 0.40:
+                is_critical = True
+            elif catalyst_cat in ("SECURITY_EXPLOIT", "REGULATORY", "MACRO_FED") and abs(normalized_score) >= 0.65:
+                is_critical = True
+
         # Unique ID generated from title & source
         import hashlib
         art_id = hashlib.sha256(f"{source}:{title}".encode("utf-8")).hexdigest()[:12]
@@ -352,7 +394,8 @@ class NewsSentimentAgent:
             impact_rating=impact,
             catalyst_category=catalyst_cat,
             affected_assets=affected,
-            summary=summary[:180] + ("..." if len(summary) > 180 else "")
+            summary=summary[:180] + ("..." if len(summary) > 180 else ""),
+            is_critical_market_mover=is_critical
         )
 
     # -------------------------------------------------------------------------
@@ -447,6 +490,16 @@ class NewsSentimentAgent:
                 seen_titles.add(short_t)
                 deduped_high.append(a)
 
+        # Filter strictly tier-1 critical market-moving catalysts (major exploits, rate cuts, ETF rulings, insolvencies)
+        # Internal agents use ALL analyzed articles (composite score, regime), but Telegram only alerts on critical catalysts
+        critical_movers = [a for a in deduped_high if a.is_critical_market_mover]
+        for a in analyzed_articles:
+            if a.is_critical_market_mover and a not in critical_movers:
+                short_t = a.title[:35].lower()
+                if short_t not in seen_titles:
+                    seen_titles.add(short_t)
+                    critical_movers.append(a)
+
         report = MarketSentimentReport(
             timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
             composite_score=round(composite, 2),
@@ -458,6 +511,7 @@ class NewsSentimentAgent:
             bearish_articles_count=bearish_count,
             neutral_articles_count=neutral_count,
             top_high_impact_news=deduped_high[:5],
+            critical_market_movers=critical_movers[:5],
             asset_sentiment_map=asset_sentiment_map,
             trading_posture_recommendation=posture,
             leverage_risk_multiplier=risk_mult
@@ -466,7 +520,7 @@ class NewsSentimentAgent:
         self._save_report(report)
         logger.info(
             f"NewsSentimentAgent: Report generated. Composite: {report.composite_score:+.2f} ({report.sentiment_regime}) | "
-            f"F&G: {report.fear_greed_index} ({report.fear_greed_classification}) | Articles: {len(analyzed_articles)}"
+            f"F&G: {report.fear_greed_index} ({report.fear_greed_classification}) | Articles: {len(analyzed_articles)} | Critical Movers: {len(critical_movers)}"
         )
         return report
 
@@ -474,33 +528,45 @@ class NewsSentimentAgent:
     # Telegram Breaking News & Sentiment Alert Dispatcher
     # -------------------------------------------------------------------------
 
-    def dispatch_telegram_news_updates(self, notifier: Any, max_alerts_per_cycle: int = 2) -> int:
+    def dispatch_telegram_news_updates(self, notifier: Any, max_alerts_per_cycle: int = 2, report: Optional[MarketSentimentReport] = None) -> int:
         """
-        Dispatches real-time Telegram cards for unposted high-impact breaking news articles.
+        Dispatches real-time Telegram cards ONLY for strict tier-1 critical market-moving catalysts.
+        All other news items are used internally by autonomous trading agents, preventing Telegram spam.
         Returns count of alerts successfully posted.
         """
         if not notifier or not getattr(notifier, "enabled", False):
             logger.info("NewsSentimentAgent: TelegramNotifier is not enabled. Skipping dispatch.")
             return 0
 
-        report = self.generate_sentiment_report() if not self.cached_report else self.cached_report
+        target_report = report if report is not None else (self.cached_report or self.generate_sentiment_report())
         alerts_sent = 0
 
-        for art in report.top_high_impact_news:
+        # Strictly notify ONLY for genuine tier-1 critical market movers
+        eligible_critical_news = [
+            art for art in target_report.critical_market_movers
+            if art.is_critical_market_mover
+        ]
+
+        if not eligible_critical_news:
+            logger.debug("NewsSentimentAgent: No critical tier-1 market-moving news to broadcast to Telegram.")
+            return 0
+
+        for art in eligible_critical_news:
             if art.id in self.posted_news_cache:
                 continue
 
             if alerts_sent >= max_alerts_per_cycle:
                 break
 
-            # Format the Telegram Breaking News Card
+            # Format the Telegram Critical Market-Mover Card
             sentiment_emoji = "🟢 BULLISH" if "BULLISH" in art.sentiment_label else ("🔴 BEARISH" if "BEARISH" in art.sentiment_label else "⚪ NEUTRAL")
-            impact_badge = "🔥 HIGH VOLATILITY IMPACT" if art.impact_rating == "HIGH" else "⚡ MODERATE IMPACT"
+            impact_badge = "🚨 CRITICAL MARKET-MOVER"
             assets_str = ", ".join(f"#{a}" for a in art.affected_assets)
 
             msg = (
-                f"📰 <b>[CRYPTO BREAKING NEWS &amp; SENTIMENT]</b>\n"
-                f"⭐ <b>MARKET IMPACT:</b> <b><u>{impact_badge}</u></b>\n"
+                f"🚨 <b>[CRITICAL MARKET-MOVING CRYPTO ALERT]</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⭐ <b>EVENT SEVERITY:</b> <b><u>{impact_badge}</u></b>\n"
                 f"🏷️ <b>CATALYST:</b> <code>{art.catalyst_category}</code> · <b>Source:</b> <i>{art.source}</i>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"📌 <b>Headline:</b> <b>{art.title}</b>\n"
@@ -510,9 +576,9 @@ class NewsSentimentAgent:
                 f"📝 <b>Synopsis:</b> <i>{art.summary}</i>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🤖 <b>AGENT POSTURE IMPACT:</b>\n"
-                f"• <b>Risk Multiplier:</b> <code>{report.leverage_risk_multiplier:.2f}x</code>\n"
-                f"• <b>Guidance:</b> <i>{report.trading_posture_recommendation.split(':')[0]}</i>\n"
-                f"• <b>Fear &amp; Greed:</b> <code>{report.fear_greed_index}/100 ({report.fear_greed_classification})</code>\n"
+                f"• <b>Risk Multiplier:</b> <code>{target_report.leverage_risk_multiplier:.2f}x</code>\n"
+                f"• <b>Guidance:</b> <i>{target_report.trading_posture_recommendation.split(':')[0]}</i>\n"
+                f"• <b>Fear &amp; Greed:</b> <code>{target_report.fear_greed_index}/100 ({target_report.fear_greed_classification})</code>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🔗 <a href=\"{art.link}\">Read Full Article Source</a>"
             )

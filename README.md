@@ -97,6 +97,9 @@ flowchart TD
 ### 2️⃣ Agent 2: Autonomous News & Social Sentiment Intelligence Engine
 * **Module:** [`multiagent_team/news_sentiment_agent.py`](multiagent_team/news_sentiment_agent.py)
 * **Core Task:** Scrapes breaking crypto news across the internet, parses market catalysts, computes composite sentiment, and notifies Telegram with estimated market impact.
+* **Dual-Tier Processing Architecture:**
+  * **Tier 1 (Internal Agent Intelligence):** 100% of scanned headlines across all sources are ingested and scored to continuously feed composite market sentiment, Fear & Greed posture, and dynamic risk multipliers for downstream agents (Agents 1, 3, 4, 6).
+  * **Tier 2 (Telegram Market-Mover Alerts):** Telegram alerts are strictly gated for **Critical Market-Moving Catalysts Only** (major protocol exploits, ETF rulings, Fed rate moves, exchange insolvencies). Routine commentary, price opinion pieces, and clickbait are silenced on Telegram to prevent notification fatigue while still informing trading agents.
 * **Ingestion Channels:**
   * **CoinDesk RSS & CoinTelegraph RSS:** Real-time institutional coverage, ETF flows, and protocol security events.
   * **Decrypt Media RSS:** On-chain developments, ecosystem announcements, and token dynamics.
@@ -106,10 +109,10 @@ flowchart TD
   * **Institutional Lexicon NLP:** Evaluates polarity (-1.0 to +1.0) and assigns sentiment labels (`VERY_BULLISH`, `BULLISH`, `NEUTRAL`, `BEARISH`, `VERY_BEARISH`).
   * **Catalyst Categorization:** Automatically classifies articles into `REGULATORY`, `MACRO_FED`, `INSTITUTIONAL`, `SECURITY_EXPLOIT`, and `MARKET_ACTION`.
   * **Target Asset Mapping:** Detects mentions of `BTC`, `ETH`, `SOL`, `XRP`, `DOGE`, and `GOLD`.
-  * **Impact Rating:** Evaluates volatility potential (`HIGH`, `MEDIUM`, `LOW`).
+  * **Critical Catalyst Filter:** Isolates true market movers using `CRITICAL_MARKET_MOVER_PHRASES` while eliminating `CLICKBAIT_NOISE_PHRASES`.
   * **Future Sentiment Guidance:** Generates actionable guidance for other agents (e.g. Clamps risk during extreme fear; widens stop loss buffer by 15% during high-impact news).
-  * **Telegram Alert Dispatcher:** Automatically posts breaking news cards and periodic global sentiment digests to Telegram with zero duplicate spam.
-* **Output:** Typed `MarketSentimentReport` and real-time Telegram cards.
+  * **Telegram Alert Dispatcher:** Real-time push notifications reserved exclusively for tier-1 breaking market catalysts with zero duplicate spam.
+* **Output:** Typed `MarketSentimentReport` and real-time Telegram critical alert cards.
 
 ### 3️⃣ Agent 3: Exposure Coach & Market Posture Engine
 * **Module:** [`multiagent_team/exposure_coach.py`](multiagent_team/exposure_coach.py)

@@ -159,18 +159,119 @@ def calculate_atr(highs: List[float], lows: List[float], closes: List[float], pe
 
 
 def calculate_macd(prices: List[float], fast: int = 12, slow: int = 26, signal: int = 9) -> Dict[str, List[float]]:
-    """Calculate MACD Line, Signal Line, and Histogram."""
+    """Calculate MACD Line, Signal Line, and Histogram with proper warm-up handling."""
+    if len(prices) < slow:
+        zeroes = [0.0] * len(prices)
+        return {"macd": zeroes, "signal": zeroes, "histogram": zeroes}
+
     fast_ema = calculate_ema(prices, fast)
     slow_ema = calculate_ema(prices, slow)
     
-    macd_line = [f - s for f, s in zip(fast_ema, slow_ema)]
-    signal_line = calculate_ema(macd_line, signal)
-    histogram = [m - s for m, s in zip(macd_line, signal_line)]
+    # Prior to slow warmup period, MACD is not yet active (zero-padded)
+    macd_line = [0.0 if i < (slow - 1) else (f - s) for i, (f, s) in enumerate(zip(fast_ema, slow_ema))]
+    
+    # Calculate signal line only across the valid MACD series to prevent signal line distortion
+    valid_macd = macd_line[slow - 1:]
+    valid_signal = calculate_ema(valid_macd, signal)
+    signal_line = [0.0] * (slow - 1) + valid_signal
+    
+    histogram = [0.0 if i < (slow + signal - 2) else (m - s) for i, (m, s) in enumerate(zip(macd_line, signal_line))]
     
     return {
         "macd": macd_line,
         "signal": signal_line,
         "histogram": histogram
+    }
+
+
+def analyze_macd(prices: List[float], fast: int = 12, slow: int = 26, signal: int = 9) -> Dict[str, Any]:
+    """
+    Computes comprehensive MACD intelligence:
+    - MACD Line, Signal Line, and Histogram values
+    - Crossover state: BULLISH_CROSS, BEARISH_CROSS, BULLISH_ALIGNED, BEARISH_ALIGNED, or NONE
+    - Zero-line stance: ABOVE_ZERO (Macro Bullish) vs BELOW_ZERO (Macro Bearish)
+    - Momentum phase:
+        * BULLISH_EXPANSION: Histogram > 0 and expanding upward
+        * BULLISH_DECELERATION: Histogram > 0 but contracting toward zero
+        * BEARISH_EXPANSION: Histogram < 0 and expanding downward
+        * BEARISH_DECELERATION: Histogram < 0 but contracting upward toward zero
+    - Overall MACD bias: STRONG_BULLISH, BULLISH, NEUTRAL, BEARISH, or STRONG_BEARISH
+    """
+    raw = calculate_macd(prices, fast, slow, signal)
+    macd_series = raw.get("macd", [])
+    signal_series = raw.get("signal", [])
+    hist_series = raw.get("histogram", [])
+
+    if not macd_series or not signal_series or not hist_series:
+        return {
+            "macd": 0.0,
+            "signal": 0.0,
+            "histogram": 0.0,
+            "crossover": "NONE",
+            "zero_line": "AT_ZERO",
+            "momentum_phase": "NEUTRAL",
+            "bias": "NEUTRAL",
+            "raw": raw
+        }
+
+    c_macd = macd_series[-1]
+    c_signal = signal_series[-1]
+    c_hist = hist_series[-1]
+
+    # Previous bar values for crossover and momentum phase detection
+    p_macd = macd_series[-2] if len(macd_series) >= 2 else c_macd
+    p_signal = signal_series[-2] if len(signal_series) >= 2 else c_signal
+    p_hist = hist_series[-2] if len(hist_series) >= 2 else c_hist
+
+    # 1. Crossover Detection
+    if p_macd <= p_signal and c_macd > c_signal:
+        crossover = "BULLISH_CROSS"
+    elif p_macd >= p_signal and c_macd < c_signal:
+        crossover = "BEARISH_CROSS"
+    elif c_macd > c_signal:
+        crossover = "BULLISH_ALIGNED"
+    elif c_macd < c_signal:
+        crossover = "BEARISH_ALIGNED"
+    else:
+        crossover = "NONE"
+
+    # 2. Zero-Line Regime Position
+    if c_macd > 0 and c_signal > 0:
+        zero_line = "ABOVE_ZERO"
+    elif c_macd < 0 and c_signal < 0:
+        zero_line = "BELOW_ZERO"
+    else:
+        zero_line = "CROSSING_ZERO"
+
+    # 3. Momentum Histogram Phase
+    if c_hist > 0:
+        momentum_phase = "BULLISH_EXPANSION" if c_hist >= p_hist else "BULLISH_DECELERATION"
+    elif c_hist < 0:
+        momentum_phase = "BEARISH_EXPANSION" if c_hist <= p_hist else "BEARISH_DECELERATION"
+    else:
+        momentum_phase = "NEUTRAL"
+
+    # 4. Synthesized Technical MACD Bias
+    if crossover == "BULLISH_CROSS" or (c_macd > c_signal and zero_line == "ABOVE_ZERO" and momentum_phase == "BULLISH_EXPANSION"):
+        bias = "STRONG_BULLISH"
+    elif c_macd > c_signal:
+        bias = "BULLISH"
+    elif crossover == "BEARISH_CROSS" or (c_macd < c_signal and zero_line == "BELOW_ZERO" and momentum_phase == "BEARISH_EXPANSION"):
+        bias = "STRONG_BEARISH"
+    elif c_macd < c_signal:
+        bias = "BEARISH"
+    else:
+        bias = "NEUTRAL"
+
+    return {
+        "macd": round(c_macd, 4),
+        "signal": round(c_signal, 4),
+        "histogram": round(c_hist, 4),
+        "crossover": crossover,
+        "zero_line": zero_line,
+        "momentum_phase": momentum_phase,
+        "bias": bias,
+        "raw": raw
     }
 
 
@@ -644,11 +745,11 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
     rsi_14 = calculate_rsi(closes, 14)[-1]
     atr_14 = calculate_atr(highs, lows, closes, 14)[-1]
     
-    # MACD
-    macd_res = calculate_macd(closes)
-    macd_val = macd_res["macd"][-1]
-    signal_val = macd_res["signal"][-1]
-    hist_val = macd_res["histogram"][-1]
+    # MACD Comprehensive Analysis
+    macd_res = analyze_macd(closes)
+    macd_val = macd_res["macd"]
+    signal_val = macd_res["signal"]
+    hist_val = macd_res["histogram"]
     
     # Support & Resistance
     sr = find_support_resistance(highs, lows, lookback=min(60, len(highs)))
@@ -698,6 +799,14 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
     if (regime.startswith("STRONG_BULLISH") and current_price > vwap_val) or (regime.startswith("STRONG_BEARISH") and current_price < vwap_val):
         conf_score += 15  # VWAP alignment
 
+    # MACD Momentum & Crossover Alignment in Regime Confidence
+    if "BULLISH" in regime and macd_res["bias"] in ("BULLISH", "STRONG_BULLISH"):
+        conf_score += 10  # MACD confirms bullish regime
+    elif "BEARISH" in regime and macd_res["bias"] in ("BEARISH", "STRONG_BEARISH"):
+        conf_score += 10  # MACD confirms bearish regime
+    elif ("BULLISH" in regime and "BEARISH" in macd_res["bias"]) or ("BEARISH" in regime and "BULLISH" in macd_res["bias"]):
+        conf_score -= 10  # MACD divergence against regime
+
     conf_score = max(10, min(100, conf_score))
 
     # Abnormal Volatility / Macro News Window Check
@@ -732,7 +841,11 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
         "macd": {
             "macd": round(macd_val, 4),
             "signal": round(signal_val, 4),
-            "histogram": round(hist_val, 4)
+            "histogram": round(hist_val, 4),
+            "crossover": macd_res["crossover"],
+            "zero_line": macd_res["zero_line"],
+            "momentum_phase": macd_res["momentum_phase"],
+            "bias": macd_res["bias"]
         },
         "support": round(sr["support"], 2),
         "resistance": round(sr["resistance"], 2),
@@ -1236,6 +1349,13 @@ def analyze_multi_timeframe(
             if is_killzone:
                 pb_score += 5
 
+            # MACD Momentum & Crossover Alignment
+            macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
+            if macd_15m.get("crossover") == "BULLISH_CROSS" or macd_15m.get("momentum_phase") == "BULLISH_EXPANSION":
+                pb_score += 10
+            elif macd_15m.get("histogram", 0) > 0 or "BULLISH" in macd_15m.get("bias", ""):
+                pb_score += 5
+
             qual_threshold = 85 if is_primary else 90
             if pb_score >= qual_threshold:
                 setup_score = pb_score
@@ -1246,8 +1366,9 @@ def analyze_multi_timeframe(
                 setup_qualified = True
                 setup_side = "buy"
                 strategy_label = "Intraday_EMA_Pullback_Scalp_Long"
+                m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
                 thesis = (
-                    f"Intraday 15m EMA Trend Bounce (Score {setup_score}/100): 1H {regime_1h}, holding 15m EMA21 support (${ema21_15m:.2f}). "
+                    f"Intraday 15m EMA Trend Bounce (Score {setup_score}/100{m_tag}): 1H {regime_1h}, holding 15m EMA21 support (${ema21_15m:.2f}). "
                     f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
                 )
 
@@ -1264,6 +1385,13 @@ def analyze_multi_timeframe(
             if is_killzone:
                 pb_score += 5
 
+            # MACD Momentum & Crossover Alignment
+            macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
+            if macd_15m.get("crossover") == "BEARISH_CROSS" or macd_15m.get("momentum_phase") == "BEARISH_EXPANSION":
+                pb_score += 10
+            elif macd_15m.get("histogram", 0) < 0 or "BEARISH" in macd_15m.get("bias", ""):
+                pb_score += 5
+
             qual_threshold = 85 if is_primary else 90
             if pb_score >= qual_threshold:
                 setup_score = pb_score
@@ -1274,8 +1402,9 @@ def analyze_multi_timeframe(
                 setup_qualified = True
                 setup_side = "sell"
                 strategy_label = "Intraday_EMA_Pullback_Scalp_Short"
+                m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
                 thesis = (
-                    f"Intraday 15m EMA Trend Rejection (Score {setup_score}/100): 1H {regime_1h}, capped under 15m EMA21 (${ema21_15m:.2f}). "
+                    f"Intraday 15m EMA Trend Rejection (Score {setup_score}/100{m_tag}): 1H {regime_1h}, capped under 15m EMA21 (${ema21_15m:.2f}). "
                     f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
                 )
 
@@ -1307,6 +1436,13 @@ def analyze_multi_timeframe(
             if is_killzone:
                 bd_score += 5
 
+            # MACD Momentum & Crossover Alignment
+            macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
+            if macd_15m.get("crossover") == "BEARISH_CROSS" or macd_15m.get("momentum_phase") == "BEARISH_EXPANSION":
+                bd_score += 10
+            elif macd_15m.get("histogram", 0) < 0 or "BEARISH" in macd_15m.get("bias", ""):
+                bd_score += 5
+
             qual_threshold = 85 if is_primary else 90
             if bd_score >= qual_threshold:
                 calc_entry = current_price
@@ -1320,8 +1456,9 @@ def analyze_multi_timeframe(
                 setup_side = "sell"
                 setup_score = min(98, bd_score)
                 strategy_label = "Institutional_Bearish_Breakdown_Short"
+                m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
                 thesis = (
-                    f"Institutional Bearish Breakdown Short (Score {setup_score}/100 · {session_label}): "
+                    f"Institutional Bearish Breakdown Short (Score {setup_score}/100 · {session_label}{m_tag}): "
                     f"Unified 4H {macro_4h_regime} & 1H {regime_1h} momentum continuation. "
                     f"Trading below EMA21 (${ema21_15m:.2f}) with RSI {rsi_15m:.1f}. "
                     f"Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."

@@ -106,6 +106,36 @@ class StrategyAgent:
             else:
                 adjusted_score -= 5  # Fighting immediate VWAP gravity
 
+        # MACD Multi-Timeframe Momentum Confluence
+        macd_1h = analysis.get("macd", {})
+        macro_15m = analysis.get("macro_15m", {})
+        macd_15m = macro_15m.get("macd", {}) if macro_15m else macd_1h
+
+        m15_cross = macd_15m.get("crossover", "NONE")
+        m15_phase = macd_15m.get("momentum_phase", "NEUTRAL")
+        m15_hist = float(macd_15m.get("histogram") or 0.0)
+        m1h_bias = macd_1h.get("bias", "NEUTRAL")
+
+        macd_boost = 0
+        if side == "buy":
+            if m15_cross in ("BULLISH_CROSS", "BULLISH_ALIGNED") or m15_phase == "BULLISH_EXPANSION":
+                macd_boost += 6
+                thesis = f"📈 [MACD BULLISH MOMENTUM] {thesis}"
+            elif m15_hist > 0 or "BULLISH" in m1h_bias:
+                macd_boost += 3
+            elif m15_phase == "BEARISH_EXPANSION" and m15_hist < 0:
+                macd_boost -= 6  # Buying against expanding bearish MACD
+        elif side == "sell":
+            if m15_cross in ("BEARISH_CROSS", "BEARISH_ALIGNED") or m15_phase == "BEARISH_EXPANSION":
+                macd_boost += 6
+                thesis = f"📉 [MACD BEARISH MOMENTUM] {thesis}"
+            elif m15_hist < 0 or "BEARISH" in m1h_bias:
+                macd_boost += 3
+            elif m15_phase == "BULLISH_EXPANSION" and m15_hist > 0:
+                macd_boost -= 6  # Shorting against expanding bullish MACD
+
+        adjusted_score += macd_boost
+
         # Adaptive Learning Check
         raw_strat = hp_setup.get("strategy") or f"Institutional_SMC_{priority_tag}_{side.upper()}"
         confluence_summary = {
@@ -166,7 +196,8 @@ class StrategyAgent:
                 "structure_detail": f"{liq.get('sweep_type', 'Structure Test')} | MSS: {'YES' if liq.get('mss_confirmed') else 'ALIGNED'}",
                 "patterns_detail": f"Candle: {analysis.get('candlestick_pattern', 'Normal')} | Chart: {analysis.get('chart_pattern', 'Normal')} | Trendline: {analysis.get('trendline_direction', 'Aligned')}",
                 "levels_detail": f"Support: ${analysis.get('support', 0):,.2f} | Resistance: ${analysis.get('resistance', 0):,.2f} | BSL: ${liq.get('nearest_bsl', 0):,.2f} | SSL: ${liq.get('nearest_ssl', 0):,.2f}",
-                "volume_rsi": f"1H RSI: {analysis.get('rsi_14', 50.0)} | Vol: {'CONFIRMED' if liq.get('volume_confirmed') else 'NORMAL'}"
+                "volume_rsi": f"1H RSI: {analysis.get('rsi_14', 50.0)} | Vol: {'CONFIRMED' if liq.get('volume_confirmed') else 'NORMAL'}",
+                "macd_detail": f"15m: {m15_cross} ({m15_phase}) | 1H: {m1h_bias}"
             }
         }
 

@@ -270,10 +270,13 @@ class TelegramConfirmationBot:
         losses = tm.get("losses", 0)
         win_rate = tm.get("win_rate_pct")
 
+        macd_detail = confluence.get("macd_detail")
+        macd_tag = f" · <code>MACD {macd_detail.split('|')[0].replace('15m:', '').strip()}</code>" if macd_detail else " · <code>MACD Aligned</code>"
+
         if sample_size and sample_size >= 6 and win_rate and win_rate > 0:
-            backtest_line = f"📊 <b>Empirical Backtest:</b> Tested <b>{sample_size} times</b> ({wins}W / {losses}L · <b>{win_rate:.0f}% Win Rate</b> · <b>1:{rr:.1f} R:R</b>)\n"
+            backtest_line = f"📊 <b>Empirical Backtest:</b> Tested <b>{sample_size} times</b> ({wins}W / {losses}L · <b>{win_rate:.0f}% Win Rate</b> · <b>1:{rr:.1f} R:R</b>){macd_tag}\n"
         else:
-            backtest_line = f"📊 <b>Market Edge:</b> Multi-Timeframe SMC Structure &amp; VWAP Alignment\n"
+            backtest_line = f"📊 <b>Market Edge:</b> Multi-Timeframe SMC, VWAP &amp; MACD Aligned{macd_tag}\n"
 
         score = trade_spec.get("score", 85)
         clean_strat = strategy.replace("_", " ").title()

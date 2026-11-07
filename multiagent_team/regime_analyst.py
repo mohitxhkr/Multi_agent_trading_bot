@@ -118,8 +118,9 @@ class RegimeAnalystAgent:
             btc_vol_state = btc_analysis.get("volatility_state", "NORMAL")
             btc_confidence = btc_analysis.get("regime_confidence", 50)
 
-        # 1. Market-Wide Breadth: % of watchlist trading above 20 EMA
+        # 1. Market-Wide Breadth: % of watchlist trading above 20 EMA and MACD Momentum Breadth
         above_ema_count = 0
+        macd_bullish_count = 0
         total_valid = 0
         funding_rates = []
         for s_data in results.values():
@@ -129,10 +130,17 @@ class RegimeAnalystAgent:
                 total_valid += 1
                 if c_price >= ema20:
                     above_ema_count += 1
+            
+            # Watchlist MACD Momentum Breadth
+            m_info = s_data.get("macd", {})
+            if m_info.get("histogram", 0) > 0 or "BULLISH" in m_info.get("bias", ""):
+                macd_bullish_count += 1
+
             if "funding_rate" in s_data:
                 funding_rates.append(s_data["funding_rate"])
 
         breadth_pct = round((above_ema_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
+        macd_breadth_pct = round((macd_bullish_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
 
         # 2. ETH/BTC Relative Strength
         eth_btc_relative_strength = 1.0
@@ -149,12 +157,16 @@ class RegimeAnalystAgent:
         elif avg_funding < -0.0001:
             funding_skew = "CROWDED_SHORTS"
 
+        btc_macd = btc_analysis.get("macd", {}) if btc_analysis else {}
+
         return {
             "overall_market_regime": overall_regime,
             "btc_adx": btc_adx,
             "btc_volatility_state": btc_vol_state,
+            "btc_macd": btc_macd,
             "regime_confidence_score": btc_confidence,
             "breadth_pct": breadth_pct,
+            "macd_breadth_pct": macd_breadth_pct,
             "eth_btc_relative_strength": eth_btc_relative_strength,
             "avg_funding_rate": avg_funding,
             "funding_rate_skew": funding_skew,

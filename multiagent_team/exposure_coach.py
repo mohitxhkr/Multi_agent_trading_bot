@@ -122,23 +122,27 @@ class ExposureCoachAgent:
         breadth_pct = (above_ema_count / total_symbols) * 100.0
         bearish_breadth_pct = ((total_symbols - above_ema_count) / total_symbols) * 100.0
         avg_alt_rs = (sum(alt_strengths) / len(alt_strengths)) if alt_strengths else 0.0
+
+        # Technical Momentum: MACD Watchlist Breadth Confluence
+        macd_breadth_pct = scan_results.get("macd_breadth_pct", breadth_pct)
+        composite_breadth = (breadth_pct * 0.65) + (macd_breadth_pct * 0.35)
         
         # 2. BTC Anchor Health (35 pts max) & Directional Trend Detection
         btc_h4 = btc_data.get("macro_4h", {}).get("regime", "MACRO_NEUTRAL")
         is_macro_bearish = "BEARISH" in btc_h4 or (macro_bear_count >= macro_bull_count and macro_bear_count >= total_symbols * 0.5)
 
         # Detect Unified Bearish Trend Expansion (Sell-off / Dump regime)
-        is_bearish_expansion = is_macro_bearish and bearish_breadth_pct >= 60.0
+        is_bearish_expansion = is_macro_bearish and (bearish_breadth_pct >= 60.0 or macd_breadth_pct <= 35.0)
 
         if is_bearish_expansion:
             direction_bias = "SHORTS_ONLY"
             # In a macro sell-off, bearish alignment gives full directional conviction
             btc_trend_score = 35
-            breadth_score = (bearish_breadth_pct / 100.0) * 45.0
+            breadth_score = ((100.0 - composite_breadth) / 100.0) * 45.0
         else:
-            direction_bias = "LONGS_ONLY" if ("BULLISH" in btc_h4 and breadth_pct >= 60.0) else "BOTH"
+            direction_bias = "LONGS_ONLY" if ("BULLISH" in btc_h4 and composite_breadth >= 60.0) else "BOTH"
             btc_trend_score = 35 if "BULLISH" in btc_h4 else (10 if "BEARISH" in btc_h4 else 20)
-            breadth_score = (breadth_pct / 100.0) * 45.0
+            breadth_score = (composite_breadth / 100.0) * 45.0
 
         # 4. Funding Rate Sentiment Alignment (20 pts max)
         avg_funding = (sum(funding_rates) / len(funding_rates)) if funding_rates else 0.0001

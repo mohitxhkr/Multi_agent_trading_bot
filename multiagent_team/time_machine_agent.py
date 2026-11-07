@@ -16,7 +16,7 @@ import time
 import math
 import logging
 from src.delta_client import DeltaExchangeClient
-from src.technical_analysis import calculate_ema, calculate_rsi
+from src.technical_analysis import calculate_ema, calculate_rsi, calculate_macd
 
 logger = logging.getLogger("time-machine-agent")
 
@@ -142,6 +142,10 @@ class TimeMachineAgent:
         rsi_series = calculate_rsi(closes, 14)
         ema21_series = calculate_ema(closes, 21)
         ema50_series = calculate_ema(closes, 50) if total_bars >= 50 else ema21_series
+        macd_series = calculate_macd(closes)
+        macd_line = macd_series.get("macd", [])
+        macd_signal = macd_series.get("signal", [])
+        macd_hist = macd_series.get("histogram", [])
 
         # Out-of-sample partition (70% in-sample train, 30% out-of-sample validation)
         split_idx = int(total_bars * 0.70)
@@ -156,6 +160,8 @@ class TimeMachineAgent:
             c_rsi = rsi_series[i]
             c_ema21 = ema21_series[i]
             c_ema50 = ema50_series[i]
+            c_m_hist = macd_hist[i] if i < len(macd_hist) else 0.0
+            p_m_hist = macd_hist[i - 1] if 0 < i < len(macd_hist) else c_m_hist
 
             is_match = False
 
@@ -168,7 +174,8 @@ class TimeMachineAgent:
                 is_breakout = highs[i] > recent_high and trend_aligned
                 is_ema_bounce = lows[i] <= c_ema21 * 1.002 and closes[i] >= c_ema21 and trend_aligned
                 is_momentum_impulse = closes[i] > opens[i] and c_rsi >= 45 and trend_aligned
-                if (swept_low or is_oversold_bounce or is_breakout or is_ema_bounce or is_momentum_impulse) and trend_aligned:
+                is_macd_confirmed = c_m_hist >= 0 or c_m_hist > p_m_hist
+                if (swept_low or is_oversold_bounce or is_breakout or is_ema_bounce or is_momentum_impulse) and (trend_aligned or is_macd_confirmed):
                     is_match = True
 
             elif side == "sell":
@@ -180,7 +187,8 @@ class TimeMachineAgent:
                 is_breakdown = lows[i] < recent_low and trend_aligned
                 is_ema_reject = highs[i] >= c_ema21 * 0.998 and closes[i] <= c_ema21 and trend_aligned
                 is_momentum_impulse = closes[i] < opens[i] and c_rsi <= 55 and trend_aligned
-                if (swept_high or is_overbought_reject or is_breakdown or is_ema_reject or is_momentum_impulse) and trend_aligned:
+                is_macd_confirmed = c_m_hist <= 0 or c_m_hist < p_m_hist
+                if (swept_high or is_overbought_reject or is_breakdown or is_ema_reject or is_momentum_impulse) and (trend_aligned or is_macd_confirmed):
                     is_match = True
 
             if is_match:

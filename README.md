@@ -85,14 +85,15 @@ flowchart TD
 
 ### 1️⃣ Agent 1: Market Regime Analyst
 * **Module:** [`multiagent_team/regime_analyst.py`](multiagent_team/regime_analyst.py)
-* **Core Task:** Classifies market trend, structural order flow, and relative asset strength across 6 timeframes.
+* **Core Task:** Classifies market trend, structural order flow, momentum, and relative asset strength across 6 timeframes.
 * **Inputs:** 15m, 1H, 4H, Daily, Weekly, and Monthly candlestick series, live Level-2 order books, and ticker statistics.
 * **Processing Logic:**
   * Validates feed integrity via `MarketDataValidator`.
-  * Computes 21, 50, and 200 EMAs, 14-period RSI, 14-period ADX, and intraday VWAP.
-  * Measures **Market-Wide Breadth** (% of watchlist assets trading above 20 EMA) and **ETH/BTC Relative Strength**.
+  * Computes 21, 50, and 200 EMAs, 14-period RSI, 14-period ADX, intraday VWAP, and **MACD (12, 26, 9)**.
+  * Evaluates **MACD Crossovers** (`BULLISH_CROSS` / `BEARISH_CROSS`), **Momentum Phase** (`BULLISH_EXPANSION` / `BEARISH_EXPANSION`), and **Zero-Line Stance**.
+  * Measures **Market-Wide Breadth** (% of watchlist assets trading above 20 EMA and % with Bullish MACD) and **ETH/BTC Relative Strength**.
   * Identifies funding rate skew to filter crowded longs (> +0.03%) or short cascades.
-* **Output:** Regime classifications, trend directions, breadth percentage, and support/resistance anchors.
+* **Output:** Regime classifications, trend directions, EMA/MACD breadth percentages, and support/resistance anchors.
 
 ### 2️⃣ Agent 2: Autonomous News & Social Sentiment Intelligence Engine
 * **Module:** [`multiagent_team/news_sentiment_agent.py`](multiagent_team/news_sentiment_agent.py)
@@ -116,9 +117,9 @@ flowchart TD
 ### 3️⃣ Agent 3: Exposure Coach & Market Posture Engine
 * **Module:** [`multiagent_team/exposure_coach.py`](multiagent_team/exposure_coach.py)
 * **Core Task:** Dictates capital exposure, allowable leverage, and portfolio risk posture based on macro health and news sentiment.
-* **Inputs:** Agent 1 breadth metrics, Agent 2 news sentiment composite scores, account margin utilization, and consecutive loss history.
+* **Inputs:** Agent 1 breadth & MACD metrics, Agent 2 news sentiment composite scores, account margin utilization, and consecutive loss history.
 * **Processing Logic:**
-  * Assesses Market Health score (0 to 100).
+  * Assesses Market Health score (0 to 100) combining 21 EMA structure and **MACD Momentum Breadth**.
   * Enforces Postures:
     * `AGGRESSIVE_EXPANSION` (Health >= 75): 100% risk budget, up to 2 concurrent positions.
     * `MODERATE_SELECTIVE` (Health 50-74): 75% risk budget, restricted to Tier-1 (`BTC`, `ETH`, `XAU`).
@@ -129,10 +130,13 @@ flowchart TD
 
 ### 4️⃣ Agent 4: Alpha Strategy Generator
 * **Module:** [`multiagent_team/strategy_agent.py`](multiagent_team/strategy_agent.py)
-* **Core Task:** Formulates precise entry, stop-loss, and take-profit trade setups using Smart Money Concepts.
-* **Inputs:** Multi-timeframe structures, VWAP levels, liquidity sweeps, and pattern memory adjustments.
+* **Core Task:** Formulates precise entry, stop-loss, and take-profit trade setups using Smart Money Concepts and multi-timeframe MACD confluence.
+* **Inputs:** Multi-timeframe structures, VWAP levels, MACD momentum indicators, liquidity sweeps, and pattern memory adjustments.
 * **Processing Logic:**
   * Rejects unconfirmed wicks: requires candle body close confirming Market Structure Shift (MSS).
+  * Enforces **MACD Confluence Verification**:
+    * Long entries require Bullish MACD crossover, positive histogram, or expansion (+6 to +10 pts). Setups buying into expanding bearish MACD are penalized.
+    * Short entries require Bearish MACD crossover, negative histogram, or expansion (+6 to +10 pts). Setups shorting into expanding bullish MACD are penalized.
   * Enforces **Structural Stop Invalidation**: Stop loss must align with structural swing extremes. Synthetic or arbitrary stops are strictly vetoed.
   * Mandates asymmetric payout: Planned Reward-to-Risk must be >= 2.20:1.
   * Assigns quality scores (0 to 100). Minimum score threshold: >= 85 for Primary assets; >= 90 for Secondary assets.
@@ -141,9 +145,10 @@ flowchart TD
 ### 5️⃣ Agent 5: Time Machine Probability Engine
 * **Module:** [`multiagent_team/time_machine_agent.py`](multiagent_team/time_machine_agent.py)
 * **Core Task:** Forward-simulates candidate setups against historical data to ensure empirical positive expectancy.
-* **Inputs:** Setup parameters and 400+ historical 15m candles.
+* **Inputs:** Setup parameters, 400+ historical 15m candles, and zero-lookahead MACD/RSI/EMA series.
 * **Processing Logic:**
   * **Zero Synthetic Stats Mandate:** If candles < 60, returns `INSUFFICIENT_DATA`. If matches < 8, returns `INSUFFICIENT_SAMPLE`. Never fabricates hypothetical wins or win rates.
+  * **Historical Pattern Walk:** Matches candlestick setups confirmed by EMA trends and MACD histogram impulse states.
   * **Walk-Forward Separation:** 70% in-sample training / 30% out-of-sample forward verification.
   * **Institutional Friction:** Deducts Delta maker/taker fees (0.10%), expected slippage (0.06%), and funding drag.
   * **Wilson 95% Confidence Interval:** Requires lower CI bound >= 45% to prevent small-sample overfitting.

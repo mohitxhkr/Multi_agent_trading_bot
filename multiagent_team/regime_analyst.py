@@ -124,6 +124,7 @@ class RegimeAnalystAgent:
         vwap_above_count = 0
         total_valid = 0
         funding_rates = []
+        spreads = []
         for s_data in results.values():
             c_price = s_data.get("current_price", 0.0)
             ema20 = s_data.get("ema_20", 0.0)
@@ -145,9 +146,15 @@ class RegimeAnalystAgent:
             if "funding_rate" in s_data:
                 funding_rates.append(s_data["funding_rate"])
 
+            sp = s_data.get("spread_pct")
+            if sp is not None and sp > 0:
+                spreads.append(sp)
+
         breadth_pct = round((above_ema_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
         macd_breadth_pct = round((macd_bullish_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
         vwap_breadth_pct = round((vwap_above_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
+        avg_spread = round(sum(spreads) / len(spreads), 3) if spreads else 0.04
+        market_liquidity_state = "PRIME_LIQUIDITY" if avg_spread <= 0.05 else ("NORMAL_LIQUIDITY" if avg_spread <= 0.12 else "ILLIQUID_CAUTION")
 
         # 2. ETH/BTC Relative Strength
         eth_btc_relative_strength = 1.0
@@ -177,6 +184,8 @@ class RegimeAnalystAgent:
             "breadth_pct": breadth_pct,
             "macd_breadth_pct": macd_breadth_pct,
             "vwap_breadth_pct": vwap_breadth_pct,
+            "avg_spread_pct": avg_spread,
+            "market_liquidity_state": market_liquidity_state,
             "eth_btc_relative_strength": eth_btc_relative_strength,
             "avg_funding_rate": avg_funding,
             "funding_rate_skew": funding_skew,

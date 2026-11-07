@@ -99,6 +99,68 @@ class TestMACDAnalysis(unittest.TestCase):
         # Score boosted by primary asset (+10), VWAP alignment (+5), and MACD impulse (+6)
         self.assertGreaterEqual(setup["score"], 90)
 
+    def test_liquidity_analysis_and_structure(self):
+        from src.technical_analysis import analyze_liquidity_pools_and_sweeps
+        # 30 bars series with a swing high at bar 10 (110.0) and swing low at bar 20 (90.0)
+        highs = [100.0] * 30
+        lows = [95.0] * 30
+        closes = [98.0] * 30
+        volumes = [1000.0] * 30
+
+        # Form swing high at index 10 (pivot_window=3 requires 3 bars before and after to be lower)
+        highs[10] = 110.0
+        # Form swing low at index 20
+        lows[20] = 90.0
+        # Current bar at index 29: price at 100.0
+        closes[-1] = 100.0
+
+        liq_res = analyze_liquidity_pools_and_sweeps(highs, lows, closes, volumes, pivot_window=3)
+        self.assertIn("nearest_bsl", liq_res)
+        self.assertIn("nearest_ssl", liq_res)
+        self.assertIn("bsl_distance_pct", liq_res)
+        self.assertIn("ssl_distance_pct", liq_res)
+        self.assertIn("liquidity_structure", liq_res)
+        self.assertEqual(liq_res["nearest_bsl"], 110.0)
+        self.assertEqual(liq_res["nearest_ssl"], 90.0)
+        self.assertAlmostEqual(liq_res["bsl_distance_pct"], 10.0, places=1)
+        self.assertAlmostEqual(liq_res["ssl_distance_pct"], 10.0, places=1)
+
+    def test_strategy_agent_liquidity_confluence(self):
+        agent = StrategyAgent()
+        analysis_liq = {
+            "symbol": "BTCUSD",
+            "current_price": 70000.0,
+            "vwap": 70000.0,
+            "spread_pct": 0.02,
+            "high_probability_setup": {
+                "qualified": True,
+                "side": "buy",
+                "strategy": "Liquidity_Sweep_MSS",
+                "score": 85,
+                "entry_price": 70000.0,
+                "stop_loss_price": 69200.0,
+                "take_profit_price": 72500.0,
+                "thesis": "SSL Sweep and MSS Confirmed"
+            },
+            "liquidity": {
+                "nearest_bsl": 72500.0,
+                "nearest_ssl": 69000.0,
+                "bsl_distance_pct": 3.57,
+                "ssl_distance_pct": 1.43,
+                "liquidity_structure": "SWEEP_MSS_CONFIRMED",
+                "sweep_type": "BULLISH_SSL_SWEEP",
+                "mss_confirmed": True
+            }
+        }
+        setup = agent.evaluate_setup(analysis_liq)
+        self.assertIsNotNone(setup)
+        self.assertIn("liquidity_detail", setup["confluence"])
+        self.assertIn("SWEEP_MSS_CONFIRMED", setup["confluence"]["liquidity_detail"])
+        self.assertIn("BSL: $72,500.00", setup["confluence"]["liquidity_detail"])
+        # Score boosted by Primary (+10), Bullish SSL Sweep + MSS (+8), BSL target (+3)
+        self.assertGreaterEqual(setup["score"], 95)
+        self.assertIn("💧 [BULLISH SSL SWEEP + MSS CONFIRMED]", setup["thesis"])
+
 
 if __name__ == "__main__":
     unittest.main()

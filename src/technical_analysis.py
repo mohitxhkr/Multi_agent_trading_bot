@@ -560,6 +560,9 @@ def analyze_liquidity_pools_and_sweeps(
             "ssl_levels": [],
             "nearest_bsl": 0.0,
             "nearest_ssl": 0.0,
+            "bsl_distance_pct": None,
+            "ssl_distance_pct": None,
+            "liquidity_structure": "INSUFFICIENT_DATA",
             "sweep_detected": False,
             "bias": "NEUTRAL",
             "narrative": "Insufficient bars for liquidity sweep calculation."
@@ -691,11 +694,28 @@ def analyze_liquidity_pools_and_sweeps(
         narrative = f"Price balancing between BSL (${nearest_bsl:.2f}) and SSL (${nearest_ssl:.2f})."
         bias = "EQUILIBRIUM"
 
+    bsl_dist_pct = round(abs(nearest_bsl - current_price) / current_price * 100.0, 2) if current_price > 0 else 0.0
+    ssl_dist_pct = round(abs(current_price - nearest_ssl) / current_price * 100.0, 2) if current_price > 0 else 0.0
+
+    if sweep_detected and mss_confirmed:
+        liq_structure = "SWEEP_MSS_CONFIRMED"
+    elif sweep_detected:
+        liq_structure = "SWEEP_WICK_REJECTION"
+    elif bsl_dist_pct <= 0.40:
+        liq_structure = "TESTING_BSL_LIQUIDITY"
+    elif ssl_dist_pct <= 0.40:
+        liq_structure = "TESTING_SSL_LIQUIDITY"
+    else:
+        liq_structure = "BALANCED_LIQUIDITY_CORE"
+
     return {
         "bsl_levels": bsl_above[:5],
         "ssl_levels": ssl_below[:5],
         "nearest_bsl": nearest_bsl,
         "nearest_ssl": nearest_ssl,
+        "bsl_distance_pct": bsl_dist_pct,
+        "ssl_distance_pct": ssl_dist_pct,
+        "liquidity_structure": liq_structure,
         "sweep_detected": sweep_detected,
         "sweep_type": sweep_type,
         "swept_level": swept_level,

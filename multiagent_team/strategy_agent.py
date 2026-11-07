@@ -163,6 +163,43 @@ class StrategyAgent:
 
         adjusted_score += macd_boost
 
+        # SMC Liquidity Pool & Sweep Confluence
+        liq_structure = liq.get("liquidity_structure", "BALANCED_LIQUIDITY_CORE")
+        sweep_type = liq.get("sweep_type")
+        mss_confirmed = liq.get("mss_confirmed", False)
+        nearest_bsl = float(liq.get("nearest_bsl") or 0.0)
+        nearest_ssl = float(liq.get("nearest_ssl") or 0.0)
+        bsl_dist_pct = liq.get("bsl_distance_pct")
+        ssl_dist_pct = liq.get("ssl_distance_pct")
+
+        liq_boost = 0
+        if side == "buy":
+            if sweep_type == "BULLISH_SSL_SWEEP":
+                if mss_confirmed or liq_structure == "SWEEP_MSS_CONFIRMED":
+                    liq_boost += 8
+                    thesis = f"💧 [BULLISH SSL SWEEP + MSS CONFIRMED] {thesis}"
+                else:
+                    liq_boost += 4
+                    thesis = f"💧 [BULLISH SSL SWEEP] {thesis}"
+            if nearest_bsl > entry:
+                liq_boost += 3
+            if liq_structure == "TESTING_BSL_LIQUIDITY":
+                liq_boost -= 4
+        elif side == "sell":
+            if sweep_type == "BEARISH_BSL_SWEEP":
+                if mss_confirmed or liq_structure == "SWEEP_MSS_CONFIRMED":
+                    liq_boost += 8
+                    thesis = f"💧 [BEARISH BSL SWEEP + MSS CONFIRMED] {thesis}"
+                else:
+                    liq_boost += 4
+                    thesis = f"💧 [BEARISH BSL SWEEP] {thesis}"
+            if nearest_ssl > 0 and nearest_ssl < entry:
+                liq_boost += 3
+            if liq_structure == "TESTING_SSL_LIQUIDITY":
+                liq_boost -= 4
+
+        adjusted_score += liq_boost
+
         # Adaptive Learning Check
         raw_strat = hp_setup.get("strategy") or f"Institutional_SMC_{priority_tag}_{side.upper()}"
         confluence_summary = {
@@ -225,7 +262,8 @@ class StrategyAgent:
                 "levels_detail": f"Support: ${analysis.get('support', 0):,.2f} | Resistance: ${analysis.get('resistance', 0):,.2f} | BSL: ${liq.get('nearest_bsl', 0):,.2f} | SSL: ${liq.get('nearest_ssl', 0):,.2f}",
                 "volume_rsi": f"1H RSI: {analysis.get('rsi_14', 50.0)} | Vol: {'CONFIRMED' if liq.get('volume_confirmed') else 'NORMAL'}",
                 "macd_detail": f"15m: {m15_cross} ({m15_phase}) | 1H: {m1h_bias}",
-                "vwap_detail": f"${vwap_val:,.2f} ({v_stance} | {v_band} | {v_slope})"
+                "vwap_detail": f"${vwap_val:,.2f} ({v_stance} | {v_band} | {v_slope})",
+                "liquidity_detail": f"BSL: ${nearest_bsl:,.2f} ({f'{bsl_dist_pct:+.2f}%' if bsl_dist_pct is not None else 'N/A'}) | SSL: ${nearest_ssl:,.2f} ({f'{ssl_dist_pct:+.2f}%' if ssl_dist_pct is not None else 'N/A'}) | State: {liq_structure} | Spread: {spread_pct:.3f}%"
             }
         }
 

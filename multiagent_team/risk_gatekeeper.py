@@ -92,6 +92,14 @@ class RiskGatekeeperAgent:
                 "reason": f"Symbol {symbol} in selective sniper cooldown ({remaining_mins}m remaining). Quality over quantity enforced."
             }
 
+        # 1.6. Order Book Liquidity & Spread Gate (Hard Veto on Illiquid Books)
+        spread_pct = float(setup.get("spread_pct") or 0.0)
+        if spread_pct > 0.15:
+            return {
+                "gate_decision": "REJECTED",
+                "reason": f"Order Book Liquidity Veto: Bid-ask spread ({spread_pct:.3f}%) exceeds safety ceiling (0.150%). High slippage risk."
+            }
+
         # 2. Check open positions and portfolio correlation
         pos_res = self.client.get_positions()
         raw_positions = pos_res.get("result", []) if pos_res.get("success") else []
@@ -341,6 +349,16 @@ class RiskGatekeeperAgent:
 
         final_liq_price = round(est_liq_price, 2)
 
+        liq_conf = setup.get("confluence", {}).get("liquidity_detail", "")
+        if spread_pct <= 0.04:
+            liq_grade = "A+_PRIME_DEPTH"
+        elif spread_pct <= 0.08:
+            liq_grade = "HIGH_DEPTH"
+        elif spread_pct <= 0.15:
+            liq_grade = "STANDARD_DEPTH"
+        else:
+            liq_grade = "ILLIQUID_CAUTION"
+
         return {
             "gate_decision": "APPROVED",
             "symbol": symbol,
@@ -348,6 +366,12 @@ class RiskGatekeeperAgent:
             "strategy": setup.get("strategy_name"),
             "thesis": setup.get("thesis"),
             "score": setup.get("score", 75),
+            "spread_pct": spread_pct,
+            "liquidity_profile": {
+                "spread_pct": spread_pct,
+                "liquidity_grade": liq_grade,
+                "liquidity_detail": liq_conf
+            },
             "risk_reward_category": rr_category,
             "risk_reward_badge": rr_badge,
             "risk_reward_desc": rr_desc,

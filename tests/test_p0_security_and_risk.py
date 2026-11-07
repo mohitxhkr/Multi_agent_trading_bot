@@ -425,6 +425,70 @@ class TestPriorityZeroRiskAndSecurity(unittest.TestCase):
         self.assertFalse(res["passed"])
         self.assertEqual(res["failure_code"], "CRITERION_6_INVERTED_STOP_LOSS")
 
+    def test_risk_gatekeeper_order_book_liquidity_veto(self):
+        """Risk Gatekeeper enforces hard veto when order book spread exceeds 0.15%."""
+        mock_client = MagicMock()
+        mock_client.get_wallet_balances.return_value = {
+            "success": True,
+            "result": [{"asset_symbol": "USDT", "balance": "1000.0"}]
+        }
+        mock_client.get_positions.return_value = {"success": True, "result": []}
+        risk_mgr = RiskManager()
+        gatekeeper = RiskGatekeeperAgent(client=mock_client, risk_manager=risk_mgr)
+
+        # Setup with illiquid spread = 0.22%
+        illiquid_setup = {
+            "symbol": "BTCUSD",
+            "side": "buy",
+            "entry_price": 70000.0,
+            "stop_loss_price": 69500.0,
+            "take_profit_price": 71500.0,
+            "spread_pct": 0.22  # > 0.15% ceiling
+        }
+
+        decision = gatekeeper.evaluate_candidate(illiquid_setup)
+        self.assertEqual(decision["gate_decision"], "REJECTED")
+        self.assertIn("Liquidity Veto", decision["reason"])
+        self.assertIn("0.220%", decision["reason"])
+
+    def test_risk_gatekeeper_liquidity_profile_approved(self):
+        """Risk Gatekeeper attaches liquidity grade and profile to approved setup."""
+        mock_client = MagicMock()
+        mock_client.get_wallet_balances.return_value = {
+            "success": True,
+            "result": [{"asset_symbol": "USDT", "balance": "1000.0"}]
+        }
+        mock_client.get_positions.return_value = {"success": True, "result": []}
+        mock_client.get_product_info.return_value = {
+            "contract_value": "0.001",
+            "lot_size": "1",
+            "tick_size": "1.0",
+            "maintenance_margin_rate": "0.01"
+        }
+        risk_mgr = RiskManager(max_dollar_risk_per_trade=4.0)
+        gatekeeper = RiskGatekeeperAgent(client=mock_client, risk_manager=risk_mgr)
+
+        prime_setup = {
+            "symbol": "BTCUSD",
+            "strategy_name": "SMC_Sweep_Long",
+            "thesis": "Bullish SSL sweep and MSS",
+            "side": "buy",
+            "entry_price": 70000.0,
+            "stop_loss_price": 69700.0,
+            "take_profit_price": 71000.0,
+            "spread_pct": 0.03,  # Prime liquid spread
+            "score": 92,
+            "confluence": {
+                "liquidity_detail": "BSL: $71,000.00 | SSL: $69,500.00 | State: SWEEP_MSS_CONFIRMED"
+            }
+        }
+
+        decision = gatekeeper.evaluate_candidate(prime_setup)
+        self.assertEqual(decision["gate_decision"], "APPROVED")
+        self.assertIn("liquidity_profile", decision)
+        self.assertEqual(decision["liquidity_profile"]["liquidity_grade"], "A+_PRIME_DEPTH")
+        self.assertEqual(decision["liquidity_profile"]["spread_pct"], 0.03)
+
 
 if __name__ == "__main__":
     unittest.main()

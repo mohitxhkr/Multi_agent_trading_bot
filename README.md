@@ -93,6 +93,8 @@ flowchart TD
   * Evaluates **VWAP Stance & Slope** (`ABOVE_VWAP` / `BELOW_VWAP`, `RISING_BULLISH` / `FALLING_BEARISH`, and Band Locations).
   * Evaluates **MACD Crossovers** (`BULLISH_CROSS` / `BEARISH_CROSS`), **Momentum Phase** (`BULLISH_EXPANSION` / `BEARISH_EXPANSION`), and **Zero-Line Stance**.
   * Measures **Market-Wide Breadth** (% of watchlist assets trading above 20 EMA, % with Bullish MACD, and % trading above Session VWAP) and **ETH/BTC Relative Strength**.
+  * Identifies **SMC Liquidity Pools & Sweeps**: Detects Buy-Side Liquidity (BSL) swing highs, Sell-Side Liquidity (SSL) swing lows, pool distance percentages, and classifies market structure state (`SWEEP_MSS_CONFIRMED`, `SWEEP_WICK_REJECTION`, `TESTING_BSL_LIQUIDITY`, `TESTING_SSL_LIQUIDITY`, `BALANCED_LIQUIDITY_CORE`).
+  * Evaluates **Market-Wide Order Book Liquidity Health**: Monitors average watchlist bid-ask spreads and rates universe liquidity quality (`PRIME_LIQUIDITY` <= 0.05%, `NORMAL_LIQUIDITY` <= 0.12%, `ILLIQUID_CAUTION`).
   * Identifies funding rate skew to filter crowded longs (> +0.03%) or short cascades.
 * **Output:** Regime classifications, trend directions, EMA/MACD/VWAP breadth percentages, and support/resistance anchors.
 
@@ -141,6 +143,9 @@ flowchart TD
   * Enforces **MACD Confluence Verification**:
     * Long entries require Bullish MACD crossover, positive histogram, or expansion (+6 to +10 pts). Setups buying into expanding bearish MACD are penalized.
     * Short entries require Bearish MACD crossover, negative histogram, or expansion (+6 to +10 pts). Setups shorting into expanding bullish MACD are penalized.
+  * Enforces **SMC Liquidity & Target Alignment**:
+    * Bullish setups: Awards +8 pts for Bullish SSL sweeps confirmed by MSS; awards +3 pts when TP targets the nearest Buy-Side Liquidity (BSL) pool; penalizes chasing setups testing un-swept BSL resistance.
+    * Bearish setups: Awards +8 pts for Bearish BSL sweeps confirmed by MSS; awards +3 pts when TP targets the nearest Sell-Side Liquidity (SSL) pool; penalizes shorting setups testing un-swept SSL support.
   * Enforces **Structural Stop Invalidation**: Stop loss must align with structural swing extremes. Synthetic or arbitrary stops are strictly vetoed.
   * Mandates asymmetric payout: Planned Reward-to-Risk must be >= 2.20:1.
   * Assigns quality scores (0 to 100). Minimum score threshold: >= 85 for Primary assets; >= 90 for Secondary assets.
@@ -166,6 +171,7 @@ flowchart TD
 * **Processing Logic:**
   * **Hard Dollar Ceiling:** Capped at `min(Equity * max_risk_pct, $4.00)`. High conviction cannot inflate dollar risk.
   * **Minimum Lot Protection:** If the minimum contract risk exceeds the risk budget, returns `gate_decision: "NO_TRADE"` and `contracts: 0`.
+  * **Pre-Trade Order Book Liquidity Gate:** Hard veto on illiquid books where the bid-ask spread exceeds 0.150% (slippage prevention). Approved setups are graded with institutional depth ratings (`A+_PRIME_DEPTH`, `HIGH_DEPTH`, `STANDARD_DEPTH`).
   * **MMR Liquidation Buffer:** Verifies liquidation price is >= 3.0x stop loss distance away; automatically de-leverages if buffer is insufficient.
   * **Correlated Exposure Gate:** Clamps concurrent directional crypto trades to a maximum of 2.
 * **Output:** Sized trade orders or strict `NO_TRADE` / `REJECTED` decisions.
@@ -175,7 +181,7 @@ flowchart TD
 * **Core Task:** Provides secure human authorization through interactive Telegram messages with integrated market sentiment intelligence.
 * **Inputs:** Approved trade specifications from Agent 6 and sentiment report from Agent 2.
 * **Processing Logic:**
-  * **Comprehensive Trade Proposal Card:** Displays quality score, risk-to-reward profile, exact entry/SL/TP, contracts, margin, backtest results, and **Institutional VWAP Anchor**.
+  * **Comprehensive Trade Proposal Card:** Displays quality score, risk-to-reward profile, exact entry/SL/TP, contracts, margin, backtest results, **Institutional VWAP Anchor**, and **💧 Liquidity Check** (BSL/SSL levels, distance %, structure state, and order book spread depth rating).
   * **Market Sentiment & Fear/Greed Pulse:** Embeds live Alternative.me Fear & Greed index (`78/100 Extreme Greed`), macro composite polarity (`🟢 BULLISH BIAS`), and symbol-specific sentiment directly into the proposal card.
   * **Sender Authentication:** Authenticates Telegram user ID against `AUTHORIZED_TELEGRAM_USERS`.
   * **Parameter-Bound Nonces:** Binds approvals to exact trade parameters; replayed nonces are rejected.

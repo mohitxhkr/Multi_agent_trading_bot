@@ -23,7 +23,7 @@ def generate_workflow():
     d.rounded_rectangle([(60, 40), (w - 60, 150)], radius=16, fill="#161b22", outline="#30363d", width=2)
     d.rounded_rectangle([(60, 40), (72, 150)], radius=4, fill="#10b981")
     d.text((95, 60), "🔄 END-TO-END QUANTITATIVE TRADING WORKFLOW PIPELINE", fill="#ffffff", font=f_title)
-    d.text((95, 112), "6 Execution Layers  •  10 Specialized Agents  •  14 Deterministic Safety Invariants  •  Authoritative SQLite Event Store", fill="#8b949e", font=f_sub)
+    d.text((95, 112), "6 Execution Layers  •  11 Specialized Agents  •  14 Deterministic Safety Invariants  •  Authoritative SQLite Event Store", fill="#8b949e", font=f_sub)
 
     # Status Pill
     d.rounded_rectangle([(w - 400, 65), (w - 85, 125)], radius=10, fill="#1f2937", outline="#10b981", width=2)
@@ -59,19 +59,33 @@ def generate_workflow():
         {
             "num": "STEP 02",
             "layer": "LAYER 1: INTELLIGENCE",
-            "title": "Regime & News Sentiment",
+            "title": "Regime & Market Breadth",
             "color": "#388bfd",
             "hdr_bg": "#1e3a5f",
             "bullets": [
                 "• 6-Timeframe EMA stacks (21, 50, 200)",
                 "• Market-Wide Breadth: % watchlist > 20 EMA",
-                "• News Scraper: CoinDesk, CoinTelegraph, Decrypt",
-                "• Fear & Greed Index API + Telegram News Alerts"
+                "• ETH/BTC Relative Strength leadership",
+                "• Crowded funding rate filter (> +0.03%)"
             ],
-            "agent": "Regime Analyst & News Sentiment"
+            "agent": "Agent 1: Regime Analyst"
         },
         {
             "num": "STEP 03",
+            "layer": "LAYER 1: NARRATIVE SENTIMENT",
+            "title": "News & Social Sentiment",
+            "color": "#06b6d4",
+            "hdr_bg": "#083344",
+            "bullets": [
+                "• CoinDesk, CoinTelegraph, Decrypt & Google News",
+                "• Alternative.me Fear & Greed Index (0-100)",
+                "• Catalyst Tag: REGULATORY, FED, EXPLOIT",
+                "• Real-time Telegram Breaking News Cards"
+            ],
+            "agent": "Agent 2: News Sentiment Engine"
+        },
+        {
+            "num": "STEP 04",
             "layer": "LAYER 1: POSTURE",
             "title": "Exposure & Posture",
             "color": "#06b6d4",
@@ -82,10 +96,10 @@ def generate_workflow():
                 "• Cash Priority: Health < 32 blocks ALL entries",
                 "• Clamps maximum isolated leverage (50x/25x)"
             ],
-            "agent": "Agent 2: Exposure Coach"
+            "agent": "Agent 3: Exposure Coach"
         },
         {
-            "num": "STEP 04",
+            "num": "STEP 05",
             "layer": "LAYER 2: STRATEGY",
             "title": "SMC Alpha Formulation",
             "color": "#8b5cf6",
@@ -96,12 +110,12 @@ def generate_workflow():
                 "• Structural Invalidation Stop (No synthetic stops)",
                 "• Strict Asymmetric Payout: Planned R:R >= 2.2:1"
             ],
-            "agent": "Agent 3: Strategy Generator"
+            "agent": "Agent 4: Strategy Generator"
         },
 
         # Row 2: Layers 2 & 3
         {
-            "num": "STEP 05",
+            "num": "STEP 06",
             "layer": "LAYER 2: PROBABILITY",
             "title": "Time Machine Simulator",
             "color": "#f59e0b",
@@ -112,10 +126,10 @@ def generate_workflow():
                 "• Zero Synthetic Stats: Fails closed on low data",
                 "• Wilson 95% CI lower bound >= 45% (EV >= +0.30R)"
             ],
-            "agent": "Agent 4: Time Machine Engine"
+            "agent": "Agent 5: Time Machine Engine"
         },
         {
-            "num": "STEP 06",
+            "num": "STEP 07",
             "layer": "LAYER 3: RISK SIZING",
             "title": "Pre-Trade Risk Sizing",
             "color": "#ef4444",
@@ -126,21 +140,7 @@ def generate_workflow():
                 "• Authoritative Delta Exchange MMR calculation",
                 "• Liquidation Buffer: Guaranteed >= 3.0x Stop Loss"
             ],
-            "agent": "Agent 5: Risk Gatekeeper"
-        },
-        {
-            "num": "STEP 07",
-            "layer": "LAYER 3: CIRCUIT BREAKER",
-            "title": "Multi-Horizon Drawdown",
-            "color": "#ef4444",
-            "hdr_bg": "#501313",
-            "bullets": [
-                "• Daily Drawdown (3%) -> HALTED state",
-                "• Weekly (5%) & Monthly (8%) Emergency Halt",
-                "• Consecutive Loss Limit: 3 losses -> 30m Cooldown",
-                "• Fail-Closed Persistence: Manual admin reset only"
-            ],
-            "agent": "src/risk_manager.py"
+            "agent": "Agent 6: Risk Gatekeeper"
         },
         {
             "num": "STEP 08",
@@ -154,7 +154,7 @@ def generate_workflow():
                 "• Replay suppression prevents duplicate clicks",
                 "• Live ticker revalidation: Aborts if drift > 0.40%"
             ],
-            "agent": "Agent 6: Telegram Gate"
+            "agent": "Agent 7: Telegram Gate"
         },
 
         # Row 3: Layers 4, 5 & 6
@@ -184,7 +184,7 @@ def generate_workflow():
                 "• Mandatory Stop-Loss verification on Delta orderbook",
                 "• Immediate emergency market close if SL unverified"
             ],
-            "agent": "Agent 7: Execution Engine"
+            "agent": "Agent 8: Execution Engine"
         },
         {
             "num": "STEP 11",
@@ -198,7 +198,7 @@ def generate_workflow():
                 "• Stage 2 (+1.10R): Green profit locked (+0.30R banked)",
                 "• Stage 3 (+1.50R): Core +0.85R locked -> Runner trail"
             ],
-            "agent": "Agent 8: Trailing Sentinel"
+            "agent": "Agent 9: Trailing Sentinel"
         },
         {
             "num": "STEP 12",
@@ -209,10 +209,10 @@ def generate_workflow():
             "bullets": [
                 "• Authoritative SQLite DB (state/trading_journal.db)",
                 "• Full lifecycle audit logging from setup to closure",
-                "• Postmortem scoring (0-100) and pattern memory",
-                "• Agent 10: Dynamic Operating Rules & Rollback guard"
+                "• Agent 10 (Adaptive Learner): Postmortem scoring",
+                "• Agent 11 (Performance Coach): Operating rules & rollback"
             ],
-            "agent": "Agents 9 & 10 + SQLite Journal"
+            "agent": "Agents 10 & 11 + SQLite Journal"
         }
     ]
 

@@ -1,6 +1,6 @@
 """
 Central Multi-Agent Orchestrator for Delta Exchange 24/7 Automated & Semi-Automated Trading.
-Coordinates 10 autonomous agents and shared infrastructure across 6 institutional layers
+Coordinates 11 autonomous agents and shared infrastructure across 6 institutional layers
 with standardized responses (SUCCESS, REJECTED, FAILED, TIMEOUT, SKIPPED).
 """
 
@@ -42,13 +42,13 @@ logger = logging.getLogger("orchestrator")
 
 class MultiAgentTradingOrchestrator:
     """
-    Central Controller for the 10-Agent Trading System.
+    Central Controller for the 11-Agent Trading System.
     Enforces the 6-Layer Architecture:
-      Layer 1 - Market Intelligence (DataValidator + Agent 1 + Agent 2)
-      Layer 2 - Strategy & Validation (Agent 3 + Agent 4)
-      Layer 3 - Risk & Authorization (Agent 5 + Agent 6)
-      Layer 4 - Execution & Management (Agent 7 + Agent 8)
-      Layer 5 - Learning & Optimization (Agent 9 + Agent 10)
+      Layer 1 - Market Intelligence (DataValidator + Agent 1 + Agent 2 + Agent 3)
+      Layer 2 - Strategy & Validation (Agent 4 + Agent 5)
+      Layer 3 - Risk & Authorization (Agent 6 + Agent 7)
+      Layer 4 - Execution & Management (Agent 8 + Agent 9)
+      Layer 5 - Learning & Optimization (Agent 10 + Agent 11)
       Layer 6 - Shared Infrastructure (Orchestrator, StateManager, EmergencyController, Monitoring, Telegram)
     """
     def __init__(
@@ -77,7 +77,7 @@ class MultiAgentTradingOrchestrator:
             min_reward_to_risk=target_rr_ratio
         )
         
-        # 10 Specialized Agents & Shared Intelligence
+        # 11 Specialized Agents
         self.regime_analyst = RegimeAnalystAgent(self.client, data_validator=self.data_validator)
         self.exposure_coach = ExposureCoachAgent()
         self.news_sentiment = NewsSentimentAgent()

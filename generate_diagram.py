@@ -29,7 +29,7 @@ def generate_diagram():
     d.rounded_rectangle([(60, 40), (72, 160)], radius=4, fill="#06b6d4")
     
     d.text((95, 62), "⚡ DELTA EXCHANGE MULTI-AGENT QUANTITATIVE TRADING WORKFLOW", fill="#ffffff", font=f_title)
-    d.text((95, 118), "10-Agent Architecture • Deterministic Safety Controller (14 Invariants) • Multi-Horizon Circuit Breakers • Authoritative SQLite Journal", fill="#8b949e", font=f_sub)
+    d.text((95, 118), "11-Agent Architecture • Deterministic Safety Controller (14 Invariants) • Multi-Horizon Circuit Breakers • Authoritative SQLite Journal", fill="#8b949e", font=f_sub)
 
     # Top Status Pill
     d.rounded_rectangle([(w - 430, 68), (w - 80, 132)], radius=12, fill="#1f2937", outline="#10b981", width=2)
@@ -58,25 +58,25 @@ def generate_diagram():
         d.text((x + card_w - 172, y + 20), badge_text, fill="#ffffff", font=f_card_tag)
 
     # -------------------------------------------------------------
-    # CARD 1: AGENTS 1 & 2 (REGIME ANALYST, EXPOSURE & NEWS SENTIMENT)
+    # CARD 1: AGENTS 1-3 (REGIME ANALYST, NEWS SENTIMENT & EXPOSURE)
     # -------------------------------------------------------------
-    draw_card_base(col1_x, row1_y, "🔍 LAYER 1: REGIME, EXPOSURE & NEWS", "INTELLIGENCE", "#388bfd", "#1e3a5f", "#0284c7")
+    draw_card_base(col1_x, row1_y, "🔍 AGENTS 1-3: REGIME, NEWS & EXPOSURE", "INTELLIGENCE", "#388bfd", "#1e3a5f", "#0284c7")
     cy = row1_y + 80
-    d.text((col1_x + 25, cy), "Macro Order Flow, Breadth & Market Posture Engine:", fill="#38bdf8", font=f_sec_title)
+    d.text((col1_x + 25, cy), "Macro Order Flow, Sentiment & Market Posture Engine:", fill="#38bdf8", font=f_sec_title)
     
     box_y = cy + 30
     d.rounded_rectangle([(col1_x + 25, box_y), (col1_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col1_x + 40, box_y + 12), "Agent 1 (6-TF Regime & Breadth):", fill="#38bdf8", font=f_box_title)
-    d.text((col1_x + 300, box_y + 13), "Watchlist % > EMA20 + ETH/BTC Relative Strength", fill="#c9d1d9", font=f_box_sub)
+    d.text((col1_x + 40, box_y + 12), "Agent 1 (Regime & Breadth):", fill="#38bdf8", font=f_box_title)
+    d.text((col1_x + 290, box_y + 13), "6-TF EMA stacks, VWAP & Watchlist % > EMA20", fill="#c9d1d9", font=f_box_sub)
 
     box_y += 52
     d.rounded_rectangle([(col1_x + 25, box_y), (col1_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col1_x + 40, box_y + 12), "News & Social Sentiment Engine:", fill="#38bdf8", font=f_box_title)
-    d.text((col1_x + 310, box_y + 13), "CoinDesk, CoinTelegraph, Decrypt & F&G Index + Telegram Alerts", fill="#c9d1d9", font=f_box_sub)
+    d.text((col1_x + 40, box_y + 12), "Agent 2 (News & Sentiment Engine):", fill="#38bdf8", font=f_box_title)
+    d.text((col1_x + 335, box_y + 13), "CoinDesk, CoinTelegraph, Decrypt & F&G Index + Telegram Alerts", fill="#c9d1d9", font=f_box_sub)
 
     box_y += 52
     d.rounded_rectangle([(col1_x + 25, box_y), (col1_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col1_x + 40, box_y + 12), "Agent 2 (Exposure Coach):", fill="#38bdf8", font=f_box_title)
+    d.text((col1_x + 40, box_y + 12), "Agent 3 (Exposure Coach):", fill="#38bdf8", font=f_box_title)
     d.text((col1_x + 265, box_y + 13), "Market Posture (AGGRESSIVE / DEFENSIVE / CASH) + Funding Skew", fill="#c9d1d9", font=f_box_sub)
 
     by = box_y + 55
@@ -86,9 +86,9 @@ def generate_diagram():
     d.text((col1_x + 25, by + 78), "• Crowded Funding Shield: Rejects long entries when funding rate > +0.03%.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
-    # CARD 2: AGENT 3 (STRATEGY GENERATOR)
+    # CARD 2: AGENT 4 (STRATEGY GENERATOR)
     # -------------------------------------------------------------
-    draw_card_base(col2_x, row1_y, "💡 AGENT 3: ALPHA STRATEGY GENERATOR", "ALPHA ENGINE", "#8b5cf6", "#3b1d6e", "#7c3aed")
+    draw_card_base(col2_x, row1_y, "💡 AGENT 4: ALPHA STRATEGY GENERATOR", "ALPHA ENGINE", "#8b5cf6", "#3b1d6e", "#7c3aed")
     cy = row1_y + 80
     d.text((col2_x + 25, cy), "Candidate Setup Edge & Structural Invalidation:", fill="#c084fc", font=f_sec_title)
 
@@ -114,9 +114,9 @@ def generate_diagram():
     d.text((col2_x + 25, by + 78), "• Proposal TTL: Time-to-live expiration at 60 minutes prevents stale orders.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
-    # CARD 3: AGENT 4 (TIME MACHINE PROBABILITY ENGINE)
+    # CARD 3: AGENT 5 (TIME MACHINE PROBABILITY ENGINE)
     # -------------------------------------------------------------
-    draw_card_base(col3_x, row1_y, "⏳ AGENT 4: TIME MACHINE SIMULATOR", "WALK-FORWARD OOS", "#f59e0b", "#522b07", "#d97706")
+    draw_card_base(col3_x, row1_y, "⏳ AGENT 5: TIME MACHINE SIMULATOR", "WALK-FORWARD OOS", "#f59e0b", "#522b07", "#d97706")
     cy = row1_y + 80
     d.text((col3_x + 25, cy), "Walk-Forward Simulation & Wilson 95% Confidence Interval:", fill="#fbbf24", font=f_sec_title)
 
@@ -142,9 +142,9 @@ def generate_diagram():
     d.text((col3_x + 25, by + 78), "• Empirical Metrics: Profit Factor >= 1.50x and non-negative OOS expectancy.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
-    # CARD 4: AGENT 5 (RISK GATEKEEPER & CIRCUIT BREAKER)
+    # CARD 4: AGENT 6 (RISK GATEKEEPER & CIRCUIT BREAKER)
     # -------------------------------------------------------------
-    draw_card_base(col1_x, row2_y, "🛡️ AGENT 5: RISK GATEKEEPER & SIZING", "HARD RISK LIMITS", "#ef4444", "#501313", "#dc2626")
+    draw_card_base(col1_x, row2_y, "🛡️ AGENT 6: RISK GATEKEEPER & SIZING", "HARD RISK LIMITS", "#ef4444", "#501313", "#dc2626")
     cy = row2_y + 80
     d.text((col1_x + 25, cy), "Mathematical Position Sizing & Multi-Horizon Circuit Breakers:", fill="#f87171", font=f_sec_title)
 
@@ -170,9 +170,9 @@ def generate_diagram():
     d.text((col1_x + 25, by + 78), "• Portfolio Concurrency Cap: Max 2 open positions total (Max 2 correlated crypto).", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
-    # CARD 5: AGENT 6 & DETERMINISTIC SAFETY CONTROLLER
+    # CARD 5: AGENT 7 & DETERMINISTIC SAFETY CONTROLLER
     # -------------------------------------------------------------
-    draw_card_base(col2_x, row2_y, "🔒 AGENT 6 & DETERMINISTIC SAFETY GATE", "14 INVARIANTS", "#06b6d4", "#083344", "#0891b2")
+    draw_card_base(col2_x, row2_y, "🔒 AGENT 7: TELEGRAM GATE & SAFETY", "14 INVARIANTS", "#06b6d4", "#083344", "#0891b2")
     cy = row2_y + 80
     d.text((col2_x + 25, cy), "14-Criterion Pure-Code Safety Controller & User Authorization:", fill="#38bdf8", font=f_sec_title)
 
@@ -198,15 +198,15 @@ def generate_diagram():
     d.text((col2_x + 25, by + 78), "• Fail-Safe User Authority: Human operator retains absolute authorization control.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
-    # CARD 6: AGENTS 7-10 (EXECUTION, SENTINEL, PERSISTENCE & COACH)
+    # CARD 6: AGENTS 8-11 (EXECUTION, SENTINEL, PERSISTENCE & COACH)
     # -------------------------------------------------------------
-    draw_card_base(col3_x, row2_y, "⚡ AGENTS 7-10: EXECUTION & ADAPTATION", "EXECUTE & LEARN", "#10b981", "#064e3b", "#059669")
+    draw_card_base(col3_x, row2_y, "⚡ AGENTS 8-11: EXECUTION & LEARNING", "EXECUTE & LEARN", "#10b981", "#064e3b", "#059669")
     cy = row2_y + 80
     d.text((col3_x + 25, cy), "Delta Execution, Stop Verification, Sentinel & SQLite Journal:", fill="#34d399", font=f_sec_title)
 
     box_y = cy + 30
     d.rounded_rectangle([(col3_x + 25, box_y), (col3_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col3_x + 40, box_y + 12), "Agent 7 (Execution Idempotency):", fill="#34d399", font=f_box_title)
+    d.text((col3_x + 40, box_y + 12), "Agent 8 (Execution Idempotency):", fill="#34d399", font=f_box_title)
     d.text((col3_x + 310, box_y + 13), "client_order_id + Pre-retry history reconciliation", fill="#8b949e", font=f_box_sub)
 
     box_y += 52

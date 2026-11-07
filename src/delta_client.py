@@ -38,12 +38,8 @@ class DeltaExchangeClient:
         base_url: Optional[str] = None,
         timeout: int = 15,
     ):
-        # Fallback to Delta Exchange testnet India demo credentials if unset
-        default_key = "REDACTED_DELTA_API_KEY"
-        default_secret = "REDACTED_DELTA_API_SECRET"
-
-        self.api_key = (api_key or os.getenv("DELTA_API_KEY") or default_key).strip()
-        self.api_secret = (api_secret or os.getenv("DELTA_API_SECRET") or default_secret).strip()
+        self.api_key = (api_key or os.getenv("DELTA_API_KEY") or "").strip()
+        self.api_secret = (api_secret or os.getenv("DELTA_API_SECRET") or "").strip()
         self.environment = (os.getenv("DELTA_ENVIRONMENT") or environment).lower()
         
         if base_url:
@@ -390,6 +386,30 @@ class DeltaExchangeClient:
         payload = {"leverage": str(leverage)}
         return self._request("POST", f"/v2/products/{pid}/orders/leverage", payload=payload, authenticated=True)
 
+    def get_order_by_client_id(self, client_order_id: str, symbol: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Query Delta Exchange to find an order by client_order_id.
+        First checks open orders, then order history.
+        """
+        if not client_order_id:
+            return {"success": False, "error": "client_order_id is required"}
+
+        # 1. Check open orders
+        open_res = self.get_open_orders(symbol=symbol)
+        if open_res.get("success"):
+            for order in open_res.get("result", []):
+                if order.get("client_order_id") == client_order_id:
+                    return {"success": True, "result": order, "source": "open_orders"}
+
+        # 2. Check recent order history
+        hist_res = self.get_order_history(symbol=symbol, page_size=50)
+        if hist_res.get("success"):
+            for order in hist_res.get("result", []):
+                if order.get("client_order_id") == client_order_id:
+                    return {"success": True, "result": order, "source": "order_history"}
+
+        return {"success": False, "error": "Order not found with client_order_id", "client_order_id": client_order_id}
+
     def place_order(
         self,
         symbol: str,
@@ -398,6 +418,7 @@ class DeltaExchangeClient:
         order_type: str = "limit_order",
         limit_price: Optional[float] = None,
         stop_price: Optional[float] = None,
+        client_order_id: Optional[str] = None,
         time_in_force: str = "gtc",
         post_only: bool = False,
         reduce_only: bool = False,
@@ -422,6 +443,9 @@ class DeltaExchangeClient:
             "reduce_only": reduce_only
         }
 
+        if client_order_id:
+            payload["client_order_id"] = str(client_order_id)
+
         if limit_price is not None:
             payload["limit_price"] = str(limit_price)
 
@@ -439,6 +463,7 @@ class DeltaExchangeClient:
         limit_price: Optional[float] = None,
         stop_loss_price: Optional[float] = None,
         take_profit_price: Optional[float] = None,
+        client_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Place order with attached protective bracket Stop-Loss and Take-Profit.
@@ -455,6 +480,9 @@ class DeltaExchangeClient:
             "time_in_force": "gtc"
         }
 
+        if client_order_id:
+            payload["client_order_id"] = str(client_order_id)
+
         if limit_price is not None:
             payload["limit_price"] = str(limit_price)
 
@@ -465,6 +493,36 @@ class DeltaExchangeClient:
         if take_profit_price is not None:
             payload["bracket_take_profit_price"] = str(take_profit_price)
             payload["bracket_take_profit_limit_price"] = str(take_profit_price)
+
+        return self._request("POST", "/v2/orders", payload=payload, authenticated=True)
+
+    def place_protective_stop(
+        self,
+        symbol: str,
+        size: int,
+        side: str,
+        stop_price: float,
+        client_order_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Place a dedicated reduce-only stop-loss order to ensure an open position is protected.
+        """
+        pid = self.get_product_id(symbol)
+        if not pid:
+            return {"success": False, "error": f"Product not found for symbol {symbol}"}
+
+        stop_side = "sell" if side.lower() == "buy" else "buy"
+        payload = {
+            "product_id": pid,
+            "size": int(size),
+            "side": stop_side,
+            "order_type": "stop_market_order",
+            "stop_price": str(stop_price),
+            "time_in_force": "gtc",
+            "reduce_only": True
+        }
+        if client_order_id:
+            payload["client_order_id"] = str(client_order_id)
 
         return self._request("POST", "/v2/orders", payload=payload, authenticated=True)
 

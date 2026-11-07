@@ -30,6 +30,7 @@ from multiagent_team.execution_agent import ExecutionAgent
 from multiagent_team.portfolio_monitor import PortfolioMonitorAgent
 from multiagent_team.adaptive_learning import AdaptiveLearningEngine
 from multiagent_team.performance_coach import PerformanceCoachAgent
+from multiagent_team.deterministic_safety_controller import DeterministicSafetyController
 from src.telegram_notifier import TelegramNotifier
 from src.telegram_bot import TelegramConfirmationBot
 from src.trailing_stop_manager import TrailingStopManager
@@ -81,7 +82,8 @@ class MultiAgentTradingOrchestrator:
         self.strategy_agent = StrategyAgent(target_rr_ratio=target_rr_ratio)
         self.time_machine = TimeMachineAgent(self.client)
         self.risk_gatekeeper = RiskGatekeeperAgent(self.client, self.risk_manager)
-        self.execution_agent = ExecutionAgent(self.client, state_manager=self.state_manager)
+        self.safety_controller = DeterministicSafetyController(risk_manager=self.risk_manager, state_manager=self.state_manager)
+        self.execution_agent = ExecutionAgent(self.client, state_manager=self.state_manager, telegram=self.telegram)
         self.portfolio_monitor = PortfolioMonitorAgent(self.client)
         self.adaptive_learner = AdaptiveLearningEngine()
         self.performance_coach = PerformanceCoachAgent(state_manager=self.state_manager)
@@ -382,11 +384,42 @@ class MultiAgentTradingOrchestrator:
                 return {"status": "TIMEOUT", "code": "USER_REJECTED_OR_EXPIRED", "trade": trade}
 
             # -------------------------------------------------------------
-            # Layer 4: Order Execution & Verification (Agent 7)
+            # Layer 4: Deterministic Safety Controller & Order Execution (Agent 7)
             # -------------------------------------------------------------
             t7 = time.time()
-            print("   🚀 User APPROVED! Submitting bracket order on Delta Exchange...")
-            exec_res = self.execution_agent.execute_approved_trade(trade, order_type="limit_order")
+            print("   🛡️ [Pre-Execution Gate] Validating 14 Deterministic Safety Criteria...")
+            
+            # Fetch fresh active positions and equity for safety validation
+            pos_res = self.client.get_positions()
+            active_pos = [p for p in pos_res.get("result", []) if abs(float(p.get("size", 0))) > 0] if pos_res.get("success") else []
+            wallet_res = self.client.get_wallet_balances()
+            tot_equity = 1000.0
+            if wallet_res.get("success"):
+                for b in wallet_res.get("result", []):
+                    if b.get("asset_symbol") in ["USDT", "USD"]:
+                        tot_equity = float(b.get("balance", 1000.0))
+
+            safety_token_res = self.safety_controller.validate_and_issue_token(
+                trade_setup=trade,
+                account_equity=tot_equity,
+                active_positions=active_pos,
+                telegram_approval={"approved": True, "expired": False}
+            )
+
+            if not safety_token_res.get("passed"):
+                failure_code = safety_token_res.get("failure_code", "SAFETY_VETO")
+                reason = safety_token_res.get("reason", "Safety check failed")
+                print(f"   🚨 [SAFETY CONTROLLER VETO] {failure_code}: {reason}. Trade aborted!")
+                self.system_monitor.record_trade_rejection(failure_code, trade["symbol"], reason)
+                return {"status": "REJECTED", "code": failure_code, "reason": reason}
+
+            token = safety_token_res.get("token")
+            print("   🚀 Safety Checks PASSED! Token issued. Submitting bracket order on Delta Exchange...")
+            exec_res = self.execution_agent.execute_approved_trade(
+                trade,
+                order_type="limit_order",
+                execution_token=token
+            )
             self.system_monitor.record_agent_duration("Agent7_ExecutionEngine", (time.time() - t7) * 1000)
 
             if exec_res.get("success"):

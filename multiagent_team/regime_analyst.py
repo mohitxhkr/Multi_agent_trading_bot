@@ -106,6 +106,7 @@ class RegimeAnalystAgent:
 
         # Determine overall crypto market health (BTC regime anchor)
         btc_analysis = results.get("BTCUSD") or results.get("BTCUSDT")
+        eth_analysis = results.get("ETHUSD") or results.get("ETHUSDT")
         overall_regime = "NEUTRAL"
         btc_adx = 20.0
         btc_vol_state = "NORMAL"
@@ -117,11 +118,46 @@ class RegimeAnalystAgent:
             btc_vol_state = btc_analysis.get("volatility_state", "NORMAL")
             btc_confidence = btc_analysis.get("regime_confidence", 50)
 
+        # 1. Market-Wide Breadth: % of watchlist trading above 20 EMA
+        above_ema_count = 0
+        total_valid = 0
+        funding_rates = []
+        for s_data in results.values():
+            c_price = s_data.get("current_price", 0.0)
+            ema20 = s_data.get("ema_20", 0.0)
+            if c_price > 0 and ema20 > 0:
+                total_valid += 1
+                if c_price >= ema20:
+                    above_ema_count += 1
+            if "funding_rate" in s_data:
+                funding_rates.append(s_data["funding_rate"])
+
+        breadth_pct = round((above_ema_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
+
+        # 2. ETH/BTC Relative Strength
+        eth_btc_relative_strength = 1.0
+        if eth_analysis and btc_analysis:
+            eth_change = eth_analysis.get("price_change_24h_pct", 0.0)
+            btc_change = btc_analysis.get("price_change_24h_pct", 0.0)
+            eth_btc_relative_strength = round((1.0 + eth_change / 100.0) / max(0.01, 1.0 + btc_change / 100.0), 3)
+
+        # 3. Funding Rate Skew
+        avg_funding = round(sum(funding_rates) / len(funding_rates), 6) if funding_rates else 0.0
+        funding_skew = "NEUTRAL"
+        if avg_funding > 0.0003:
+            funding_skew = "CROWDED_LONGS"
+        elif avg_funding < -0.0001:
+            funding_skew = "CROWDED_SHORTS"
+
         return {
             "overall_market_regime": overall_regime,
             "btc_adx": btc_adx,
             "btc_volatility_state": btc_vol_state,
             "regime_confidence_score": btc_confidence,
+            "breadth_pct": breadth_pct,
+            "eth_btc_relative_strength": eth_btc_relative_strength,
+            "avg_funding_rate": avg_funding,
+            "funding_rate_skew": funding_skew,
             "analyzed_count": len(results),
             "symbols_data": results
         }

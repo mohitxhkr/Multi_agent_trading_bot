@@ -41,13 +41,13 @@ class TelegramNotifier:
         chat_id: Optional[str] = None,
         enabled: bool = True
     ):
-        self.bot_token = (bot_token or os.getenv("TELEGRAM_BOT_TOKEN") or "REDACTED_TELEGRAM_BOT_TOKEN").strip()
-        self.chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID") or "123456789").strip()
+        self.bot_token = (bot_token or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+        self.chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID") or "").strip()
         self.enabled = enabled and bool(self.bot_token and self.chat_id)
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
 
-        if not self.enabled and not (self.bot_token and self.chat_id):
-            logger.info("TelegramNotifier: Disabled (TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured).")
+        if not self.enabled:
+            logger.info("TelegramNotifier: Disabled (TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured in environment).")
 
     def test_connection(self) -> Dict[str, Any]:
         """Test API connectivity with Telegram getMe endpoint."""

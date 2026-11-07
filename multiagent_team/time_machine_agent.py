@@ -4,6 +4,11 @@ Simulates candidate trade setups backwards through historical price data to calc
 empirical success rate, expected value (EV), fees/funding/slippage friction,
 Wilson score confidence intervals, out-of-sample validation, and Profit Factor
 BEFORE any trade is submitted to the Risk Gatekeeper or user for execution.
+
+CRITICAL COMPLIANCE:
+All synthetic fallbacks and fabricated backtest approvals have been completely removed.
+If data is missing or samples are small, the agent fails closed with INSUFFICIENT_DATA
+or INSUFFICIENT_SAMPLE.
 """
 
 from typing import Dict, Any, List, Optional
@@ -11,7 +16,7 @@ import time
 import math
 import logging
 from src.delta_client import DeltaExchangeClient
-from src.technical_analysis import calculate_ema, calculate_rsi, calculate_atr
+from src.technical_analysis import calculate_ema, calculate_rsi
 
 logger = logging.getLogger("time-machine-agent")
 
@@ -36,16 +41,17 @@ class TimeMachineAgent:
     """
     The 'Time Machine' Probability Engine.
     Evaluates every candidate trade by forward-simulating identical historical patterns
-    across hundreds of past candles to ensure positive mathematical expectancy.
+    across past candles to ensure positive mathematical expectancy without data snooping.
     """
     def __init__(
         self,
         client: Optional[DeltaExchangeClient] = None,
-        min_win_rate_pct: float = 70.0,
-        min_expected_value_r: float = 0.35,
+        min_win_rate_pct: float = 65.0,
+        min_expected_value_r: float = 0.30,
         lookback_candles: int = 400,
         max_simulation_bars: int = 48,
-        min_sample_size: int = 6
+        min_sample_size: int = 8,
+        min_oos_sample_size: int = 3
     ):
         self.client = client
         self.min_win_rate_pct = min_win_rate_pct
@@ -53,8 +59,9 @@ class TimeMachineAgent:
         self.lookback_candles = lookback_candles
         self.max_simulation_bars = max_simulation_bars
         self.min_sample_size = min_sample_size
+        self.min_oos_sample_size = min_oos_sample_size
 
-        # Institutional Friction Assumptions
+        # Institutional Friction Assumptions for Delta Exchange
         self.taker_fee_pct = 0.0005    # 0.05% per leg = 0.10% round-trip
         self.slippage_pct = 0.0003     # 0.03% per leg = 0.06% round-trip
         self.funding_est_pct = 0.0001  # 0.01% estimated funding drag
@@ -69,6 +76,8 @@ class TimeMachineAgent:
         """
         Run walk-forward simulation with out-of-sample validation, friction deduction,
         and Wilson confidence intervals.
+        Deterministic and evidence-driven: returns INSUFFICIENT_DATA or INSUFFICIENT_SAMPLE
+        when real statistical evidence is absent.
         """
         symbol = setup.get("symbol", "BTCUSD")
         side = setup.get("side", "buy").lower()
@@ -80,6 +89,13 @@ class TimeMachineAgent:
             return {
                 "passed": False,
                 "verdict": "VETOED_INVALID_PRICES",
+                "sample_size": 0,
+                "wins": 0,
+                "losses": 0,
+                "win_rate_pct": 0.0,
+                "wilson_ci_lower_pct": 0.0,
+                "expected_value_r": 0.0,
+                "profit_factor": 0.0,
                 "reason": "Invalid entry, stop loss, or take profit values for simulation."
             }
 
@@ -90,10 +106,14 @@ class TimeMachineAgent:
         # Fetch historical 15m candles if not supplied
         if not candles_15m or len(candles_15m.get("c", [])) < 80:
             if self.client:
-                now = int(time.time())
-                from_t = now - (900 * self.lookback_candles)
-                res = self.client.get_candles(symbol, resolution="15", from_time=from_t, to_time=now)
-                candles_15m = res.get("result", {}) if res.get("success") else {}
+                try:
+                    now = int(time.time())
+                    from_t = now - (900 * self.lookback_candles)
+                    res = self.client.get_candles(symbol, resolution="15", from_time=from_t, to_time=now)
+                    candles_15m = res.get("result", {}) if res and res.get("success") else {}
+                except Exception as e:
+                    logger.error(f"TimeMachine: Failed to fetch candles for {symbol}: {e}")
+                    candles_15m = {}
             else:
                 candles_15m = {}
 
@@ -104,20 +124,18 @@ class TimeMachineAgent:
 
         total_bars = len(closes)
         if total_bars < 60:
-            logger.warning(f"TimeMachine: Insufficient historical candles ({total_bars}) for {symbol}. Applying baseline statistical edge.")
+            logger.warning(f"TimeMachine: Insufficient historical candles ({total_bars}) for {symbol}. VETOING.")
             return {
-                "passed": True,
-                "verdict": "APPROVED_STATISTICAL_BASELINE",
-                "sample_size": 20,
-                "wins": 14,
-                "losses": 6,
-                "win_rate_pct": 70.0,
-                "wilson_ci_lower_pct": 52.0,
-                "expected_value_r": round((0.70 * planned_rr) - (0.30 * 1.0) - 0.08, 2),
-                "profit_factor": round((14 * (tp_dist_pct - self.total_friction_pct)) / max(6 * (sl_dist_pct + self.total_friction_pct), 0.001), 2),
-                "avg_mae_pct": round(sl_dist_pct * 0.45 * 100, 2),
-                "avg_bars_to_target": 14.5,
-                "reason": "Sufficient macro confluence verified with institutional baseline expectancy."
+                "passed": False,
+                "verdict": "INSUFFICIENT_DATA",
+                "sample_size": 0,
+                "wins": 0,
+                "losses": 0,
+                "win_rate_pct": 0.0,
+                "wilson_ci_lower_pct": 0.0,
+                "expected_value_r": 0.0,
+                "profit_factor": 0.0,
+                "reason": f"INSUFFICIENT_DATA: Only {total_bars} candles available for {symbol} (minimum 60 required). Real statistical simulation cannot be executed."
             }
 
         # Calculate indicators across history (strictly zero lookahead)
@@ -125,7 +143,7 @@ class TimeMachineAgent:
         ema21_series = calculate_ema(closes, 21)
         ema50_series = calculate_ema(closes, 50) if total_bars >= 50 else ema21_series
 
-        # Out-of-sample partition (70% in-sample, 30% out-of-sample)
+        # Out-of-sample partition (70% in-sample train, 30% out-of-sample validation)
         split_idx = int(total_bars * 0.70)
 
         matches = []
@@ -225,7 +243,7 @@ class TimeMachineAgent:
                     "max_adverse_pct": max_adverse * 100.0
                 })
 
-                # Skip forward past the simulated trade to avoid overlapping lookahead
+                # Skip forward past simulated trade to prevent overlapping lookahead bias
                 i += max(bars_held, 4)
             else:
                 i += 1
@@ -237,35 +255,28 @@ class TimeMachineAgent:
         total_resolved = len(resolved_trades)
         total_decisive = wins + losses
 
-        # Minimum sample size requirement
+        # Minimum sample size requirement: NO SYNTHETIC FALLBACKS
         if total_decisive < self.min_sample_size:
-            # Fall back to regime baseline if at least positive
-            win_rate = 72.0 if setup.get("score", 80) >= 80 else 64.0
-            ev_r = round(((win_rate / 100.0) * planned_rr) - ((1.0 - (win_rate / 100.0)) * 1.0) - 0.08, 2)
-            passed = win_rate >= self.min_win_rate_pct and ev_r >= self.min_expected_value_r
             return {
-                "passed": passed,
-                "verdict": "APPROVED_SYNTHETIC_REGIME" if passed else "VETOED_INSUFFICIENT_SAMPLE",
+                "passed": False,
+                "verdict": "INSUFFICIENT_SAMPLE",
                 "sample_size": total_decisive,
-                "wins": wins or 4,
-                "losses": losses or 2,
-                "win_rate_pct": win_rate,
-                "wilson_ci_lower_pct": 50.0,
-                "expected_value_r": ev_r,
-                "profit_factor": 2.2,
-                "avg_mae_pct": round(sl_dist_pct * 0.40 * 100, 2),
-                "avg_bars_to_target": 12.0,
+                "wins": wins,
+                "losses": losses,
+                "win_rate_pct": round((wins / total_decisive * 100.0), 1) if total_decisive > 0 else 0.0,
+                "wilson_ci_lower_pct": calculate_wilson_lower_bound(wins, total_decisive) if total_decisive > 0 else 0.0,
+                "expected_value_r": 0.0,
+                "profit_factor": 0.0,
                 "reason": (
-                    f"Statistical edge confirmed across regime cohort: {win_rate}% Win Rate, +{ev_r}R EV (Sample: {total_decisive} matches)."
-                    if passed else
-                    f"Time Machine VETO: Sample size too small ({total_decisive} matches) with unproven expectancy."
+                    f"INSUFFICIENT_SAMPLE: Found only {total_decisive} decisive historical trade matches "
+                    f"({self.min_sample_size} minimum required). Trade candidate rejected to prevent overfitting."
                 )
             }
 
         win_rate = round((wins / max(1, total_decisive)) * 100.0, 1)
         wilson_lower = calculate_wilson_lower_bound(wins, total_decisive)
-        
-        # Friction-Adjusted Expectancy (fees + slippage + funding deducted)
+
+        # Friction-Adjusted Expectancy (Delta fees + slippage + funding deducted)
         friction_r_penalty = self.total_friction_pct / sl_dist_pct if sl_dist_pct > 0 else 0.08
         ev_r = round(((win_rate / 100.0) * planned_rr) - ((1.0 - (win_rate / 100.0)) * 1.0) - friction_r_penalty, 2)
 
@@ -274,42 +285,80 @@ class TimeMachineAgent:
         gross_loss = losses * (sl_dist_pct + self.total_friction_pct)
         profit_factor = round(gross_profit / max(gross_loss, 0.0001), 2)
 
-        avg_mae = round(sum(m["max_adverse_pct"] for m in matches) / len(matches), 2)
-        avg_bars = round(sum(m["bars_held"] for m in matches) / len(matches), 1)
+        avg_mae = round(sum(m["max_adverse_pct"] for m in matches) / len(matches), 2) if matches else 0.0
+        avg_bars = round(sum(m["bars_held"] for m in matches) / len(matches), 1) if matches else 0.0
 
-        # Out-of-sample validation check
+        # Out-of-sample validation check (strict: no synthetic fallback)
         oos_matches = [m for m in resolved_trades if m.get("is_out_of_sample")]
-        oos_wins = sum(1 for m in oos_matches if m["outcome"] == "WIN")
-        oos_win_rate = round((oos_wins / len(oos_matches) * 100.0), 1) if oos_matches else win_rate
+        oos_decisive = [m for m in oos_matches if m["outcome"] in ["WIN", "LOSS"]]
+        oos_wins = sum(1 for m in oos_decisive if m["outcome"] == "WIN")
+        
+        oos_valid = len(oos_decisive) >= self.min_oos_sample_size
+        oos_win_rate = round((oos_wins / len(oos_decisive) * 100.0), 1) if oos_valid else None
+        oos_ev_r = (
+            round(((oos_win_rate / 100.0) * planned_rr) - ((1.0 - (oos_win_rate / 100.0)) * 1.0) - friction_r_penalty, 2)
+            if oos_valid and oos_win_rate is not None else None
+        )
+
+        # Statistical Sharpe Ratio estimation (if N >= 10)
+        sharpe_ratio = None
+        if total_decisive >= 10:
+            returns_r = [planned_rr if m["outcome"] == "WIN" else -1.0 for m in resolved_trades if m["outcome"] in ["WIN", "LOSS"]]
+            mean_r = sum(returns_r) / len(returns_r)
+            var_r = sum((x - mean_r) ** 2 for x in returns_r) / (len(returns_r) - 1)
+            std_r = math.sqrt(var_r) if var_r > 0 else 0.0
+            if std_r > 0:
+                sharpe_ratio = round((mean_r / std_r) * math.sqrt(252 * 4), 2)  # annualized assuming 4 trades/day
 
         # Decision standard:
-        # 1. Win Rate >= 70% (or Wilson lower bound >= 48%)
-        # 2. Friction-adjusted EV >= +0.35R
+        # 1. In-sample empirical edge: win_rate >= min_win_rate_pct or (planned_rr >= 2.4 and win_rate >= 60.0)
+        # 2. Friction-adjusted EV >= min_expected_value_r
         # 3. Profit Factor >= 1.50x
-        passed = (win_rate >= self.min_win_rate_pct or (planned_rr >= 2.4 and win_rate >= 62.0)) and (ev_r >= self.min_expected_value_r) and (profit_factor >= 1.50)
+        # 4. Out-of-sample validation must be valid and positive (or if OOS sample too small, require higher Wilson CI)
+        edge_passed = (win_rate >= self.min_win_rate_pct or (planned_rr >= 2.4 and win_rate >= 60.0))
+        ev_passed = (ev_r >= self.min_expected_value_r)
+        pf_passed = (profit_factor >= 1.50)
+        oos_passed = (oos_ev_r >= 0.0) if (oos_valid and oos_ev_r is not None) else (wilson_lower >= 45.0)
 
-        verdict = "APPROVED_BY_TIME_MACHINE" if passed else "VETOED_BY_TIME_MACHINE"
-        reason = (
-            f"Time Machine PASS: {win_rate}% Win Rate ({wins}W / {losses}L, Wilson 95% Lower: {wilson_lower}%), "
-            f"Friction-Adjusted EV: +{ev_r}R, Profit Factor: {profit_factor}x, OOS Win Rate: {oos_win_rate}%."
+        passed = edge_passed and ev_passed and pf_passed and oos_passed
+
+        verdict = "APPROVED" if passed else "REJECTED"
+        reasons = []
+        if not edge_passed:
+            reasons.append(f"Win rate {win_rate}% below required {self.min_win_rate_pct}%")
+        if not ev_passed:
+            reasons.append(f"Friction-adjusted EV {ev_r:+.2f}R below minimum {self.min_expected_value_r}R")
+        if not pf_passed:
+            reasons.append(f"Profit factor {profit_factor}x below 1.50x")
+        if not oos_passed:
+            reasons.append(f"Out-of-sample validation failed (OOS Win Rate: {oos_win_rate}%, Wilson Lower: {wilson_lower}%)")
+
+        reason_str = (
+            f"Time Machine APPROVED: {win_rate}% Win Rate ({wins}W / {losses}L / {breakevens}BE, Wilson 95% Lower: {wilson_lower}%), "
+            f"Friction-Adjusted EV: +{ev_r}R, Profit Factor: {profit_factor}x, OOS Win Rate: {oos_win_rate if oos_win_rate is not None else 'N/A'}%."
             if passed else
-            f"Time Machine VETO: Insufficient mathematical edge ({win_rate}% Win Rate, EV: {ev_r:+.2f}R, "
-            f"PF: {profit_factor}x). Capital protected."
+            f"Time Machine REJECTED: {'; '.join(reasons)}."
         )
 
         return {
             "passed": passed,
             "verdict": verdict,
-            "sample_size": total_resolved,
+            "sample_size": total_decisive,
+            "total_matches": total_resolved,
             "wins": wins,
             "losses": losses,
+            "breakevens": breakevens,
             "win_rate_pct": win_rate,
             "wilson_ci_lower_pct": wilson_lower,
+            "oos_valid": oos_valid,
+            "oos_sample_size": len(oos_decisive),
             "oos_win_rate_pct": oos_win_rate,
+            "oos_expected_value_r": oos_ev_r,
             "expected_value_r": ev_r,
             "profit_factor": profit_factor,
+            "sharpe_ratio": sharpe_ratio,
             "avg_mae_pct": avg_mae,
             "avg_bars_to_target": avg_bars,
             "friction_deducted_pct": round(self.total_friction_pct * 100, 3),
-            "reason": reason
+            "reason": reason_str
         }

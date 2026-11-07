@@ -38,6 +38,7 @@ reference_repo/
 
 # Runtime state and generated reports
 state/*.json
+state/*.jsonl
 state/*.log
 state/*.db
 state/*.sqlite

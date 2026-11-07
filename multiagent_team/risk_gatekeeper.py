@@ -10,6 +10,7 @@ import os
 import logging
 from src.risk_manager import RiskManager
 from src.delta_client import DeltaExchangeClient
+from src.config import config
 
 logger = logging.getLogger("risk-gatekeeper")
 
@@ -19,13 +20,13 @@ class RiskGatekeeperAgent:
         self,
         client: DeltaExchangeClient,
         risk_manager: RiskManager,
-        max_portfolio_open_risk_usd: float = 8.00,
-        cooldown_seconds: int = 1800
+        max_portfolio_open_risk_usd: Optional[float] = None,
+        cooldown_seconds: Optional[int] = None
     ):
         self.client = client
         self.risk_manager = risk_manager
-        self.max_portfolio_open_risk_usd = max_portfolio_open_risk_usd
-        self.cooldown_seconds = cooldown_seconds
+        self.max_portfolio_open_risk_usd = max_portfolio_open_risk_usd or (config.max_dollar_risk_per_trade * 2.0)
+        self.cooldown_seconds = cooldown_seconds or config.cooldown_seconds
         self.last_trade_time: Dict[str, float] = {}
 
     def register_execution(self, symbol: str):
@@ -62,7 +63,7 @@ class RiskGatekeeperAgent:
         for b in balances:
             if b.get("asset_symbol") in ("USDT", "USD"):
                 bal = float(b.get("balance", 0.0))
-                avail = float(b.get("available_balance", 0.0))
+                avail = float(b.get("available_balance") if b.get("available_balance") is not None else bal)
                 if bal > total_usdt:
                     total_usdt = bal
                     available_usdt = avail
@@ -170,7 +171,8 @@ class RiskGatekeeperAgent:
         dd_risk_scalar = 0.70 if current_dd_pct > 0.02 else 1.0
 
         # Conviction Sizing Engine:
-        # When a setup is of superior quality ("good" / high conviction), scale up quantity/lot size to maximize profit
+        # High strategy confidence may affect trade ranking or reduce risk for lower quality setups,
+        # but configured maximum risk is an absolute hard ceiling and CANNOT be multiplied above 1.0x!
         score = int(setup.get("score") or 75)
         tm = setup.get("time_machine", {})
         tm_win_rate = float(tm.get("win_rate_pct") or 50.0)
@@ -181,63 +183,114 @@ class RiskGatekeeperAgent:
         conviction_tier = "STANDARD"
         conviction_reasons = []
 
-        # Tier 1: A+ Prime Conviction Setup (Score >= 90 & (TM Win Rate >= 70% or TM EV >= 0.40R or Reinforced))
-        if score >= 90 and (tm_win_rate >= 70.0 or tm_ev >= 0.40 or is_reinforced):
-            conviction_multiplier = 2.0 if is_primary else 1.50  # Up to 2.0x contract boost for Primary A+ setups
+        # Ranking tiers (for prioritization only, never to exceed hard risk budget)
+        if score >= 90 and (tm_win_rate >= 65.0 or tm_ev >= 0.35 or is_reinforced):
             conviction_tier = "A+_PRIME_CONVICTION"
             conviction_reasons.append(f"A+ Setup (Score: {score}/100, TM EV: +{tm_ev}R, Win Rate: {tm_win_rate}%)")
-        # Tier 2: High Conviction Setup (Score >= 85 or (Score >= 80 and TM EV >= 0.35R))
-        elif score >= 85 or (score >= 80 and tm_ev >= 0.35):
-            conviction_multiplier = 1.60 if is_primary else 1.30  # +60% contract boost
+        elif score >= 85 or (score >= 80 and tm_ev >= 0.30):
             conviction_tier = "HIGH_CONVICTION"
             conviction_reasons.append(f"High Quality Setup (Score: {score}/100, TM EV: +{tm_ev}R)")
-        # Tier 3: Empirically Reinforced Historical Pattern
         elif is_reinforced:
-            conviction_multiplier = 1.35 if is_primary else 1.20  # +35% contract boost
             conviction_tier = "REINFORCED_EDGE"
             conviction_reasons.append("Empirically Reinforced Historical Pattern")
 
-        base_dollar_risk_cap = float(os.getenv("MAX_DOLLAR_RISK_PER_TRADE", "4.00" if is_primary else "2.00"))
-        max_dollar_risk_cap = base_dollar_risk_cap * dd_risk_scalar * conviction_multiplier
-
-        target_risk_pct = (0.02 if is_primary else 0.015) * dd_risk_scalar * conviction_multiplier
-        # When trade setup is good/high conviction, scale up contract risk to the max budget for maximum profit
-        if conviction_multiplier >= 1.5:
-            calculated_dollar_risk = max_dollar_risk_cap
-        else:
-            calculated_dollar_risk = min(max(total_usdt * target_risk_pct, 1.50 * conviction_multiplier), max_dollar_risk_cap)
+        # Absolute Hard Risk Budget:
+        hard_dollar_risk_cap = float(
+            self.risk_manager.max_dollar_risk_per_trade if is_primary else min(self.risk_manager.max_dollar_risk_per_trade, 2.50)
+        )
+        target_risk_pct = float(
+            self.risk_manager.max_risk_per_trade_pct if is_primary else (self.risk_manager.max_risk_per_trade_pct * 0.75)
+        )
+        
+        # Max dollar risk is strictly capped by hard limits and scaled down by drawdown
+        calculated_dollar_risk = min(
+            hard_dollar_risk_cap * dd_risk_scalar,
+            total_usdt * target_risk_pct * dd_risk_scalar
+        )
 
         # Include estimated round-trip taker fees (0.10%) + slippage (0.06%) into risk unit
         friction_per_contract = per_contract_notional * 0.0016
         risk_per_contract = (contract_value * stop_distance) + friction_per_contract
 
-        raw_contracts = int(calculated_dollar_risk / risk_per_contract) if risk_per_contract > 0 else 1
-        # Align with lot size
-        contracts = max(lot_size, (raw_contracts // lot_size) * lot_size)
+        if risk_per_contract <= 0:
+            return {"gate_decision": "REJECTED", "reason": "Invalid zero or negative risk per contract."}
 
-        # 6. Pre-Check Liquidation Buffer (Isolated Leverage)
-        # Estimated liquidation distance should be safely >= 3.0x stop loss distance
-        est_liq_distance = (entry / leverage) * 0.90  # 90% bankruptcy buffer
-        if est_liq_distance < (2.5 * stop_distance):
-            # Safe de-leverage if liquidation is too close to Stop Loss
-            safe_leverage = max(5, int((entry * 0.90) / (3.0 * stop_distance)))
+        raw_contracts = int(calculated_dollar_risk / risk_per_contract)
+        # Align strictly with lot size steps
+        aligned_contracts = (raw_contracts // lot_size) * lot_size
+
+        # CRITICAL SAFETY RULE: Never force a minimum contract quantity if it exceeds the permitted risk budget!
+        if aligned_contracts < lot_size:
+            min_contract_risk = lot_size * risk_per_contract
+            logger.warning(
+                f"RiskGatekeeper: Minimum tradable lot size ({lot_size} contracts, risk ${min_contract_risk:.2f}) "
+                f"exceeds permitted risk budget (${calculated_dollar_risk:.2f}). Returning NO_TRADE."
+            )
+            return {
+                "gate_decision": "NO_TRADE",
+                "contracts": 0,
+                "reason": f"NO_TRADE: Minimum tradable quantity ({lot_size} contracts, risk ${min_contract_risk:.2f}) exceeds permitted risk budget (${calculated_dollar_risk:.2f})."
+            }
+
+        contracts = aligned_contracts
+
+        # 6. Instrument-Specific Liquidation Buffer Calculation
+        # Enforce maximum leverage ceiling from config and risk manager
+        max_lev_ceiling = min(config.max_allowed_leverage, self.risk_manager.max_allowed_leverage)
+        leverage = min(leverage, max_lev_ceiling)
+        
+        # Query authoritative maintenance margin rate (MMR) from product info
+        mmr = float(pinfo.get("maintenance_margin_rate") or 0.01) if pinfo else 0.01
+        imr = 1.0 / leverage if leverage > 0 else 0.04
+
+        if side == "buy":
+            est_liq_price = entry * (1.0 - imr) / max(0.001, 1.0 - mmr)
+            est_liq_distance = max(0.0, entry - est_liq_price)
+        else:
+            est_liq_price = entry * (1.0 + imr) / max(0.001, 1.0 + mmr)
+            est_liq_distance = max(0.0, est_liq_price - entry)
+
+        required_liq_buffer = config.liquidation_buffer_multiple * stop_distance
+        if est_liq_distance < required_liq_buffer:
+            # Deterministic de-leverage until liquidation buffer is safe
+            needed_imr = (required_liq_buffer / entry) * (1.0 - mmr) + mmr
+            safe_leverage = max(1, min(int(1.0 / needed_imr) if needed_imr > 0 else 5, max_lev_ceiling))
             if safe_leverage < leverage:
-                logger.info(f"RiskGatekeeper: Clamping leverage on {symbol} from {leverage}x to {safe_leverage}x for liquidation safety.")
+                logger.info(f"RiskGatekeeper: Clamping leverage on {symbol} from {leverage}x to {safe_leverage}x for liquidation safety buffer.")
                 leverage = safe_leverage
+                imr = 1.0 / leverage
+                if side == "buy":
+                    est_liq_price = entry * (1.0 - imr) / max(0.001, 1.0 - mmr)
+                    est_liq_distance = max(0.0, entry - est_liq_price)
+                else:
+                    est_liq_price = entry * (1.0 + imr) / max(0.001, 1.0 + mmr)
+                    est_liq_distance = max(0.0, est_liq_price - entry)
 
-        # Margin guardrails: expand margin ceiling for high conviction setups to allow the larger position
-        max_margin_pct = (0.45 if is_primary else 0.25) if conviction_multiplier >= 1.4 else (0.25 if is_primary else 0.10)
-        max_allowed_margin = min(usable_capital * max_margin_pct, (100.0 if is_primary else 35.0) * conviction_multiplier)
+            if est_liq_distance < (2.0 * stop_distance):
+                return {
+                    "gate_decision": "REJECTED",
+                    "reason": f"Liquidation distance (${est_liq_distance:.2f}) is too close to Stop Loss (${stop_distance:.2f}) even at minimum leverage."
+                }
+
+        # Margin guardrails
+        max_margin_pct = 0.25 if is_primary else 0.15
+        max_allowed_margin = min(usable_capital * max_margin_pct, usable_capital)
         
         req_margin = (contracts * per_contract_notional) / leverage
         if req_margin > max_allowed_margin:
-            contracts = max(lot_size, (int((max_allowed_margin * leverage) / per_contract_notional) // lot_size) * lot_size)
+            capped_contracts = (int((max_allowed_margin * leverage) / per_contract_notional) // lot_size) * lot_size
+            if capped_contracts < lot_size:
+                return {
+                    "gate_decision": "REJECTED",
+                    "reason": f"Required margin (${req_margin:.2f}) exceeds risk ceiling or available balance (${usable_capital:.2f})."
+                }
+            contracts = capped_contracts
             req_margin = (contracts * per_contract_notional) / leverage
 
-        if contracts < lot_size or req_margin > usable_capital:
+        if req_margin > usable_capital:
             return {
                 "gate_decision": "REJECTED",
-                "reason": f"Required margin (${req_margin:.2f}) exceeds risk ceiling or available balance (${usable_capital:.2f})."
+                "reason": f"Required margin (${req_margin:.2f}) exceeds available balance (${usable_capital:.2f})."
             }
 
         # 7. Check Portfolio Total Open Risk Limit
@@ -286,7 +339,7 @@ class RiskGatekeeperAgent:
                 "reason": f"Reward-to-Risk ratio {rr_ratio:.2f}:1 is below required minimum of {self.risk_manager.min_reward_to_risk:.1f}:1"
             }
 
-        est_liq_price = round(entry * (1.0 - (1.0 / leverage)), 2) if side == "buy" else round(entry * (1.0 + (1.0 / leverage)), 2)
+        final_liq_price = round(est_liq_price, 2)
 
         return {
             "gate_decision": "APPROVED",
@@ -313,7 +366,7 @@ class RiskGatekeeperAgent:
             "dollar_risk_usd": dollar_risk,
             "risk_pct": risk_pct,
             "required_margin_usd": round(req_margin, 2),
-            "estimated_liquidation_price": est_liq_price,
+            "estimated_liquidation_price": final_liq_price,
             "leverage": leverage,
             "account_equity": total_usdt,
             "available_usdt": available_usdt,

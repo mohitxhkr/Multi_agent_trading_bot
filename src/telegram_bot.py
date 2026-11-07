@@ -9,12 +9,14 @@ import os
 import sys
 import time
 import uuid
+import json
+import hashlib
 import logging
 import requests
-# pyrefly: ignore[missing-import]
 from dotenv import load_dotenv
 
 from src.technical_analysis import round_price
+from src.config import config
 
 load_dotenv()
 
@@ -29,17 +31,99 @@ class TelegramConfirmationBot:
         self,
         bot_token: Optional[str] = None,
         chat_id: Optional[str] = None,
+        authorized_users: Optional[list] = None,
+        token: Optional[str] = None,
+        authorized_chat_ids: Optional[list] = None
     ):
-        self.bot_token = (bot_token or os.getenv("TELEGRAM_BOT_TOKEN") or "REDACTED_TELEGRAM_BOT_TOKEN").strip()
-        self.chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID") or "123456789").strip()
+        actual_token = bot_token or token
+        self.bot_token = (actual_token or config.telegram_bot_token or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+        self.chat_id = (chat_id or config.telegram_chat_id or os.getenv("TELEGRAM_CHAT_ID") or "").strip()
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
         self.last_update_id = 0
         self._confirmed_trade_ids = set()
+        self._processed_nonces = set()
+        self.max_price_drift_pct = config.max_price_drift_pct
+        self.audit_log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "telegram_approvals_audit.json")
+
+        # Construct set of authorized Telegram User IDs
+        self.authorized_user_ids = set()
+        users_list = authorized_users or authorized_chat_ids
+        if users_list:
+            for u in users_list:
+                if str(u).lstrip('-').isdigit():
+                    self.authorized_user_ids.add(int(u))
+        if config.authorized_user_ids:
+            self.authorized_user_ids.update(config.authorized_user_ids)
+        if self.chat_id and self.chat_id.lstrip('-').isdigit():
+            self.authorized_user_ids.add(int(self.chat_id))
+
         self._sync_update_offset()
 
     @property
     def is_configured(self) -> bool:
         return bool(self.bot_token and self.chat_id)
+
+    def _is_user_authorized(self, user_info: Any) -> bool:
+        """Authenticate callback sender against authorized user IDs."""
+        if not user_info:
+            return False
+        if isinstance(user_info, dict):
+            uid = user_info.get("id")
+        else:
+            try:
+                uid = int(user_info)
+            except (ValueError, TypeError):
+                return False
+        if uid is None:
+            return False
+        if not self.authorized_user_ids:
+            if self.chat_id and str(uid) == str(self.chat_id):
+                return True
+            return False
+        return int(uid) in self.authorized_user_ids
+
+    def _record_approval_audit(
+        self,
+        trade_id: str,
+        user_info: Optional[Dict[str, Any]],
+        decision: str,
+        reason: str,
+        trade_spec: Dict[str, Any]
+    ) -> None:
+        """Append-only audit ledger for every approval, rejection, or veto."""
+        try:
+            os.makedirs(os.path.dirname(self.audit_log_path), exist_ok=True)
+            records = []
+            if os.path.exists(self.audit_log_path):
+                try:
+                    with open(self.audit_log_path, "r", encoding="utf-8") as f:
+                        records = json.load(f)
+                except Exception:
+                    records = []
+            records.append({
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+                "epoch": time.time(),
+                "trade_id": trade_id,
+                "user_id": user_info.get("id") if user_info else None,
+                "username": user_info.get("username") if user_info else None,
+                "first_name": user_info.get("first_name") if user_info else None,
+                "decision": decision,
+                "reason": reason,
+                "trade_params": {
+                    "symbol": trade_spec.get("symbol"),
+                    "side": trade_spec.get("side"),
+                    "entry_price": trade_spec.get("entry_price"),
+                    "stop_loss_price": trade_spec.get("stop_loss_price"),
+                    "take_profit_price": trade_spec.get("take_profit_price"),
+                    "contracts": trade_spec.get("contracts"),
+                    "leverage": trade_spec.get("leverage"),
+                    "dollar_risk_usd": trade_spec.get("dollar_risk_usd")
+                }
+            })
+            with open(self.audit_log_path, "w", encoding="utf-8") as f:
+                json.dump(records[-500:], f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to record Telegram approval audit: {e}")
 
     def _sync_update_offset(self) -> None:
         """Fetch latest update_id so we do not process ancient stale updates."""
@@ -185,13 +269,11 @@ class TelegramConfirmationBot:
         wins = tm.get("wins", 0)
         losses = tm.get("losses", 0)
         win_rate = tm.get("win_rate_pct")
-        if not win_rate or win_rate <= 0:
-            win_rate = (wins / sample_size * 100.0) if sample_size and sample_size > 0 else 78.0
 
-        if sample_size and sample_size > 0:
-            backtest_line = f"📊 <b>Backtest:</b> Tested <b>{sample_size} times</b> ({wins} Wins / {losses} Losses · <b>{win_rate:.0f}% Win Rate</b> · <b>1:{rr:.1f} R:R</b>)\n"
+        if sample_size and sample_size >= 6 and win_rate and win_rate > 0:
+            backtest_line = f"📊 <b>Empirical Backtest:</b> Tested <b>{sample_size} times</b> ({wins}W / {losses}L · <b>{win_rate:.0f}% Win Rate</b> · <b>1:{rr:.1f} R:R</b>)\n"
         else:
-            backtest_line = f"📊 <b>Backtest:</b> Tested <b>16 times</b> (13 Wins / 3 Losses · <b>81% Win Rate</b> · <b>1:{rr:.1f} R:R</b>)\n"
+            backtest_line = f"📊 <b>Market Edge:</b> Multi-Timeframe SMC Structure &amp; VWAP Alignment\n"
 
         score = trade_spec.get("score", 85)
         clean_strat = strategy.replace("_", " ").title()
@@ -201,6 +283,14 @@ class TelegramConfirmationBot:
         score_badge = "A+ PRIME CONVICTION" if score >= 90 else ("HIGH CONVICTION EDGE" if score >= 80 else "STANDARD")
         rr_badge = trade_spec.get("risk_reward_badge") or "🟢 MIN RISK · MAX PROFIT"
         rr_desc = trade_spec.get("risk_reward_desc") or "Asymmetric Institutional Alpha"
+
+        # Generate cryptographic parameter nonce and expiry
+        expiry_timestamp = time.time() + timeout_seconds
+        param_signature = hashlib.sha256(
+            f"{trade_id}:{symbol}:{side}:{entry:.4f}:{sl:.4f}:{tp:.4f}:{contracts}:{leverage}:{risk_usd:.2f}:{int(expiry_timestamp)}".encode()
+        ).hexdigest()[:16]
+        trade_spec["approval_nonce"] = param_signature
+        trade_spec["approval_expiry"] = expiry_timestamp
 
         proposal_text = (
             f"🎯 <b>[NEW TRADE PROPOSAL]</b>\n"
@@ -239,9 +329,9 @@ class TelegramConfirmationBot:
             logger.error("Failed to post proposal message to Telegram!")
             return False
 
-        logger.info(f"Proposal sent to Telegram (msg_id: {msg_id}). Waiting for user button click (timeout {timeout_seconds}s)...")
+        logger.info(f"Proposal sent to Telegram (msg_id: {msg_id}, Nonce: {param_signature}). Waiting for user button click (timeout {timeout_seconds}s)...")
 
-        # Polling loop for callback query
+        # Polling loop for authenticated callback query
         start_time = time.time()
         while time.time() - start_time < timeout_seconds:
             try:
@@ -257,58 +347,96 @@ class TelegramConfirmationBot:
                         if not cb:
                             continue
 
+                        user_info = cb.get("from", {})
                         cb_data = cb.get("data", "")
                         cb_id = cb.get("id")
 
-                        if cb_data == f"confirm_{trade_id}":
-                            if trade_id in self._confirmed_trade_ids:
-                                self.answer_callback(cb_id, "⚠️ Already confirmed! Processing order...")
-                                continue
-                            self._confirmed_trade_ids.add(trade_id)
+                        # 1. Authenticate sender
+                        if not self._is_user_authorized(user_info):
+                            logger.warning(f"SECURITY VETO: Unauthorized callback query from user {user_info}")
+                            self.answer_callback(cb_id, "⛔ Unauthorized: You are not authorized to approve trades.")
+                            self._record_approval_audit(trade_id, user_info, "UNAUTHORIZED", "User ID not in authorized list", trade_spec)
+                            continue
 
-                            # Immediate Pre-Execution Revalidation Gate
+                        # 2. Check Expiry
+                        if time.time() > expiry_timestamp:
+                            self.answer_callback(cb_id, "⏰ Trade proposal has expired.")
+                            self._record_approval_audit(trade_id, user_info, "EXPIRED", "Confirmation window expired", trade_spec)
+                            timeout_text = proposal_text.replace(
+                                f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
+                                "⌛ <b>PROPOSAL EXPIRED — NO ORDER PLACED.</b>"
+                            )
+                            self.edit_message_text(msg_id, timeout_text, reply_markup={"inline_keyboard": []})
+                            return False
+
+                        # 3. Check Nonce Replay
+                        if param_signature in self._processed_nonces or trade_id in self._confirmed_trade_ids:
+                            self.answer_callback(cb_id, "⚠️ Proposal has already been processed.")
+                            continue
+
+                        if cb_data == f"confirm_{trade_id}":
+                            # 4. Mandatory Revalidation with Fresh Live Market Data
                             if client:
                                 try:
                                     t_res = client.get_ticker(symbol)
-                                    if t_res.get("success"):
-                                        cur_mark = float(t_res.get("result", {}).get("mark_price") or entry)
-                                        price_drift_pct = abs(cur_mark - entry) / entry * 100.0 if entry > 0 else 0.0
-                                        if price_drift_pct > 0.40:
-                                            self.answer_callback(cb_id, "⚠️ Execution aborted: Price drifted > 0.40%!")
-                                            drift_text = (
-                                                proposal_text.replace(
-                                                    f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
-                                                    f"🛑 <b>ABORTED: PRICE DRIFTED ({price_drift_pct:.2f}% shift).</b>\n"
-                                                    f"<i>Mark moved to ${cur_mark:.4f} while awaiting confirmation. Capital protected.</i>"
-                                                )
-                                            )
-                                            self.edit_message_text(msg_id, drift_text, reply_markup={"inline_keyboard": []})
-                                            logger.warning(f"Trade {trade_id} aborted before execution: Mark price drifted {price_drift_pct:.2f}%")
-                                            return False
+                                    if not t_res or not t_res.get("success"):
+                                        self.answer_callback(cb_id, "❌ Execution rejected: Live market ticker unavailable.")
+                                        self._record_approval_audit(trade_id, user_info, "REJECTED_STALE_TICKER", "Live ticker refresh failed", trade_spec)
+                                        abort_text = proposal_text.replace(
+                                            f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
+                                            "🛑 <b>EXECUTION ABORTED: LIVE TICKER DATA UNAVAILABLE. CAPITAL PROTECTED.</b>"
+                                        )
+                                        self.edit_message_text(msg_id, abort_text, reply_markup={"inline_keyboard": []})
+                                        logger.error(f"Trade {trade_id} aborted: Live market data could not be refreshed from Delta Exchange.")
+                                        return False
+
+                                    cur_mark = float(t_res.get("result", {}).get("mark_price") or 0.0)
+                                    if cur_mark <= 0:
+                                        self.answer_callback(cb_id, "❌ Execution rejected: Invalid mark price from exchange.")
+                                        self._record_approval_audit(trade_id, user_info, "REJECTED_INVALID_MARK", "Zero mark price", trade_spec)
+                                        return False
+
+                                    price_drift_pct = abs(cur_mark - entry) / entry * 100.0 if entry > 0 else 0.0
+                                    if price_drift_pct > self.max_price_drift_pct:
+                                        self.answer_callback(cb_id, f"⚠️ Aborted: Price drifted {price_drift_pct:.2f}%!")
+                                        self._record_approval_audit(trade_id, user_info, "ABORTED_PRICE_DRIFT", f"Price drifted {price_drift_pct:.2f}%", trade_spec)
+                                        drift_text = proposal_text.replace(
+                                            f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
+                                            f"🛑 <b>ABORTED: PRICE DRIFTED ({price_drift_pct:.2f}% shift).</b>\n"
+                                            f"<i>Mark moved to ${cur_mark:.4f} while awaiting confirmation. Capital protected.</i>"
+                                        )
+                                        self.edit_message_text(msg_id, drift_text, reply_markup={"inline_keyboard": []})
+                                        logger.warning(f"Trade {trade_id} aborted before execution: Mark price drifted {price_drift_pct:.2f}%")
+                                        return False
                                 except Exception as drift_err:
-                                    logger.warning(f"Pre-execution price check skipped: {drift_err}")
+                                    logger.error(f"Pre-execution price check exception: {drift_err}")
+                                    self.answer_callback(cb_id, f"❌ Execution aborted: Market feed verification error: {drift_err}")
+                                    self._record_approval_audit(trade_id, user_info, "REJECTED_FEED_ERROR", str(drift_err), trade_spec)
+                                    return False
+
+                            self._confirmed_trade_ids.add(trade_id)
+                            self._processed_nonces.add(param_signature)
+                            self._record_approval_audit(trade_id, user_info, "APPROVED", "Confirmed by authorized user", trade_spec)
 
                             self.answer_callback(cb_id, "✅ Confirmed! Executing on Delta Exchange...")
-                            confirmed_text = (
-                                proposal_text.replace(
-                                    f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
-                                    "⚡ <b>CONFIRMED BY USER! EXECUTING ON DELTA EXCHANGE...</b>"
-                                )
+                            confirmed_text = proposal_text.replace(
+                                f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
+                                "⚡ <b>CONFIRMED BY AUTHORIZED USER! EXECUTING ON DELTA EXCHANGE...</b>"
                             )
                             self.edit_message_text(msg_id, confirmed_text, reply_markup={"inline_keyboard": []})
-                            logger.info(f"User APPROVED trade {trade_id} via Telegram!")
+                            logger.info(f"User {user_info.get('id')} APPROVED trade {trade_id} via Telegram (Nonce: {param_signature})!")
                             return True
 
                         elif cb_data == f"reject_{trade_id}":
+                            self._processed_nonces.add(param_signature)
+                            self._record_approval_audit(trade_id, user_info, "REJECTED", "Declined by user", trade_spec)
                             self.answer_callback(cb_id, "❌ Trade proposal rejected.")
-                            rejected_text = (
-                                proposal_text.replace(
-                                    f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
-                                    "❌ <b>REJECTED BY USER — CAPITAL PROTECTED.</b>"
-                                )
+                            rejected_text = proposal_text.replace(
+                                f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
+                                "❌ <b>REJECTED BY USER — CAPITAL PROTECTED.</b>"
                             )
                             self.edit_message_text(msg_id, rejected_text, reply_markup={"inline_keyboard": []})
-                            logger.info(f"User REJECTED trade {trade_id} via Telegram.")
+                            logger.info(f"User {user_info.get('id')} REJECTED trade {trade_id} via Telegram.")
                             return False
 
             except Exception as e:
@@ -317,11 +445,10 @@ class TelegramConfirmationBot:
             time.sleep(1.5)
 
         # Timeout reached
-        timeout_text = (
-            proposal_text.replace(
-                f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
-                f"⌛ <b>PROPOSAL EXPIRED ({timeout_seconds // 60}m) — NO ORDER PLACED.</b>"
-            )
+        self._record_approval_audit(trade_id, None, "TIMEOUT", f"Confirmation timeout reached ({timeout_seconds}s)", trade_spec)
+        timeout_text = proposal_text.replace(
+            f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
+            f"⌛ <b>PROPOSAL EXPIRED ({timeout_seconds // 60}m) — NO ORDER PLACED.</b>"
         )
         self.edit_message_text(msg_id, timeout_text, reply_markup={"inline_keyboard": []})
         logger.info(f"Trade proposal {trade_id} timed out. Order cancelled.")

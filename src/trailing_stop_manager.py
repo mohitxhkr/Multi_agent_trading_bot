@@ -421,11 +421,10 @@ class TrailingStopManager:
                 emer_sl = round(entry_price * 0.985, 2) if side == "buy" else round(entry_price * 1.015, 2)
                 sl_side = "sell" if side == "buy" else "buy"
                 try:
-                    placed_sl = self.client.place_order(
-                        product_id=pid,
+                    placed_sl = self.client.place_protective_stop(
+                        symbol=symbol,
                         size=abs(size),
-                        side=sl_side,
-                        order_type="stop_market_order",
+                        side=side,
                         stop_price=emer_sl
                     )
                     if placed_sl.get("success"):

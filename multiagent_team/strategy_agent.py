@@ -66,22 +66,29 @@ class StrategyAgent:
         liq = analysis.get("liquidity", {})
 
         # Structural Invalidation Stop Loss & Asymmetric R:R Calibration (Minimum Risk, Maximum Profit)
-        raw_sl_dist = abs(entry - sl)
-        if raw_sl_dist > 0 and sl > 0:
-            calibrated_sl_dist = raw_sl_dist
-            planned_rr = abs(tp - entry) / calibrated_sl_dist if calibrated_sl_dist > 0 else 0.0
-            if planned_rr < self.target_rr_ratio or tp <= 0:
-                tp = round(entry + (self.target_rr_ratio * calibrated_sl_dist), 4) if side == "buy" else round(entry - (self.target_rr_ratio * calibrated_sl_dist), 4)
-        else:
-            atr_15m = float(macro_15m.get("atr_14") or analysis.get("atr_14") or (entry * 0.005))
-            min_sl_dist = 0.8 * atr_15m
-            max_sl_dist = 1.2 * atr_15m
-            calibrated_sl_dist = max(min_sl_dist, min(raw_sl_dist if raw_sl_dist > 0 else atr_15m, max_sl_dist))
-            sl = round(entry - calibrated_sl_dist, 4) if side == "buy" else round(entry + calibrated_sl_dist, 4)
-            tp = round(entry + (self.target_rr_ratio * calibrated_sl_dist), 4) if side == "buy" else round(entry - (self.target_rr_ratio * calibrated_sl_dist), 4)
+        # CRITICAL: Reject setups with missing or invalid structural stops instead of generating arbitrary stops
+        if sl <= 0 or entry <= 0 or sl == entry:
+            logger.warning(f"StrategyAgent VETO on {symbol}: Missing or invalid structural stop loss (${sl:.4f}). Arbitrary stops prohibited.")
+            return None
+
+        # Verify stop loss orientation
+        if side == "buy" and sl >= entry:
+            logger.warning(f"StrategyAgent VETO on {symbol}: Structural stop loss (${sl:.4f}) is above or at entry (${entry:.4f}) for buy order.")
+            return None
+        elif side == "sell" and sl <= entry:
+            logger.warning(f"StrategyAgent VETO on {symbol}: Structural stop loss (${sl:.4f}) is below or at entry (${entry:.4f}) for sell order.")
+            return None
 
         stop_distance = abs(entry - sl)
-        if stop_distance <= 0 or entry <= 0:
+        planned_rr = abs(tp - entry) / stop_distance if stop_distance > 0 else 0.0
+
+        # Enforce minimum R:R ratio
+        if planned_rr < self.target_rr_ratio or tp <= 0:
+            tp = round(entry + (self.target_rr_ratio * stop_distance), 4) if side == "buy" else round(entry - (self.target_rr_ratio * stop_distance), 4)
+            planned_rr = abs(tp - entry) / stop_distance
+
+        if planned_rr < 2.2:
+            logger.warning(f"StrategyAgent VETO on {symbol}: Planned R:R ({planned_rr:.2f}:1) is below 2.2:1 minimum threshold.")
             return None
 
         # -------------------------------------------------------------

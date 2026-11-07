@@ -112,6 +112,53 @@ class TestNewsSentimentAgent(unittest.TestCase):
         self.assertIn("CRITICAL MARKET-MOVING CRYPTO ALERT", notifier.messages[0])
         self.assertIn("Major bridge hacked", notifier.messages[0])
 
+    def test_trade_proposal_card_includes_sentiment_and_fear_greed(self):
+        from src.telegram_bot import TelegramConfirmationBot
+        bot = TelegramConfirmationBot(token="MOCK_TOKEN", authorized_chat_ids=["123456"])
+        
+        trade_spec = {
+            "trade_id": "prop_test_001",
+            "symbol": "BTCUSD",
+            "side": "BUY",
+            "entry_price": 70000.0,
+            "stop_loss_price": 69000.0,
+            "take_profit_price": 73000.0,
+            "reward_to_risk_ratio": 3.0,
+            "contracts": 1,
+            "leverage": 25,
+            "required_margin_usd": 28.0,
+            "dollar_risk_usd": 2.50,
+            "strategy": "Bullish Order Block",
+            "score": 92,
+            "sentiment_report": {
+                "fear_greed_index": 78,
+                "fear_greed_classification": "Extreme Greed",
+                "composite_score": 0.42,
+                "sentiment_regime": "EXTREME_GREED",
+                "asset_sentiment_map": {
+                    "BTC": {"sentiment": "BULLISH", "score": 0.55}
+                }
+            }
+        }
+
+        # Mock send_message and edit_message_text
+        captured_messages = []
+        bot.send_message = lambda text, reply_markup=None: (captured_messages.append(text), 999)[1]
+        bot.edit_message_text = lambda *args, **kwargs: True
+
+        import unittest.mock as mock
+        import itertools
+        time_gen = itertools.count(1000.0, 50.0)
+        with mock.patch("time.time", side_effect=lambda: next(time_gen)):
+            bot.request_trade_confirmation(trade_spec, timeout_seconds=10)
+
+        self.assertEqual(len(captured_messages), 1)
+        card_text = captured_messages[0]
+        self.assertIn("MARKET SENTIMENT &amp; MACRO PULSE", card_text)
+        self.assertIn("78/100 (Extreme Greed)", card_text)
+        self.assertIn("BULLISH BIAS (+0.42)", card_text)
+        self.assertIn("BTC Sentiment: BULLISH", card_text)
+
 
 if __name__ == "__main__":
     unittest.main()

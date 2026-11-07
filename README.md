@@ -96,10 +96,10 @@ flowchart TD
 
 ### 2️⃣ Agent 2: Autonomous News & Social Sentiment Intelligence Engine
 * **Module:** [`multiagent_team/news_sentiment_agent.py`](multiagent_team/news_sentiment_agent.py)
-* **Core Task:** Scrapes breaking crypto news across the internet, parses market catalysts, computes composite sentiment, and notifies Telegram with estimated market impact.
-* **Dual-Tier Processing Architecture:**
-  * **Tier 1 (Internal Agent Intelligence):** 100% of scanned headlines across all sources are ingested and scored to continuously feed composite market sentiment, Fear & Greed posture, and dynamic risk multipliers for downstream agents (Agents 1, 3, 4, 6).
-  * **Tier 2 (Telegram Market-Mover Alerts):** Telegram alerts are strictly gated for **Critical Market-Moving Catalysts Only** (major protocol exploits, ETF rulings, Fed rate moves, exchange insolvencies). Routine commentary, price opinion pieces, and clickbait are silenced on Telegram to prevent notification fatigue while still informing trading agents.
+* **Core Task:** Scrapes breaking crypto news across the internet, parses market catalysts, and computes composite sentiment to guide downstream trading agents.
+* **Internal Intelligence Architecture (Zero Telegram Spam):**
+  * **100% Dedicated to Trading Agents:** All scanned news headlines are ingested and scored strictly for internal multi-agent decision-making. No standalone news push notifications or digest spam are broadcast to Telegram.
+  * **Trade Proposal Integration:** Crucial sentiment metrics (Fear & Greed Index, composite sentiment score, macro regime, and target asset bias) are embedded directly into the **Telegram Trade Proposal Card** when an actionable trade setup is found.
 * **Ingestion Channels:**
   * **CoinDesk RSS & CoinTelegraph RSS:** Real-time institutional coverage, ETF flows, and protocol security events.
   * **Decrypt Media RSS:** On-chain developments, ecosystem announcements, and token dynamics.
@@ -111,8 +111,7 @@ flowchart TD
   * **Target Asset Mapping:** Detects mentions of `BTC`, `ETH`, `SOL`, `XRP`, `DOGE`, and `GOLD`.
   * **Critical Catalyst Filter:** Isolates true market movers using `CRITICAL_MARKET_MOVER_PHRASES` while eliminating `CLICKBAIT_NOISE_PHRASES`.
   * **Future Sentiment Guidance:** Generates actionable guidance for other agents (e.g. Clamps risk during extreme fear; widens stop loss buffer by 15% during high-impact news).
-  * **Telegram Alert Dispatcher:** Real-time push notifications reserved exclusively for tier-1 breaking market catalysts with zero duplicate spam.
-* **Output:** Typed `MarketSentimentReport` and real-time Telegram critical alert cards.
+* **Output:** Typed `MarketSentimentReport` feeding Exposure Coach and embedded inside Trade Proposal cards.
 
 ### 3️⃣ Agent 3: Exposure Coach & Market Posture Engine
 * **Module:** [`multiagent_team/exposure_coach.py`](multiagent_team/exposure_coach.py)
@@ -164,9 +163,11 @@ flowchart TD
 
 ### 7️⃣ Agent 7: Telegram Two-Way Confirmation Gate
 * **Module:** [`src/telegram_bot.py`](src/telegram_bot.py)
-* **Core Task:** Provides secure human authorization through interactive Telegram messages.
-* **Inputs:** Approved trade specifications from Agent 6.
+* **Core Task:** Provides secure human authorization through interactive Telegram messages with integrated market sentiment intelligence.
+* **Inputs:** Approved trade specifications from Agent 6 and sentiment report from Agent 2.
 * **Processing Logic:**
+  * **Comprehensive Trade Proposal Card:** Displays quality score, risk-to-reward profile, exact entry/SL/TP, contracts, margin, and backtest results.
+  * **Market Sentiment & Fear/Greed Pulse:** Embeds live Alternative.me Fear & Greed index (`78/100 Extreme Greed`), macro composite polarity (`🟢 BULLISH BIAS`), and symbol-specific sentiment directly into the proposal card.
   * **Sender Authentication:** Authenticates Telegram user ID against `AUTHORIZED_TELEGRAM_USERS`.
   * **Parameter-Bound Nonces:** Binds approvals to exact trade parameters; replayed nonces are rejected.
   * **Price Drift Revalidation:** Re-queries Delta Exchange mark price upon callback click; cancels trade if price drifted > 0.40%.

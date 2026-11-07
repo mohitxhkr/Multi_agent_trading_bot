@@ -231,10 +231,9 @@ class MultiAgentTradingOrchestrator:
                 top_art = sentiment_report.top_high_impact_news[0]
                 print(f"   Top Catalyst: [{top_art.catalyst_category}] {top_art.title[:65]}...")
 
-            # Automatically dispatch breaking news alerts to Telegram if unposted
-            posted_alerts = self.news_sentiment.dispatch_telegram_news_updates(self.telegram)
-            if posted_alerts > 0:
-                print(f"   Dispatched {posted_alerts} breaking news alert(s) to Telegram.")
+            # Internal multi-agent intelligence only: silent Telegram (no news alert spam)
+            # Sentiment metrics and Fear/Greed are embedded directly into trade proposal cards
+            print("   ⚡ Sentiment & Fear/Greed fed directly to trading agents. Telegram push alerts silenced (zero spam).")
         except Exception as ne:
             logger.warning(f"News sentiment collection skipped: {ne}")
         self.system_monitor.record_agent_duration("Layer1_NewsSentiment", (time.time() - t_news) * 1000)
@@ -358,6 +357,8 @@ class MultiAgentTradingOrchestrator:
                 print(f"   ✅ [APPROVED] {sym} ({decision.get('leverage')}x): {decision['contracts']} contracts [Conviction: {conv_mult}x | {conv_tier}] | Risk: ${decision['dollar_risk_usd']} ({decision['risk_pct']}%) | Margin: ${decision['required_margin_usd']}")
                 decision["confluence"] = c.get("confluence", {})
                 decision["time_machine"] = c.get("time_machine", {})
+                if sentiment_report:
+                    decision["sentiment_report"] = sentiment_report.dict() if hasattr(sentiment_report, "dict") else (sentiment_report.model_dump() if hasattr(sentiment_report, "model_dump") else {})
                 approved_trades.append(decision)
             else:
                 print(f"   ❌ [REJECTED] {sym}: {decision.get('reason')}")

@@ -292,6 +292,39 @@ class TelegramConfirmationBot:
         trade_spec["approval_nonce"] = param_signature
         trade_spec["approval_expiry"] = expiry_timestamp
 
+        # Market Sentiment & Fear/Greed Intelligence from Agent 2
+        sent_info = trade_spec.get("sentiment_report") or {}
+        if not sent_info:
+            try:
+                from multiagent_team.news_sentiment_agent import NewsSentimentAgent
+                cached = NewsSentimentAgent().cached_report
+                if cached:
+                    sent_info = cached.dict() if hasattr(cached, "dict") else (cached.model_dump() if hasattr(cached, "model_dump") else {})
+            except Exception:
+                sent_info = {}
+
+        fng_val = sent_info.get("fear_greed_index", 50)
+        fng_class = sent_info.get("fear_greed_classification", "Neutral")
+        sentiment_regime = sent_info.get("sentiment_regime", "NEUTRAL")
+        composite_score = sent_info.get("composite_score", 0.0)
+
+        # Polarity badge
+        if composite_score >= 0.15:
+            sent_tag = f"🟢 BULLISH BIAS ({composite_score:+.2f})"
+        elif composite_score <= -0.15:
+            sent_tag = f"🔴 BEARISH BIAS ({composite_score:+.2f})"
+        else:
+            sent_tag = f"⚪ NEUTRAL BIAS ({composite_score:+.2f})"
+
+        # Asset-specific news check
+        base_sym = symbol.replace("USD", "").replace("USDT", "").replace("-", "").replace("/", "").upper()
+        asset_sent = sent_info.get("asset_sentiment_map", {}).get(base_sym, {})
+        asset_sentiment_line = ""
+        if asset_sent:
+            a_bias = asset_sent.get("sentiment", "NEUTRAL")
+            a_emoji = "🟢" if a_bias == "BULLISH" else ("🔴" if a_bias == "BEARISH" else "⚪")
+            asset_sentiment_line = f" · {a_emoji} {base_sym} Sentiment: {a_bias} ({asset_sent.get('score', 0.0):+.2f})"
+
         proposal_text = (
             f"🎯 <b>[NEW TRADE PROPOSAL]</b>\n"
             f"⭐ <b>QUALITY SCORE:</b> <b><u>{score}/100</u> ({score_badge})</b>{boost_tag}\n"
@@ -299,6 +332,10 @@ class TelegramConfirmationBot:
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
             f"• <b>Setup:</b> <i>{clean_strat}</i>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🧠 <b>MARKET SENTIMENT &amp; MACRO PULSE:</b>\n"
+            f"• <b>Fear &amp; Greed:</b> <code>{fng_val}/100 ({fng_class})</code>\n"
+            f"• <b>Sentiment Polarity:</b> <b>{sent_tag}</b> [{sentiment_regime}]{asset_sentiment_line}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"💵 <b>Total Risk:</b> <b>${risk_usd:,.2f} USD</b> <i>(Max loss if Stop Loss hits)</i>\n"
             f"💰 <b>Total Reward:</b> <b>${reward_usd:,.2f} USD</b> <i>(Profit if Target hits)</i>\n"

@@ -4,6 +4,8 @@ services:
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python server.py
+    healthCheckPath: /health
+    autoDeploy: true
     plan: free
     region: oregon
     envVars:
@@ -19,8 +21,30 @@ services:
         value: REDACTED_TELEGRAM_BOT_TOKEN
       - key: TELEGRAM_CHAT_ID
         value: "123456789"
+      - key: AUTHORIZED_TELEGRAM_USERS
+        value: "123456789"
       - key: TELEGRAM_NOTIFICATIONS_ENABLED
         value: "true"
+      - key: MAX_RISK_PER_TRADE_PCT
+        value: "0.01"
+      - key: MAX_DOLLAR_RISK_PER_TRADE
+        value: "4.00"
+      - key: MAX_DAILY_DRAWDOWN_PCT
+        value: "0.03"
+      - key: MAX_WEEKLY_DRAWDOWN_PCT
+        value: "0.05"
+      - key: MAX_MONTHLY_DRAWDOWN_PCT
+        value: "0.08"
+      - key: MAX_CONSECUTIVE_LOSSES
+        value: "3"
+      - key: COOLDOWN_SECONDS
+        value: "1800"
+      - key: MAX_CONCURRENT_POSITIONS
+        value: "2"
+      - key: MAX_ALLOWED_LEVERAGE
+        value: "50"
+      - key: MIN_REWARD_TO_RISK
+        value: "2.2"
       - key: BTC_LEVERAGE
         value: "50"
       - key: ALT_LEVERAGE

@@ -45,7 +45,7 @@ scanner_status = {
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_HEAD(self):
-        if self.path in ["/", "/health", "/status"]:
+        if self.path in ["/", "/health", "/status", "/ping"]:
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -54,15 +54,34 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_GET(self):
-        if self.path in ["/", "/health", "/status"]:
+        if self.path in ["/", "/health", "/status", "/ping"]:
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            client = DeltaExchangeClient()
-            conn = client.test_connection()
-            pos = client.get_positions()
-            raw_pos = pos.get("result", []) if pos.get("success") else []
-            active = [p for p in raw_pos if int(p.get("size", 0)) != 0]
+
+            conn_auth = False
+            conn_msg = "Not tested"
+            pos_success = False
+            active = []
+            pos_error = None
+
+            try:
+                client = DeltaExchangeClient()
+                conn = client.test_connection()
+                conn_auth = conn.get("authenticated", False)
+                conn_msg = conn.get("message", "")
+                
+                pos = client.get_positions()
+                pos_success = pos.get("success", False)
+                if pos_success:
+                    raw_pos = pos.get("result", [])
+                    active = [p for p in raw_pos if abs(float(p.get("size", 0.0) or 0.0)) > 0]
+                else:
+                    pos_error = str(pos.get("error"))
+            except Exception as e:
+                conn_msg = f"Diagnostics error: {str(e)}"
+                pos_error = str(e)
+
             response_data = {
                 "bot": "Delta Exchange Multi-Agent 24/7 Trading Bot",
                 "version": "2.0.0-institutional",
@@ -71,12 +90,12 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 "cycles_completed": scanner_status["cycle_count"],
                 "last_scan": scanner_status["last_scan_time"],
                 "uptime_started": scanner_status["uptime_started"],
-                "authenticated": conn.get("authenticated", False),
-                "auth_message": conn.get("message", ""),
-                "positions_success": pos.get("success", False),
+                "authenticated": conn_auth,
+                "auth_message": conn_msg,
+                "positions_success": pos_success,
                 "active_positions_count": len(active),
-                "active_symbols": [p.get("product_symbol") for p in active],
-                "positions_error": pos.get("error") if not pos.get("success") else None
+                "active_symbols": [p.get("product_symbol") or p.get("symbol") for p in active],
+                "positions_error": pos_error
             }
             self.wfile.write(json.dumps(response_data, indent=2).encode("utf-8"))
         else:

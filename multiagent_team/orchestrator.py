@@ -96,10 +96,11 @@ class MultiAgentTradingOrchestrator:
         self.interactive = interactive
         self.leverage = leverage
 
-    def get_market_digest_text(self, scan_results: Optional[Dict[str, Any]] = None) -> str:
+    def get_market_digest_text(self, scan_results: Optional[Dict[str, Any]] = None, symbols: Optional[List[str]] = None) -> str:
         """Generate a clean Telegram-ready summary of market regimes for primary assets."""
+        target_symbols = symbols or ["BTCUSD", "ETHUSD", "XAUUSD"]
         if not scan_results:
-            scan_results = self.regime_analyst.scan_universe(self.symbols, resolution="60")
+            scan_results = self.regime_analyst.scan_universe(target_symbols, resolution="60")
 
         symbols_data = scan_results.get("symbols_data", {})
         pos_res = self.client.get_positions()

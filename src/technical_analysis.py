@@ -1036,6 +1036,7 @@ def analyze_multi_timeframe(
     regime_15m = "NEUTRAL"
     rsi_15m = 50.0
     ema21_15m = current_price
+    macd_15m = {}
 
     if candles_15m and len(candles_15m.get('c', [])) >= 20:
         analysis_15m = analyze_market_structure(candles_15m)
@@ -1046,15 +1047,18 @@ def analyze_multi_timeframe(
             regime_15m = analysis_15m.get("regime", "NEUTRAL")
             rsi_15m = analysis_15m.get("rsi_14", 50.0)
             ema21_15m = analysis_15m.get("ema_21", current_price)
+            macd_15m = analysis_15m.get("macd", {})
 
     analysis_1h["current_price"] = current_price
-    analysis_1h["macro_15m"] = {
+    macro_15m = {
         "regime": regime_15m,
         "rsi_14": round(rsi_15m, 2),
         "ema_21": round(ema21_15m, 2),
         "atr_14": round(atr_15m, 4),
-        "liquidity": liq_15m
+        "liquidity": liq_15m,
+        "macd": macd_15m
     }
+    analysis_1h["macro_15m"] = macro_15m
 
     # -------------------------------------------------------------
     # 1. 4-Hour (4H) Cycle Momentum

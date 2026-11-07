@@ -206,46 +206,23 @@ class TelegramConfirmationBot:
             logger.error(f"Telegram answerCallbackQuery error: {e}")
             return False
 
-    def request_trade_confirmation(
-        self,
-        trade_spec: Dict[str, Any],
-        timeout_seconds: int = 600,
-        client: Optional[Any] = None
-    ) -> bool:
-        """
-        Send trade analysis with confirmation buttons and BLOCK until the user taps
-        [Confirm] or [Reject], or until timeout.
-        Returns True ONLY if user explicitly clicked Confirm and pre-execution validation passes!
-        """
-        if not self.is_configured:
-            logger.error("❌ Telegram is not configured! Refusing to trade without user permission.")
-            return False
-
-        trade_id = trade_spec.get("trade_id") or f"trade_{uuid.uuid4().hex[:8]}"
-        trade_spec["trade_id"] = trade_id
-
-        if trade_id in self._confirmed_trade_ids:
-            logger.warning(f"Trade {trade_id} already confirmed! Preventing duplicate execution.")
-            return False
-
+    def format_trade_proposal_card(self, trade_spec: Dict[str, Any], timeout_seconds: int = 300) -> str:
+        """Format an institutional trade proposal card for Telegram presentation."""
         symbol = trade_spec.get("symbol", "N/A")
         side = trade_spec.get("side", "").upper()
         emoji_dir = "🟢 LONG" if side == "BUY" else "🔴 SHORT"
-        entry = trade_spec.get("entry_price", 0.0)
-        sl = trade_spec.get("stop_loss_price", 0.0)
-        tp = trade_spec.get("take_profit_price", 0.0)
-        rr = trade_spec.get("reward_to_risk_ratio", 2.0)
+        entry = float(trade_spec.get("entry_price") or trade_spec.get("entry") or 0.0)
+        sl = float(trade_spec.get("stop_loss_price") or trade_spec.get("stop_loss") or 0.0)
+        tp = float(trade_spec.get("take_profit_price") or trade_spec.get("take_profit") or 0.0)
+        rr = float(trade_spec.get("reward_to_risk_ratio") or trade_spec.get("planned_rr_ratio") or 2.0)
         contracts = trade_spec.get("contracts", 1)
         leverage = trade_spec.get("leverage", 25)
-        margin = trade_spec.get("required_margin_usd", 0.0)
-        risk_usd = trade_spec.get("dollar_risk_usd", 0.0)
-        risk_pct = trade_spec.get("risk_pct", 1.5)
-        est_liq = trade_spec.get("estimated_liquidation_price", 0.0)
-        strategy = trade_spec.get("strategy", "High-Probability Edge")
-        thesis = trade_spec.get("thesis", "Market structure alignment verified.")
+        margin = float(trade_spec.get("required_margin_usd") or 0.0)
+        risk_usd = float(trade_spec.get("dollar_risk_usd") or 2.0)
+        risk_pct = float(trade_spec.get("risk_pct") or 1.5)
+        strategy = trade_spec.get("strategy") or trade_spec.get("strategy_name") or "High-Probability Edge"
         confluence = trade_spec.get("confluence", {})
 
-        # Dynamic price formatter for multi-asset magnitude
         def fmt_p(p: float) -> str:
             if p < 0.1:
                 return f"${p:,.6f}"
@@ -255,13 +232,6 @@ class TelegramConfirmationBot:
                 return f"${p:,.4f}"
             else:
                 return f"${p:,.2f}"
-
-        # Trailing roadmap calculation
-        risk_per_unit = abs(entry - sl)
-        be_price = round_price(entry + (risk_per_unit * 0.05) if side == "BUY" else entry - (risk_per_unit * 0.05), entry)
-        r2_sl = round_price(entry + risk_per_unit if side == "BUY" else entry - risk_per_unit, entry)
-        r3_tp = round_price(entry + (3.0 * risk_per_unit) if side == "BUY" else entry - (3.0 * risk_per_unit), entry)
-        r5_tp = round_price(entry + (5.0 * risk_per_unit) if side == "BUY" else entry - (5.0 * risk_per_unit), entry)
 
         reward_usd = risk_usd * (rr if rr > 0 else 2.0)
         tm = trade_spec.get("time_machine", {})
@@ -300,15 +270,6 @@ class TelegramConfirmationBot:
         rr_badge = trade_spec.get("risk_reward_badge") or "🟢 MIN RISK · MAX PROFIT"
         rr_desc = trade_spec.get("risk_reward_desc") or "Asymmetric Institutional Alpha"
 
-        # Generate cryptographic parameter nonce and expiry
-        expiry_timestamp = time.time() + timeout_seconds
-        param_signature = hashlib.sha256(
-            f"{trade_id}:{symbol}:{side}:{entry:.4f}:{sl:.4f}:{tp:.4f}:{contracts}:{leverage}:{risk_usd:.2f}:{int(expiry_timestamp)}".encode()
-        ).hexdigest()[:16]
-        trade_spec["approval_nonce"] = param_signature
-        trade_spec["approval_expiry"] = expiry_timestamp
-
-        # Market Sentiment & Fear/Greed Intelligence from Agent 2
         sent_info = trade_spec.get("sentiment_report") or {}
         if not sent_info:
             try:
@@ -324,7 +285,6 @@ class TelegramConfirmationBot:
         sentiment_regime = sent_info.get("sentiment_regime", "NEUTRAL")
         composite_score = sent_info.get("composite_score", 0.0)
 
-        # Polarity badge
         if composite_score >= 0.15:
             sent_tag = f"🟢 BULLISH BIAS ({composite_score:+.2f})"
         elif composite_score <= -0.15:
@@ -332,7 +292,6 @@ class TelegramConfirmationBot:
         else:
             sent_tag = f"⚪ NEUTRAL BIAS ({composite_score:+.2f})"
 
-        # Asset-specific news check
         base_sym = symbol.replace("USD", "").replace("USDT", "").replace("-", "").replace("/", "").upper()
         asset_sent = sent_info.get("asset_sentiment_map", {}).get(base_sym, {})
         asset_sentiment_line = ""
@@ -369,6 +328,112 @@ class TelegramConfirmationBot:
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>"
         )
+        return proposal_text
+
+    def send_sample_proposal(self) -> Optional[int]:
+        """Send an interactive demonstration trade proposal card to Telegram."""
+        if not self.is_configured:
+            logger.error("❌ Telegram is not configured!")
+            return None
+
+        trade_id = f"sample_{uuid.uuid4().hex[:6]}"
+        sample_spec = {
+            "trade_id": trade_id,
+            "symbol": "BTCUSD",
+            "side": "BUY",
+            "entry_price": 75800.0,
+            "stop_loss_price": 75250.0,
+            "take_profit_price": 77200.0,
+            "reward_to_risk_ratio": 2.5,
+            "contracts": 1,
+            "leverage": 25,
+            "required_margin_usd": 30.32,
+            "dollar_risk_usd": 2.20,
+            "risk_pct": 0.22,
+            "estimated_liquidation_price": 72800.0,
+            "strategy": "Institutional_SMC_Liquidity_Sweep_Long",
+            "thesis": "💧 [BULLISH SSL SWEEP + MSS CONFIRMED] 15m SMC Order Block Alignment",
+            "score": 94,
+            "conviction_multiplier": 1.25,
+            "risk_reward_badge": "🟢 MIN RISK · MAX PROFIT",
+            "risk_reward_desc": "Asymmetric Institutional Alpha",
+            "confluence": {
+                "macd_detail": "15m: BULLISH_CROSS (BULLISH_EXPANSION) | 1H: BULLISH",
+                "vwap_detail": "$75,720.00 (ABOVE_VWAP | FAIR_VALUE_CORE | RISING_BULLISH)",
+                "liquidity_detail": "BSL: $77,200.00 (+1.85%) | SSL: $75,200.00 (-0.79%) | State: SWEEP_MSS_CONFIRMED | Spread: 0.020% (A+_PRIME_DEPTH)"
+            },
+            "liquidity_profile": {
+                "spread_pct": 0.02,
+                "liquidity_grade": "A+_PRIME_DEPTH",
+                "liquidity_detail": "BSL: $77,200.00 (+1.85%) | SSL: $75,200.00 (-0.79%) | State: SWEEP_MSS_CONFIRMED | Spread: 0.020%"
+            },
+            "time_machine": {
+                "sample_size": 28,
+                "wins": 22,
+                "losses": 6,
+                "win_rate_pct": 78.6,
+                "expected_value_r": 0.48
+            },
+            "sentiment_report": {
+                "fear_greed_index": 25,
+                "fear_greed_classification": "Extreme Fear",
+                "sentiment_regime": "FEAR",
+                "composite_score": -0.22,
+                "asset_sentiment_map": {
+                    "BTC": {
+                        "sentiment": "BULLISH",
+                        "score": 0.35
+                    }
+                }
+            }
+        }
+
+        card_text = self.format_trade_proposal_card(sample_spec, timeout_seconds=300)
+        card_text = card_text.replace(
+            "🎯 <b>[NEW TRADE PROPOSAL]</b>",
+            "🎯 <b>[SAMPLE DEMONSTRATION TRADE PROPOSAL]</b>"
+        )
+        reply_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": "✅ Confirm & Execute (Sample)", "callback_data": f"sample_confirm_{trade_id}"},
+                    {"text": "❌ Reject Trade (Sample)", "callback_data": f"sample_reject_{trade_id}"}
+                ]
+            ]
+        }
+        return self.send_message(card_text, reply_markup=reply_markup)
+
+    def request_trade_confirmation(
+        self,
+        trade_spec: Dict[str, Any],
+        timeout_seconds: int = 600,
+        client: Optional[Any] = None
+    ) -> bool:
+        """
+        Send trade analysis with confirmation buttons and BLOCK until the user taps
+        [Confirm] or [Reject], or until timeout.
+        Returns True ONLY if user explicitly clicked Confirm and pre-execution validation passes!
+        """
+        if not self.is_configured:
+            logger.error("❌ Telegram is not configured! Refusing to trade without user permission.")
+            return False
+
+        trade_id = trade_spec.get("trade_id") or f"trade_{uuid.uuid4().hex[:8]}"
+        trade_spec["trade_id"] = trade_id
+
+        if trade_id in self._confirmed_trade_ids:
+            logger.warning(f"Trade {trade_id} already confirmed! Preventing duplicate execution.")
+            return False
+
+        proposal_text = self.format_trade_proposal_card(trade_spec, timeout_seconds=timeout_seconds)
+
+        # Generate cryptographic parameter nonce and expiry
+        expiry_timestamp = trade_spec.get("approval_expiry") or (time.time() + timeout_seconds)
+        param_signature = trade_spec.get("approval_nonce") or hashlib.sha256(
+            f"{trade_id}:{trade_spec.get('symbol')}:{trade_spec.get('side')}:{trade_spec.get('entry_price', 0):.4f}:{trade_spec.get('stop_loss_price', 0):.4f}:{trade_spec.get('take_profit_price', 0):.4f}:{trade_spec.get('contracts', 1)}:{trade_spec.get('leverage', 25)}:{trade_spec.get('dollar_risk_usd', 0):.2f}:{int(expiry_timestamp)}".encode()
+        ).hexdigest()[:16]
+        trade_spec["approval_nonce"] = param_signature
+        trade_spec["approval_expiry"] = expiry_timestamp
 
         reply_markup = {
             "inline_keyboard": [
@@ -547,6 +612,14 @@ class TelegramConfirmationBot:
                     elif cb_data == "cancel_emergency_closeall":
                         self.answer_callback(cb_id, "Cancelled.")
                         self.send_message("✅ Emergency close cancelled. Protective trailing stops remain active.")
+                        continue
+                    elif cb_data.startswith("sample_confirm_"):
+                        self.answer_callback(cb_id, "✅ Sample trade proposal approved (Demo Mode).")
+                        self.send_message("✅ <b>[SAMPLE PROPOSAL CONFIRMED]</b>\n<i>Demonstration successful. In live trading, this triggers pre-execution safety validation and bracket order submission on Delta Exchange.</i>")
+                        continue
+                    elif cb_data.startswith("sample_reject_"):
+                        self.answer_callback(cb_id, "❌ Sample trade proposal declined (Demo Mode).")
+                        self.send_message("❌ <b>[SAMPLE PROPOSAL DECLINED]</b>\n<i>Demonstration successful. Capital remained 100% in cash USD.</i>")
                         continue
 
                 msg = update.get("message")
@@ -1003,6 +1076,12 @@ class TelegramConfirmationBot:
             except Exception as e:
                 self.send_message(f"⚠️ Error fetching operating rules: {e}")
 
+        elif cmd in ["/sample", "/testproposal", "/sampletrade"]:
+            try:
+                self.send_sample_proposal()
+            except Exception as e:
+                self.send_message(f"⚠️ Error sending sample proposal: {e}")
+
         elif cmd in ["/help", "/start"]:
             help_msg = (
                 "📖 <b>[DELTA BOT COMMAND CENTER]</b>\n"
@@ -1013,6 +1092,7 @@ class TelegramConfirmationBot:
                 "• <code>/rules</code> — Inspect dynamic Next-Session Operating Rules\n"
                 "• <code>/trade</code> — Run scalp scan; suggest trade only if A+ setup exists\n"
                 "• <code>/scan</code> — Trigger on-demand 5-timeframe scan of BTC, ETH &amp; XAU\n"
+                "• <code>/sample</code> — Send interactive sample trade card with live buttons\n"
                 "• <code>/positions</code> — View currently active positions &amp; PnL\n"
                 "• <code>/orders</code> — Inspect pending limit/bracket orders\n"
                 "• <code>/scorecard</code> — View algorithm self-learning audit, win rate &amp; learned patterns\n"

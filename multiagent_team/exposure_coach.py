@@ -58,10 +58,11 @@ class ExposureCoachAgent:
         scan_results: Dict[str, Any],
         wallet_equity: float = 100.0,
         active_positions_count: int = 0,
-        open_margin_utilization_pct: float = 0.0
+        open_margin_utilization_pct: float = 0.0,
+        sentiment_report: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
-        Synthesize cross-asset indicators into a deterministic Market Health score (0-100)
+        Synthesize cross-asset indicators and internet news sentiment into a deterministic Market Health score (0-100)
         and establish the Exposure Posture.
         """
         symbols_data = scan_results.get("symbols_data", {})
@@ -235,6 +236,27 @@ class ExposureCoachAgent:
         if extreme_crowding and crowding_note:
             rationale += f" [{crowding_note}]"
 
+        # News & Social Sentiment Posture Adjustment
+        sentiment_summary = {}
+        if sentiment_report:
+            regime_s = getattr(sentiment_report, "sentiment_regime", "NEUTRAL")
+            fng_val = getattr(sentiment_report, "fear_greed_index", 50)
+            comp_score = getattr(sentiment_report, "composite_score", 0.0)
+            s_mult = getattr(sentiment_report, "leverage_risk_multiplier", 1.0)
+
+            if regime_s == "EXTREME_FEAR" and not cash_priority:
+                risk_mult = min(risk_mult, s_mult)
+                rationale += f" [News Sentiment: EXTREME FEAR ({fng_val}/100 F&G, Polarity {comp_score:+.2f}). Risk clamped to {s_mult:.2f}x]."
+            elif regime_s == "EXTREME_GREED" and not cash_priority:
+                rationale += f" [News Sentiment: EXTREME GREED ({fng_val}/100 F&G). Euphoria reversal risk elevated]."
+
+            sentiment_summary = {
+                "sentiment_regime": regime_s,
+                "fear_greed_index": fng_val,
+                "composite_score": comp_score,
+                "sentiment_multiplier": s_mult
+            }
+
         posture_data = {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
             "health_score": health_score,
@@ -253,6 +275,7 @@ class ExposureCoachAgent:
             "active_positions_count": active_positions_count,
             "consecutive_losses": consecutive_losses,
             "extreme_crowding": extreme_crowding,
+            "news_sentiment": sentiment_summary,
             "rationale": rationale
         }
 

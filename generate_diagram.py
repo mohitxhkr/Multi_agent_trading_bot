@@ -58,9 +58,9 @@ def generate_diagram():
         d.text((x + card_w - 172, y + 20), badge_text, fill="#ffffff", font=f_card_tag)
 
     # -------------------------------------------------------------
-    # CARD 1: AGENTS 1 & 2 (REGIME ANALYST & EXPOSURE COACH)
+    # CARD 1: AGENTS 1 & 2 (REGIME ANALYST, EXPOSURE & NEWS SENTIMENT)
     # -------------------------------------------------------------
-    draw_card_base(col1_x, row1_y, "🔍 AGENTS 1 & 2: REGIME & EXPOSURE COACH", "BREADTH & POSTURE", "#388bfd", "#1e3a5f", "#0284c7")
+    draw_card_base(col1_x, row1_y, "🔍 LAYER 1: REGIME, EXPOSURE & NEWS", "INTELLIGENCE", "#388bfd", "#1e3a5f", "#0284c7")
     cy = row1_y + 80
     d.text((col1_x + 25, cy), "Macro Order Flow, Breadth & Market Posture Engine:", fill="#38bdf8", font=f_sec_title)
     
@@ -71,18 +71,18 @@ def generate_diagram():
 
     box_y += 52
     d.rounded_rectangle([(col1_x + 25, box_y), (col1_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col1_x + 40, box_y + 12), "Agent 2 (Exposure Coach):", fill="#38bdf8", font=f_box_title)
-    d.text((col1_x + 265, box_y + 13), "Market Posture (AGGRESSIVE / DEFENSIVE / CASH) + Funding Skew", fill="#c9d1d9", font=f_box_sub)
+    d.text((col1_x + 40, box_y + 12), "News & Social Sentiment Engine:", fill="#38bdf8", font=f_box_title)
+    d.text((col1_x + 310, box_y + 13), "CoinDesk, CoinTelegraph, Decrypt & F&G Index + Telegram Alerts", fill="#c9d1d9", font=f_box_sub)
 
     box_y += 52
     d.rounded_rectangle([(col1_x + 25, box_y), (col1_x + card_w - 25, box_y + 44)], radius=8, fill="#0d1117", outline="#30363d")
-    d.text((col1_x + 40, box_y + 12), "15m Trigger & MSS:", fill="#38bdf8", font=f_box_title)
-    d.text((col1_x + 215, box_y + 13), "BSL/SSL Sweeps + Mandatory MSS Candle Body Close (No Wicks)", fill="#c9d1d9", font=f_box_sub)
+    d.text((col1_x + 40, box_y + 12), "Agent 2 (Exposure Coach):", fill="#38bdf8", font=f_box_title)
+    d.text((col1_x + 265, box_y + 13), "Market Posture (AGGRESSIVE / DEFENSIVE / CASH) + Funding Skew", fill="#c9d1d9", font=f_box_sub)
 
     by = box_y + 55
     d.text((col1_x + 25, by), "• Pre-Flight Data Validation: Discards stale data (>60s) or missing candle gaps.", fill="#8b949e", font=f_body)
     d.text((col1_x + 25, by + 26), "• Cash Priority Gate: If Market Health < 32/100, blocks ALL trades (Cash 100%).", fill="#8b949e", font=f_body)
-    d.text((col1_x + 25, by + 52), "• Relative Strength Filtering: Prioritizes market leadership (BTC vs ETH/Alts).", fill="#8b949e", font=f_body)
+    d.text((col1_x + 25, by + 52), "• News Catalyst Classifier: Tags REGULATORY, MACRO_FED, EXPLOITS with impact.", fill="#8b949e", font=f_body)
     d.text((col1_x + 25, by + 78), "• Crowded Funding Shield: Rejects long entries when funding rate > +0.03%.", fill="#8b949e", font=f_body)
 
     # -------------------------------------------------------------
@@ -252,7 +252,7 @@ def generate_diagram():
     d.text((fc1_x, fcy + 72), "• Sentinel Thread: 15s micro-trailing loop", fill="#8b949e", font=f_foot_body)
     d.text((fc1_x, fcy + 94), "• Scanner Thread: 120s scan & validation loop", fill="#8b949e", font=f_foot_body)
     d.text((fc1_x, fcy + 116), "• Healthcheck: REST /status & /health API", fill="#8b949e", font=f_foot_body)
-    d.text((fc1_x, fcy + 138), "• Production Status: 100% Tests Passing (16/16)", fill="#10b981", font=f_foot_body)
+    d.text((fc1_x, fcy + 138), "• Production Status: 100% Tests Passing (19/19)", fill="#10b981", font=f_foot_body)
 
     # Col 2: Security Layer
     d.text((fc2_x, fcy), "🔑 Cryptographic Security", fill="#fbbf24", font=f_box_title)

@@ -6,7 +6,7 @@
 [![Delta Exchange](https://img.shields.io/badge/Delta%20Exchange-India%20%7C%20Global%20%7C%20Testnet-0ea5e9?style=for-the-badge)](https://delta.exchange)
 [![Architecture](https://img.shields.io/badge/Architecture-6--Layer%20%7C%2010--Agent-blueviolet?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
 [![Security](https://img.shields.io/badge/Security-HMAC%20Token%20%7C%20Zero--Trust-green?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
-[![Tests](https://img.shields.io/badge/Tests-16%2F16%20Passing%20(100%25)-brightgreen?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
+[![Tests](https://img.shields.io/badge/Tests-19%2F19%20Passing%20(100%25)-brightgreen?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 
 **An institutional-grade, evidence-driven algorithmic trading system engineered for Delta Exchange perpetual futures.**  
@@ -34,11 +34,14 @@ The system coordinates trade discovery, mathematical validation, and execution a
 
 ```mermaid
 flowchart TD
-    subgraph L1["Layer 1: Market Intelligence"]
+    subgraph L1["Layer 1: Market Intelligence & News Sentiment"]
         DV["MarketDataValidator<br/>• Freshness check (<= 60s)<br/>• Gap & spike filtering"]
         A1["Agent 1: Regime Analyst<br/>• 6-TF EMA stacks & ADX<br/>• Watchlist Breadth (% > EMA20)<br/>• ETH/BTC Relative Strength"]
+        NS["News Sentiment Intelligence<br/>• Live RSS Scraper (CoinDesk/CoinTelegraph/Decrypt/Google)<br/>• Alternative.me Fear & Greed Index<br/>• Catalyst Tagging & Telegram Alerts"]
         A2["Agent 2: Exposure Coach<br/>• Macro Posture (0-100)<br/>• Dynamic leverage caps<br/>• Cash Priority Gate"]
-        DV --> A1 --> A2
+        DV --> A1
+        A1 --> NS
+        NS --> A2
     end
 
     subgraph L2["Layer 2: Alpha Strategy & Probability"]
@@ -95,8 +98,8 @@ flowchart TD
 
 ### 2️⃣ Agent 2: Exposure Coach & Market Posture Engine
 * **Module:** [`multiagent_team/exposure_coach.py`](multiagent_team/exposure_coach.py)
-* **Core Task:** Dictates capital exposure, allowable leverage, and portfolio risk posture based on macro health.
-* **Inputs:** Agent 1 breadth metrics, account margin utilization, and consecutive loss history.
+* **Core Task:** Dictates capital exposure, allowable leverage, and portfolio risk posture based on macro health and news sentiment.
+* **Inputs:** Agent 1 breadth metrics, news sentiment composite scores, account margin utilization, and consecutive loss history.
 * **Processing Logic:**
   * Assesses Market Health score (0 to 100).
   * Enforces Postures:
@@ -106,6 +109,23 @@ flowchart TD
     * `RECOVERY_POSTURE`: Triggered after 2 consecutive losses; cuts risk by 50% and clamps leverage.
     * `CASH_PRIORITY` (Health < 32): **0% risk budget. All new entries blocked.** Capital is 100% in cash USD.
 * **Output:** Operational posture, leverage caps, and asset whitelist.
+
+### 🌐 Autonomous News & Social Sentiment Intelligence Engine
+* **Module:** [`multiagent_team/news_sentiment_agent.py`](multiagent_team/news_sentiment_agent.py)
+* **Core Task:** Scrapes breaking crypto news across the internet, parses market catalysts, computes composite sentiment, and notifies Telegram with estimated market impact.
+* **Ingestion Channels:**
+  * **CoinDesk RSS & CoinTelegraph RSS:** Real-time institutional coverage, ETF flows, and protocol security events.
+  * **Decrypt Media RSS:** On-chain developments, ecosystem announcements, and token dynamics.
+  * **Google News Crypto RSS:** Aggregate headlines from Bloomberg, WSJ, Financial Times, and Reuters.
+  * **Alternative.me Fear & Greed Index API:** Multi-factor community pulse (0-100 index).
+* **Processing Logic:**
+  * **Institutional Lexicon NLP:** Evaluates polarity (-1.0 to +1.0) and assigns sentiment labels (`VERY_BULLISH`, `BULLISH`, `NEUTRAL`, `BEARISH`, `VERY_BEARISH`).
+  * **Catalyst Categorization:** Automatically classifies articles into `REGULATORY`, `MACRO_FED`, `INSTITUTIONAL`, `SECURITY_EXPLOIT`, and `MARKET_ACTION`.
+  * **Target Asset Mapping:** Detects mentions of `BTC`, `ETH`, `SOL`, `XRP`, `DOGE`, and `GOLD`.
+  * **Impact Rating:** Evaluates volatility potential (`HIGH`, `MEDIUM`, `LOW`).
+  * **Future Sentiment Guidance:** Generates actionable guidance for other agents (e.g. Clamps risk during extreme fear; widens stop loss buffer by 15% during high-impact news).
+  * **Telegram Alert Dispatcher:** Automatically posts breaking news cards and periodic global sentiment digests to Telegram with zero duplicate spam.
+* **Output:** Typed `MarketSentimentReport` and real-time Telegram cards.
 
 ### 3️⃣ Agent 3: Alpha Strategy Generator
 * **Module:** [`multiagent_team/strategy_agent.py`](multiagent_team/strategy_agent.py)
@@ -282,16 +302,33 @@ MIN_REWARD_TO_RISK=2.2               # Minimum 2.2:1 R:R
 ```bash
 python -m unittest discover tests
 ```
-*Expected Output: `Ran 16 tests in 0.685s - OK (100% Passing)`*
+*Expected Output: `Ran 19 tests in 0.704s - OK (100% Passing)`*
 
-### 4. Start the Trading Bot
-* **Single Scan & Execution Cycle:**
+### 4. CLI Commands & Bot Execution
+
+* **Scrape Internet News & Post Sentiment Digest to Telegram:**
   ```bash
-  python main.py --once
+  python main.py news --telegram
   ```
-* **Autonomous Continuous Execution (24/7):**
+
+* **Single Multi-Agent Market Scan:**
   ```bash
-  python main.py
+  python main.py scan --symbols BTCUSD,ETHUSD
+  ```
+
+* **Interactive Trading Mode (Requires Telegram Human Approval):**
+  ```bash
+  python main.py trade --symbols BTCUSD --leverage 25
+  ```
+
+* **Autonomous Continuous Execution (24/7 Cloud Background Loop):**
+  ```bash
+  python main.py auto --interval 300
+  ```
+
+* **View Trade Journal & Performance Digest:**
+  ```bash
+  python main.py digest
   ```
 
 ---

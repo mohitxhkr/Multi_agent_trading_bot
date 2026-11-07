@@ -93,6 +93,34 @@ def cmd_show_digest():
     print(digest_text)
 
 
+def cmd_news_sentiment(telegram_post=False):
+    print_banner()
+    from multiagent_team.news_sentiment_agent import NewsSentimentAgent
+    from src.telegram_notifier import TelegramNotifier
+    agent = NewsSentimentAgent()
+    print("Ingesting global crypto news & Fear/Greed sentiment across the internet...")
+    report = agent.generate_sentiment_report()
+    print("\n" + "=" * 65)
+    print("🧠 GLOBAL CRYPTO NEWS & SENTIMENT INTELLIGENCE REPORT")
+    print("=" * 65)
+    print(f"Timestamp          : {report.timestamp}")
+    print(f"Composite Score    : {report.composite_score:+.2f} ({report.sentiment_regime})")
+    print(f"Fear & Greed Index : {report.fear_greed_index}/100 ({report.fear_greed_classification})")
+    print(f"Headlines Analyzed : {report.total_articles_analyzed} (🟢 {report.bullish_articles_count} | 🔴 {report.bearish_articles_count} | ⚪ {report.neutral_articles_count})")
+    print(f"Risk Multiplier    : {report.leverage_risk_multiplier:.2f}x")
+    print(f"Trading Guidance   : {report.trading_posture_recommendation}")
+    print("-" * 65)
+    print("Top High-Impact Headlines:")
+    for i, a in enumerate(report.top_high_impact_news[:5], 1):
+        print(f" [{i}] [{a.catalyst_category}] {a.sentiment_label} ({a.sentiment_score:+.2f}): {a.title}")
+        print(f"     Source: {a.source} | Affected: {', '.join(a.affected_assets)}")
+    print("=" * 65)
+    if telegram_post:
+        notifier = TelegramNotifier()
+        res = agent.dispatch_sentiment_digest_to_telegram(notifier)
+        print(f"\nTelegram Digest Dispatched: {'[SUCCESS]' if res else '[FAILED]'}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Delta Exchange MCP & Multi-Agent Trading Team",
@@ -105,6 +133,7 @@ Commands:
   trade     Run multi-agent trading team in Interactive Mode (requires user confirmation)
   auto      Run multi-agent trading team in Autonomous Loop Mode
   digest    Display daily performance journal digest and account summary
+  news      Scrape & analyze crypto news and sentiment across the internet
         """
     )
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
@@ -126,6 +155,9 @@ Commands:
 
     subparsers.add_parser("digest", help="View daily performance digest")
 
+    news_parser = subparsers.add_parser("news", help="Scrape & analyze crypto news and sentiment")
+    news_parser.add_argument("--telegram", action="store_true", help="Post full sentiment digest to Telegram")
+
     args = parser.parse_args()
 
     symbols = [s.strip().upper() for s in args.symbols.split(",")] if getattr(args, "symbols", None) else None
@@ -142,6 +174,8 @@ Commands:
         cmd_trade_auto(symbols=symbols, interval=args.interval, leverage=args.leverage)
     elif args.command == "digest":
         cmd_show_digest()
+    elif args.command == "news":
+        cmd_news_sentiment(telegram_post=args.telegram)
     else:
         parser.print_help()
 

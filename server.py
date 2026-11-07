@@ -82,6 +82,23 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 conn_msg = f"Diagnostics error: {str(e)}"
                 pos_error = str(e)
 
+            sentiment_data = None
+            try:
+                sentiment_file = os.path.join(BASE_DIR, "state", "market_sentiment_state.json")
+                if os.path.exists(sentiment_file):
+                    with open(sentiment_file, "r", encoding="utf-8") as sf:
+                        s_raw = json.load(sf)
+                        sentiment_data = {
+                            "composite_score": s_raw.get("composite_score"),
+                            "regime": s_raw.get("sentiment_regime"),
+                            "fear_greed_index": s_raw.get("fear_greed_index"),
+                            "fear_greed_classification": s_raw.get("fear_greed_classification"),
+                            "articles_analyzed": s_raw.get("total_articles_analyzed"),
+                            "posture_recommendation": s_raw.get("trading_posture_recommendation", "").split(":")[0]
+                        }
+            except Exception:
+                pass
+
             response_data = {
                 "bot": "Delta Exchange Multi-Agent 24/7 Trading Bot",
                 "version": "2.0.0-institutional",
@@ -92,6 +109,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 "uptime_started": scanner_status["uptime_started"],
                 "authenticated": conn_auth,
                 "auth_message": conn_msg,
+                "news_sentiment": sentiment_data,
                 "positions_success": pos_success,
                 "active_positions_count": len(active),
                 "active_symbols": [p.get("product_symbol") or p.get("symbol") for p in active],

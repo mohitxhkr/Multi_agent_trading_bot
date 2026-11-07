@@ -59,16 +59,16 @@ def generate_workflow():
         {
             "num": "STEP 02",
             "layer": "LAYER 1: INTELLIGENCE",
-            "title": "Regime & Breadth",
+            "title": "Regime & News Sentiment",
             "color": "#388bfd",
             "hdr_bg": "#1e3a5f",
             "bullets": [
                 "• 6-Timeframe EMA stacks (21, 50, 200)",
                 "• Market-Wide Breadth: % watchlist > 20 EMA",
-                "• ETH/BTC Relative Strength leadership",
-                "• Crowded funding rate filter (> +0.03%)"
+                "• News Scraper: CoinDesk, CoinTelegraph, Decrypt",
+                "• Fear & Greed Index API + Telegram News Alerts"
             ],
-            "agent": "Agent 1: Regime Analyst"
+            "agent": "Regime Analyst & News Sentiment"
         },
         {
             "num": "STEP 03",
@@ -259,7 +259,7 @@ def generate_workflow():
     foot_y = y_start + rows * (card_h + y_gap) - 15
     d.rounded_rectangle([(60, foot_y), (w - 60, foot_y + 80)], radius=12, fill="#161b22", outline="#30363d", width=2)
     d.text((90, foot_y + 16), "🛡️ SYSTEM GUARANTEE: ZERO ORDERS DISPATCH WITHOUT 14/14 SAFETY APPROVALS + VALIDATED STOP LOSS ON DELTA EXCHANGE", fill="#10b981", font=f_foot_t)
-    d.text((90, foot_y + 45), "Authoritative Execution: All lifecycle milestones stored immutably in SQLite (state/trading_journal.db) • Tests: 16/16 Passing (100%)", fill="#8b949e", font=f_foot_b)
+    d.text((90, foot_y + 45), "Authoritative Execution: All lifecycle milestones stored immutably in SQLite (state/trading_journal.db) • Tests: 19/19 Passing (100%)", fill="#8b949e", font=f_foot_b)
 
     out_path = r"d:\Project\Multi Agent Trading Bot\end_to_end_workflow.png"
     img.save(out_path, format="PNG", quality=95)

@@ -23,6 +23,7 @@ from src.monitoring import SystemMonitor
 from multiagent_team.data_validator import MarketDataValidator
 from multiagent_team.regime_analyst import RegimeAnalystAgent
 from multiagent_team.exposure_coach import ExposureCoachAgent
+from multiagent_team.news_sentiment_agent import NewsSentimentAgent
 from multiagent_team.strategy_agent import StrategyAgent
 from multiagent_team.time_machine_agent import TimeMachineAgent
 from multiagent_team.risk_gatekeeper import RiskGatekeeperAgent
@@ -76,9 +77,10 @@ class MultiAgentTradingOrchestrator:
             min_reward_to_risk=target_rr_ratio
         )
         
-        # 10 Specialized Agents
+        # 10 Specialized Agents & Shared Intelligence
         self.regime_analyst = RegimeAnalystAgent(self.client, data_validator=self.data_validator)
         self.exposure_coach = ExposureCoachAgent()
+        self.news_sentiment = NewsSentimentAgent()
         self.strategy_agent = StrategyAgent(target_rr_ratio=target_rr_ratio)
         self.time_machine = TimeMachineAgent(self.client)
         self.risk_gatekeeper = RiskGatekeeperAgent(self.client, self.risk_manager)
@@ -119,6 +121,10 @@ class MultiAgentTradingOrchestrator:
             breadth_val = posture_state.get("breadth_pct", 50.0)
             cash_badge = " [CASH PRIORITY]" if posture_state.get("cash_priority") else ""
             lines.append(f"• <b>Market Posture:</b> <b>{posture_title}{cash_badge}</b> (Health: {health_sc}/100 | Breadth: {breadth_val:.0f}%)")
+
+        if self.news_sentiment.cached_report:
+            rep = self.news_sentiment.cached_report
+            lines.append(f"• <b>Market Sentiment:</b> <b>{rep.composite_score:+.2f} ({rep.sentiment_regime})</b> | F&amp;G: <b>{rep.fear_greed_index}/100</b> ({rep.fear_greed_classification})")
 
         sc = self.adaptive_learner.memory.get("scorecard", {})
         if sc.get("total_completed_trades", 0) > 0:
@@ -213,12 +219,33 @@ class MultiAgentTradingOrchestrator:
 
         self.system_monitor.record_agent_duration("Agent1_RegimeAnalyst", (time.time() - t1) * 1000)
 
+        # Layer 1: News Sentiment Intelligence Engine
+        t_news = time.time()
+        print("\n📰 [Layer 1: News Sentiment Intelligence] Ingesting global headlines & Fear/Greed index...")
+        sentiment_report = None
+        try:
+            sentiment_report = self.news_sentiment.generate_sentiment_report()
+            print(f"   Composite Sentiment: {sentiment_report.composite_score:+.2f} ({sentiment_report.sentiment_regime}) | F&G: {sentiment_report.fear_greed_index}/100 ({sentiment_report.fear_greed_classification})")
+            print(f"   Analyzed {sentiment_report.total_articles_analyzed} headlines (🟢 {sentiment_report.bullish_articles_count} | 🔴 {sentiment_report.bearish_articles_count} | ⚪ {sentiment_report.neutral_articles_count})")
+            if sentiment_report.top_high_impact_news:
+                top_art = sentiment_report.top_high_impact_news[0]
+                print(f"   Top Catalyst: [{top_art.catalyst_category}] {top_art.title[:65]}...")
+
+            # Automatically dispatch breaking news alerts to Telegram if unposted
+            posted_alerts = self.news_sentiment.dispatch_telegram_news_updates(self.telegram)
+            if posted_alerts > 0:
+                print(f"   Dispatched {posted_alerts} breaking news alert(s) to Telegram.")
+        except Exception as ne:
+            logger.warning(f"News sentiment collection skipped: {ne}")
+        self.system_monitor.record_agent_duration("Layer1_NewsSentiment", (time.time() - t_news) * 1000)
+
         # Agent 2: Exposure Coach
         t2 = time.time()
-        print("\n🧭 [Layer 1: Exposure Coach] Evaluating multi-asset breadth & risk posture...")
+        print("\n🧭 [Layer 1: Exposure Coach] Evaluating multi-asset breadth, sentiment & risk posture...")
         posture_data = self.exposure_coach.evaluate_market_posture(
             scan_results=scan_results,
-            active_positions_count=active_cnt
+            active_positions_count=active_cnt,
+            sentiment_report=sentiment_report
         )
         print(f"   Market Health: {posture_data.get('health_score', 50)}/100 | Posture: {posture_data.get('posture', 'MODERATE')} | Breadth: {posture_data.get('breadth_pct', 50.0)}%")
         self.state_manager.save_market_posture(

@@ -45,9 +45,9 @@ class RiskGatekeeperAgent:
         """
         symbol = setup.get("symbol", "")
         side = setup.get("side", "buy").lower()
-        entry = float(setup.get("entry_price", 0.0))
-        stop = float(setup.get("stop_loss_price", 0.0))
-        tp = float(setup.get("take_profit_price", 0.0))
+        entry = float(setup.get("entry_price") or setup.get("entry") or 0.0)
+        stop = float(setup.get("stop_loss_price") or setup.get("stop_loss") or 0.0)
+        tp = float(setup.get("take_profit_price") or setup.get("take_profit") or 0.0)
 
         # 1. Fetch live account balances
         balances_res = self.client.get_wallet_balances()

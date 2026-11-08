@@ -62,9 +62,11 @@ class TrailingStopManager:
         tp_order_id: Optional[int] = None,
         is_high_volatility: bool = False,
         trade_id: Optional[str] = None,
+        atr: Optional[float] = None,
     ) -> None:
         """Register newly entered trade parameters for exact R-multiple trailing calculations."""
         risk = abs(entry_price - initial_sl)
+        effective_atr = float(atr) if (atr and atr > 0) else (risk * 0.85)
         self.state[symbol] = {
             "symbol": symbol,
             "trade_id": trade_id or f"trade_{symbol}",
@@ -75,6 +77,7 @@ class TrailingStopManager:
             "initial_tp": float(initial_tp),
             "current_tp": float(initial_tp),
             "risk_per_unit": float(risk),
+            "atr": float(effective_atr),
             "contracts": int(contracts),
             "highest_r_reached": 0.0,
             "lowest_r_reached": 0.0,

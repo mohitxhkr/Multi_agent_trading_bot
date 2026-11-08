@@ -125,6 +125,7 @@ class RegimeAnalystAgent:
         total_valid = 0
         funding_rates = []
         spreads = []
+        atr_pcts = []
         for s_data in results.values():
             c_price = s_data.get("current_price", 0.0)
             ema20 = s_data.get("ema_20", 0.0)
@@ -150,11 +151,25 @@ class RegimeAnalystAgent:
             if sp is not None and sp > 0:
                 spreads.append(sp)
 
+            ap = s_data.get("atr_pct")
+            if ap is not None and ap > 0:
+                atr_pcts.append(ap)
+
         breadth_pct = round((above_ema_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
         macd_breadth_pct = round((macd_bullish_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
         vwap_breadth_pct = round((vwap_above_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
         avg_spread = round(sum(spreads) / len(spreads), 3) if spreads else 0.04
         market_liquidity_state = "PRIME_LIQUIDITY" if avg_spread <= 0.05 else ("NORMAL_LIQUIDITY" if avg_spread <= 0.12 else "ILLIQUID_CAUTION")
+
+        avg_atr_pct = round(sum(atr_pcts) / len(atr_pcts), 2) if atr_pcts else 1.50
+        if avg_atr_pct < 1.0:
+            vol_temperature = "CALM_COMPRESSION"
+        elif avg_atr_pct <= 2.5:
+            vol_temperature = "NORMAL_VOLATILITY"
+        elif avg_atr_pct <= 4.0:
+            vol_temperature = "HIGH_VOLATILITY_EXPANSION"
+        else:
+            vol_temperature = "EXTREME_VOLATILITY"
 
         # 2. ETH/BTC Relative Strength
         eth_btc_relative_strength = 1.0
@@ -186,6 +201,8 @@ class RegimeAnalystAgent:
             "vwap_breadth_pct": vwap_breadth_pct,
             "avg_spread_pct": avg_spread,
             "market_liquidity_state": market_liquidity_state,
+            "avg_watchlist_atr_pct": avg_atr_pct,
+            "market_volatility_temperature": vol_temperature,
             "eth_btc_relative_strength": eth_btc_relative_strength,
             "avg_funding_rate": avg_funding,
             "funding_rate_skew": funding_skew,

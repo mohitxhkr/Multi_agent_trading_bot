@@ -82,6 +82,27 @@ class StrategyAgent:
         stop_distance = abs(entry - sl)
         planned_rr = abs(tp - entry) / stop_distance if stop_distance > 0 else 0.0
 
+        # ATR Volatility Stop Calibration & Validation
+        atr_15m = float(macro_15m.get("atr_14") or hp_setup.get("atr_14") or analysis.get("atr_14") or 0.0)
+        atr_multiple = round(stop_distance / atr_15m, 2) if atr_15m > 0 else 1.0
+
+        if atr_15m > 0:
+            # Hard Veto 1: Sub-ATR micro-stop (vulnerable to normal market noise)
+            if atr_multiple < 0.40:
+                logger.warning(
+                    f"StrategyAgent VETO on {symbol}: Stop loss distance (${stop_distance:.2f}) is only "
+                    f"{atr_multiple:.2f}x ATR (< 0.40x ATR of ${atr_15m:.2f}). Highly vulnerable to noise stop-outs."
+                )
+                return None
+
+            # Hard Veto 2: Excessively loose stop (inefficient capital allocation)
+            if atr_multiple > 3.0:
+                logger.warning(
+                    f"StrategyAgent VETO on {symbol}: Stop loss distance (${stop_distance:.2f}) is "
+                    f"{atr_multiple:.2f}x ATR (> 3.0x ATR of ${atr_15m:.2f}). Exceeds acceptable volatility risk bounds."
+                )
+                return None
+
         # Enforce minimum R:R ratio
         if planned_rr < self.target_rr_ratio or tp <= 0:
             tp = round(entry + (self.target_rr_ratio * stop_distance), 4) if side == "buy" else round(entry - (self.target_rr_ratio * stop_distance), 4)
@@ -97,6 +118,16 @@ class StrategyAgent:
         is_primary = any(p in (symbol or "").upper() for p in ["BTC", "ETH", "XAU", "GOLD"])
         priority_tag = "PRIMARY" if is_primary else "SECONDARY"
         adjusted_score = score + (10 if is_primary else 0)
+
+        # ATR Stop Calibration Edge: Award bonus points for optimal 0.70x - 1.50x ATR buffer
+        atr_boost = 0
+        if 0.70 <= atr_multiple <= 1.50:
+            atr_boost += 4
+            thesis = f"🛡️ [OPTIMAL {atr_multiple:.1f}x ATR STOP] {thesis}"
+        elif atr_multiple < 0.50:
+            atr_boost -= 4
+
+        adjusted_score += atr_boost
 
         # VWAP Institutional Level & Standard Deviation Band Alignment
         vwap_val = float(analysis.get("vwap") or 0.0)
@@ -251,6 +282,8 @@ class StrategyAgent:
             "created_at": now_ts,
             "vwap": vwap_val,
             "spread_pct": spread_pct,
+            "atr_14": atr_15m,
+            "atr_stop_multiple": atr_multiple,
             "confluence": {
                 "execution_15m": f"{macro_15m.get('regime', 'NEUTRAL')} (RSI: {macro_15m.get('rsi_14', 'N/A')} | ATR: {macro_15m.get('atr_14', 'N/A')})",
                 "monthly": f"{macro_monthly.get('regime', 'NEUTRAL')} (M-Open: ${macro_monthly.get('monthly_open', 'N/A')})",
@@ -263,7 +296,8 @@ class StrategyAgent:
                 "volume_rsi": f"1H RSI: {analysis.get('rsi_14', 50.0)} | Vol: {'CONFIRMED' if liq.get('volume_confirmed') else 'NORMAL'}",
                 "macd_detail": f"15m: {m15_cross} ({m15_phase}) | 1H: {m1h_bias}",
                 "vwap_detail": f"${vwap_val:,.2f} ({v_stance} | {v_band} | {v_slope})",
-                "liquidity_detail": f"BSL: ${nearest_bsl:,.2f} ({f'{bsl_dist_pct:+.2f}%' if bsl_dist_pct is not None else 'N/A'}) | SSL: ${nearest_ssl:,.2f} ({f'{ssl_dist_pct:+.2f}%' if ssl_dist_pct is not None else 'N/A'}) | State: {liq_structure} | Spread: {spread_pct:.3f}%"
+                "liquidity_detail": f"BSL: ${nearest_bsl:,.2f} ({f'{bsl_dist_pct:+.2f}%' if bsl_dist_pct is not None else 'N/A'}) | SSL: ${nearest_ssl:,.2f} ({f'{ssl_dist_pct:+.2f}%' if ssl_dist_pct is not None else 'N/A'}) | State: {liq_structure} | Spread: {spread_pct:.3f}%",
+                "atr_detail": f"15m ATR: ${atr_15m:,.2f} ({round(atr_15m/entry*100, 2) if entry > 0 else 0}%) | SL Multiple: {atr_multiple:.2f}x ATR"
             }
         }
 

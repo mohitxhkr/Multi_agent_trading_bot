@@ -536,6 +536,96 @@ def detect_news_or_abnormal_volatility(current_atr: float, avg_atr: float) -> Tu
     return False, ""
 
 
+def calculate_atr_calibrated_stops(
+    entry_price: float,
+    side: str,
+    structural_pivot: Optional[float] = None,
+    atr: float = 0.0,
+    volatility_state: str = "NORMAL",
+    target_rr_ratio: float = 2.5,
+    min_stop_distance_pct: float = 0.25,
+    max_stop_distance_pct: float = 1.80
+) -> Dict[str, Any]:
+    """
+    Calculate dynamic ATR-calibrated Stop Loss and Take Profit levels.
+    Combines market structure anchors with ATR volatility cushions to eliminate
+    premature noise stop-outs and maintain mathematical risk-to-reward asymmetry.
+    """
+    if entry_price <= 0:
+        return {
+            "entry_price": entry_price,
+            "stop_loss_price": 0.0,
+            "take_profit_price": 0.0,
+            "stop_distance": 0.0,
+            "stop_distance_pct": 0.0,
+            "atr": atr,
+            "atr_stop_multiple": 0.0,
+            "planned_rr_ratio": target_rr_ratio,
+            "volatility_state": volatility_state
+        }
+
+    effective_atr = atr if atr > 0 else (entry_price * 0.006)
+
+    # Volatility regime scalar: widen during expansion, compress during consolidation
+    if volatility_state == "EXPANSION":
+        atr_scalar = 1.25
+        structural_buffer = 0.30 * effective_atr
+    elif volatility_state == "CONTRACTION":
+        atr_scalar = 0.75
+        structural_buffer = 0.15 * effective_atr
+    else:
+        atr_scalar = 1.00
+        structural_buffer = 0.20 * effective_atr
+
+    side_clean = side.lower()
+
+    if side_clean == "buy":
+        if structural_pivot is not None and structural_pivot > 0 and structural_pivot < entry_price:
+            raw_sl = structural_pivot - structural_buffer
+            stop_distance = entry_price - raw_sl
+        else:
+            stop_distance = effective_atr * atr_scalar
+            raw_sl = entry_price - stop_distance
+    else:
+        if structural_pivot is not None and structural_pivot > 0 and structural_pivot > entry_price:
+            raw_sl = structural_pivot + structural_buffer
+            stop_distance = raw_sl - entry_price
+        else:
+            stop_distance = effective_atr * atr_scalar
+            raw_sl = entry_price + stop_distance
+
+    min_dist = max(min_stop_distance_pct / 100.0 * entry_price, 0.45 * effective_atr)
+    max_dist = min(max_stop_distance_pct / 100.0 * entry_price, 2.80 * effective_atr)
+    if max_dist < min_dist:
+        max_dist = min_dist * 1.5
+
+    clamped_stop_distance = max(min_dist, min(stop_distance, max_dist))
+
+    if side_clean == "buy":
+        final_sl = round_price(entry_price - clamped_stop_distance, entry_price)
+        final_tp = round_price(entry_price + (clamped_stop_distance * target_rr_ratio), entry_price)
+    else:
+        final_sl = round_price(entry_price + clamped_stop_distance, entry_price)
+        final_tp = round_price(entry_price - (clamped_stop_distance * target_rr_ratio), entry_price)
+
+    final_distance = abs(entry_price - final_sl)
+    atr_multiple = round(final_distance / effective_atr, 2) if effective_atr > 0 else 1.0
+    dist_pct = round((final_distance / entry_price) * 100.0, 2)
+    rr_achieved = round(abs(final_tp - entry_price) / final_distance, 2) if final_distance > 0 else target_rr_ratio
+
+    return {
+        "entry_price": entry_price,
+        "stop_loss_price": final_sl,
+        "take_profit_price": final_tp,
+        "stop_distance": round(final_distance, 4),
+        "stop_distance_pct": dist_pct,
+        "atr": round(effective_atr, 4),
+        "atr_stop_multiple": atr_multiple,
+        "planned_rr_ratio": rr_achieved,
+        "volatility_state": volatility_state
+    }
+
+
 
 def analyze_liquidity_pools_and_sweeps(
     highs: List[float],
@@ -1638,6 +1728,9 @@ def analyze_multi_timeframe(
 
     real_rr = round(abs(target_tp - calc_entry) / abs(calc_entry - invalidation_sl), 2) if (setup_qualified and abs(calc_entry - invalidation_sl) > 0) else 0.0
 
+    stop_dist_val = round(abs(calc_entry - invalidation_sl), 4) if (setup_qualified and abs(calc_entry - invalidation_sl) > 0) else 0.0
+    atr_mult_val = round(stop_dist_val / atr_15m, 2) if (atr_15m > 0 and stop_dist_val > 0) else 1.0
+
     analysis_1h["high_probability_setup"] = {
         "qualified": setup_qualified,
         "side": setup_side,
@@ -1646,6 +1739,9 @@ def analyze_multi_timeframe(
         "entry_price": calc_entry,
         "stop_loss_price": invalidation_sl,
         "take_profit_price": target_tp,
+        "stop_distance": stop_dist_val,
+        "atr_14": atr_15m,
+        "atr_stop_multiple": atr_mult_val,
         "planned_rr_ratio": real_rr,
         "thesis": thesis,
         "rejection_reason": rejection_reason,

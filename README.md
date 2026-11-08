@@ -93,6 +93,7 @@ flowchart TD
   * Evaluates **VWAP Stance & Slope** (`ABOVE_VWAP` / `BELOW_VWAP`, `RISING_BULLISH` / `FALLING_BEARISH`, and Band Locations).
   * Evaluates **MACD Crossovers** (`BULLISH_CROSS` / `BEARISH_CROSS`), **Momentum Phase** (`BULLISH_EXPANSION` / `BEARISH_EXPANSION`), and **Zero-Line Stance**.
   * Measures **Market-Wide Breadth** (% of watchlist assets trading above 20 EMA, % with Bullish MACD, and % trading above Session VWAP) and **ETH/BTC Relative Strength**.
+  * Computes **Multi-Timeframe ATR & Volatility State**: Evaluates 15m, 1H, and 4H ATR, ATR percentage of price, rolling 30-bar ATR expansion ratio, and rates watchlist volatility temperature (`CALM_COMPRESSION`, `NORMAL_VOLATILITY`, `HIGH_VOLATILITY_EXPANSION`, `EXTREME_VOLATILITY`).
   * Identifies **SMC Liquidity Pools & Sweeps**: Detects Buy-Side Liquidity (BSL) swing highs, Sell-Side Liquidity (SSL) swing lows, pool distance percentages, and classifies market structure state (`SWEEP_MSS_CONFIRMED`, `SWEEP_WICK_REJECTION`, `TESTING_BSL_LIQUIDITY`, `TESTING_SSL_LIQUIDITY`, `BALANCED_LIQUIDITY_CORE`).
   * Evaluates **Market-Wide Order Book Liquidity Health**: Monitors average watchlist bid-ask spreads and rates universe liquidity quality (`PRIME_LIQUIDITY` <= 0.05%, `NORMAL_LIQUIDITY` <= 0.12%, `ILLIQUID_CAUTION`).
   * Identifies funding rate skew to filter crowded longs (> +0.03%) or short cascades.
@@ -122,7 +123,8 @@ flowchart TD
 * **Core Task:** Dictates capital exposure, allowable leverage, and portfolio risk posture based on macro health and news sentiment.
 * **Inputs:** Agent 1 breadth, VWAP, & MACD metrics, Agent 2 news sentiment composite scores, account margin utilization, and consecutive loss history.
 * **Processing Logic:**
-  * Assesses Market Health score (0 to 100) combining 21 EMA structure, **Institutional VWAP Breadth**, and **MACD Momentum Breadth**.
+  * Assesses Market Health score (0 to 100) combining 21 EMA structure, **Institutional VWAP Breadth**, **MACD Momentum Breadth**, and **Watchlist Average ATR Volatility**.
+  * Dynamic ATR Guardrails: Clamps risk scalar (0.70x) and limits max concurrent positions to 1 during extreme market-wide volatility spikes (> 3.5% ATR), while signaling explosive expansion readiness during volatility compression (< 1.0% ATR).
   * Enforces Postures:
     * `AGGRESSIVE_EXPANSION` (Health >= 75): 100% risk budget, up to 2 concurrent positions.
     * `MODERATE_SELECTIVE` (Health 50-74): 75% risk budget, restricted to Tier-1 (`BTC`, `ETH`, `XAU`).
@@ -133,10 +135,14 @@ flowchart TD
 
 ### 4️⃣ Agent 4: Alpha Strategy Generator
 * **Module:** [`multiagent_team/strategy_agent.py`](multiagent_team/strategy_agent.py)
-* **Core Task:** Formulates precise entry, stop-loss, and take-profit trade setups using Smart Money Concepts, VWAP bands, and multi-timeframe MACD confluence.
-* **Inputs:** Multi-timeframe structures, VWAP standard deviation bands (±1σ, ±2σ), MACD momentum indicators, liquidity sweeps, and pattern memory adjustments.
+* **Core Task:** Formulates precise entry, stop-loss, and take-profit trade setups using Smart Money Concepts, VWAP bands, multi-timeframe MACD confluence, and volatility-calibrated ATR stops.
+* **Inputs:** Multi-timeframe structures, VWAP standard deviation bands (±1σ, ±2σ), MACD momentum indicators, 15m/1H ATR, liquidity sweeps, and pattern memory adjustments.
 * **Processing Logic:**
   * Rejects unconfirmed wicks: requires candle body close confirming Market Structure Shift (MSS).
+  * Enforces **Dynamic ATR Stop Loss Calibration**:
+    * Utilizes `calculate_atr_calibrated_stops` to buffer stops beyond structural swing pivots with dynamic ATR cushions (0.80x to 1.25x ATR depending on expansion/contraction state).
+    * **ATR Hard Vetoes:** Rejects micro-stops (< 0.40x ATR) vulnerable to normal noise stop-outs, and rejects overly loose stops (> 3.0x ATR) that hurt capital efficiency.
+    * Confluence bonus (+4 pts) awarded for optimal structural stops in the sweet spot (0.70x to 1.50x ATR).
   * Enforces **Institutional VWAP & Band Confluence**:
     * Long entries: Pullbacks into rising VWAP fair value core or discount -1σ accumulation award (+8 pts). Entries chasing overextended above +2σ are penalized (-8 pts).
     * Short entries: Rejections from falling VWAP fair value core or premium +1σ distribution award (+8 pts). Entries shorting into oversold exhaustion below -2σ are penalized (-8 pts).
@@ -170,6 +176,10 @@ flowchart TD
 * **Inputs:** Net equity, available balance, product specifications (lot size, contract value, MMR), open positions.
 * **Processing Logic:**
   * **Hard Dollar Ceiling:** Capped at `min(Equity * max_risk_pct, $4.00)`. High conviction cannot inflate dollar risk.
+  * **ATR Volatility Position Sizing:** Position contracts scale dynamically with ATR stop distance:
+    $$\text{Contracts} = \left\lfloor \frac{\text{Calculated Dollar Risk}}{(\text{Contract Value} \times \text{ATR Stop Distance}) + \text{Friction}} \right\rfloor$$
+    Automatically scales down position size during high volatility and scales up during low volatility, locking dollar loss to the exact budget ($2.00 - $4.00 USD).
+  * **Pre-Trade ATR Volatility Sanity Gate:** Hard veto on setups with micro-stops (< 0.40x ATR) or loose stops (> 3.0x ATR).
   * **Minimum Lot Protection:** If the minimum contract risk exceeds the risk budget, returns `gate_decision: "NO_TRADE"` and `contracts: 0`.
   * **Pre-Trade Order Book Liquidity Gate:** Hard veto on illiquid books where the bid-ask spread exceeds 0.150% (slippage prevention). Approved setups are graded with institutional depth ratings (`A+_PRIME_DEPTH`, `HIGH_DEPTH`, `STANDARD_DEPTH`).
   * **MMR Liquidation Buffer:** Verifies liquidation price is >= 3.0x stop loss distance away; automatically de-leverages if buffer is insufficient.
@@ -181,7 +191,7 @@ flowchart TD
 * **Core Task:** Provides secure human authorization through interactive Telegram messages with integrated market sentiment intelligence.
 * **Inputs:** Approved trade specifications from Agent 6 and sentiment report from Agent 2.
 * **Processing Logic:**
-  * **Comprehensive Trade Proposal Card:** Displays quality score, risk-to-reward profile, exact entry/SL/TP, contracts, margin, backtest results, **Institutional VWAP Anchor**, and **💧 Liquidity Check** (BSL/SSL levels, distance %, structure state, and order book spread depth rating).
+  * **Comprehensive Trade Proposal Card:** Displays quality score, risk-to-reward profile, exact entry/SL/TP, contracts, margin, and backtest results.
   * **Market Sentiment & Fear/Greed Pulse:** Embeds live Alternative.me Fear & Greed index (`78/100 Extreme Greed`), macro composite polarity (`🟢 BULLISH BIAS`), and symbol-specific sentiment directly into the proposal card.
   * **Sender Authentication:** Authenticates Telegram user ID against `AUTHORIZED_TELEGRAM_USERS`.
   * **Parameter-Bound Nonces:** Binds approvals to exact trade parameters; replayed nonces are rejected.
@@ -202,13 +212,13 @@ flowchart TD
 
 ### 9️⃣ Agent 9: Micro-Trailing Sentinel
 * **Module:** [`src/trailing_stop_manager.py`](src/trailing_stop_manager.py)
-* **Core Task:** Monitors active positions every 15 seconds to trail stop losses and lock in green profits.
-* **Inputs:** Live mark prices, trade state, and volatility posture.
+* **Core Task:** Monitors active positions every 15 seconds to trail stop losses and lock in green profits with ATR volatility buffers.
+* **Inputs:** Live mark prices, trade state, registered ATR metrics, and volatility posture.
 * **Processing Logic:**
   * **Stage 1 (Breathing Cushion):** At +0.80R to +0.90R, slashes risk by 60% (moves SL to -0.40R), giving natural retests room without premature stops.
   * **Stage 2 (Guaranteed Green Lock):** At +1.10R to +1.20R, locks +0.30R in profit, preventing breakeven exits ($0.00).
   * **Stage 3 (Core Expansion):** At +1.50R to +1.60R, locks +0.85R profit (8% to 15% margin return).
-  * **Stage 4 (Trailing Runner):** Trails behind 15m structural swing points toward the final target.
+  * **Stage 4 & Runner Trailing:** Dynamically trails behind mark price with volatility-scaled ATR cushions to let winners run.
 * **Output:** Dynamic stop adjustments, fill alerts, and closure notifications.
 
 ### 🔟 Agent 10: Adaptive Learning Engine

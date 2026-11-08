@@ -460,6 +460,7 @@ class MultiAgentTradingOrchestrator:
                     or "EXPANSION" in posture_data.get("posture", "")
                     or trade.get("is_high_volatility", False)
                 )
+                trade_atr = trade.get("atr_profile", {}).get("atr_14") or trade.get("atr_14") or 0.0
                 self.trailing_stop_manager.register_initial_trade(
                     symbol=trade["symbol"],
                     side=trade["side"],
@@ -471,6 +472,7 @@ class MultiAgentTradingOrchestrator:
                     tp_order_id=exec_res.get("take_profit_order_id"),
                     is_high_volatility=is_high_vol,
                     trade_id=exec_res.get("trade_id"),
+                    atr=trade_atr,
                 )
                 self.risk_gatekeeper.register_execution(trade["symbol"])
 

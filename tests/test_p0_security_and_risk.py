@@ -489,6 +489,106 @@ class TestPriorityZeroRiskAndSecurity(unittest.TestCase):
         self.assertEqual(decision["liquidity_profile"]["liquidity_grade"], "A+_PRIME_DEPTH")
         self.assertEqual(decision["liquidity_profile"]["spread_pct"], 0.03)
 
+    def test_risk_gatekeeper_atr_volatility_position_sizing(self):
+        """ATR volatility dynamically adjusts position contracts to maintain fixed dollar risk."""
+        mock_client = MagicMock()
+        mock_client.get_wallet_balances.return_value = {
+            "success": True,
+            "result": [{"asset_symbol": "USDT", "balance": "1000.0"}]
+        }
+        mock_client.get_positions.return_value = {"success": True, "result": []}
+        mock_client.get_product_info.return_value = {
+            "contract_value": "0.001",
+            "lot_size": "1",
+            "tick_size": "1.0",
+            "maintenance_margin_rate": "0.01"
+        }
+        risk_mgr = RiskManager(max_dollar_risk_per_trade=4.0)
+        gatekeeper = RiskGatekeeperAgent(client=mock_client, risk_manager=risk_mgr)
+
+        # Setup A: Low volatility (ATR = $300, stop distance = $300)
+        setup_low_vol = {
+            "symbol": "BTCUSD",
+            "side": "buy",
+            "entry_price": 70000.0,
+            "stop_loss_price": 69700.0,
+            "take_profit_price": 70750.0,
+            "atr_14": 300.0,
+            "score": 88
+        }
+        dec_low = gatekeeper.evaluate_candidate(setup_low_vol)
+        self.assertEqual(dec_low["gate_decision"], "APPROVED")
+        self.assertIn("atr_profile", dec_low)
+        self.assertEqual(dec_low["atr_profile"]["atr_stop_multiple"], 1.0)
+        contracts_low = dec_low["contracts"]
+
+        # Setup B: High volatility (ATR = $800, stop distance = $800)
+        setup_high_vol = {
+            "symbol": "BTCUSD",
+            "side": "buy",
+            "entry_price": 70000.0,
+            "stop_loss_price": 69200.0,
+            "take_profit_price": 72000.0,
+            "atr_14": 800.0,
+            "score": 88
+        }
+        dec_high = gatekeeper.evaluate_candidate(setup_high_vol)
+        self.assertEqual(dec_high["gate_decision"], "APPROVED")
+        contracts_high = dec_high["contracts"]
+
+        # High ATR setup MUST have fewer contracts to maintain the same hard dollar risk budget
+        self.assertGreater(contracts_low, contracts_high)
+        self.assertLessEqual(dec_low["dollar_risk_usd"], 4.0)
+        self.assertLessEqual(dec_high["dollar_risk_usd"], 4.0)
+
+    def test_risk_gatekeeper_atr_micro_stop_veto(self):
+        """Risk Gatekeeper rejects micro-stops that are less than 0.40x ATR."""
+        mock_client = MagicMock()
+        mock_client.get_wallet_balances.return_value = {
+            "success": True,
+            "result": [{"asset_symbol": "USDT", "balance": "1000.0"}]
+        }
+        mock_client.get_positions.return_value = {"success": True, "result": []}
+        risk_mgr = RiskManager()
+        gatekeeper = RiskGatekeeperAgent(client=mock_client, risk_manager=risk_mgr)
+
+        micro_stop_setup = {
+            "symbol": "BTCUSD",
+            "side": "buy",
+            "entry_price": 70000.0,
+            "stop_loss_price": 69900.0,  # $100 stop distance
+            "take_profit_price": 70300.0,
+            "atr_14": 500.0  # $100 / $500 = 0.20x ATR (< 0.40x ATR)
+        }
+        decision = gatekeeper.evaluate_candidate(micro_stop_setup)
+        self.assertEqual(decision["gate_decision"], "REJECTED")
+        self.assertIn("ATR Sizing Gate", decision["reason"])
+        self.assertIn("< 0.40x ATR", decision["reason"])
+
+    def test_risk_gatekeeper_atr_excessive_stop_veto(self):
+        """Risk Gatekeeper rejects stops that are greater than 3.0x ATR."""
+        mock_client = MagicMock()
+        mock_client.get_wallet_balances.return_value = {
+            "success": True,
+            "result": [{"asset_symbol": "USDT", "balance": "1000.0"}]
+        }
+        mock_client.get_positions.return_value = {"success": True, "result": []}
+        risk_mgr = RiskManager()
+        gatekeeper = RiskGatekeeperAgent(client=mock_client, risk_manager=risk_mgr)
+
+        loose_stop_setup = {
+            "symbol": "BTCUSD",
+            "side": "buy",
+            "entry_price": 70000.0,
+            "stop_loss_price": 68000.0,  # $2000 stop distance
+            "take_profit_price": 75000.0,
+            "atr_14": 500.0  # $2000 / $500 = 4.0x ATR (> 3.0x ATR)
+        }
+        decision = gatekeeper.evaluate_candidate(loose_stop_setup)
+        self.assertEqual(decision["gate_decision"], "REJECTED")
+        self.assertIn("ATR Sizing Gate", decision["reason"])
+        self.assertIn("> 3.0x ATR", decision["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

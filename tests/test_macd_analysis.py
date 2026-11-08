@@ -161,6 +161,79 @@ class TestMACDAnalysis(unittest.TestCase):
         self.assertGreaterEqual(setup["score"], 95)
         self.assertIn("💧 [BULLISH SSL SWEEP + MSS CONFIRMED]", setup["thesis"])
 
+    def test_calculate_atr_calibrated_stops_engine(self):
+        from src.technical_analysis import calculate_atr_calibrated_stops
+
+        # 1. Buy setup with structural pivot below entry
+        res_buy = calculate_atr_calibrated_stops(
+            entry_price=70000.0,
+            side="buy",
+            structural_pivot=69500.0,
+            atr=400.0,
+            volatility_state="NORMAL",
+            target_rr_ratio=2.5
+        )
+        self.assertLess(res_buy["stop_loss_price"], 69500.0)  # Must include buffer below pivot
+        self.assertGreater(res_buy["take_profit_price"], 70000.0)
+        self.assertAlmostEqual(res_buy["planned_rr_ratio"], 2.5, places=1)
+        self.assertGreaterEqual(res_buy["atr_stop_multiple"], 0.45)
+        self.assertLessEqual(res_buy["atr_stop_multiple"], 2.80)
+
+        # 2. Sell setup with structural pivot above entry in EXPANSION
+        res_sell = calculate_atr_calibrated_stops(
+            entry_price=70000.0,
+            side="sell",
+            structural_pivot=70400.0,
+            atr=500.0,
+            volatility_state="EXPANSION",
+            target_rr_ratio=2.5
+        )
+        self.assertGreater(res_sell["stop_loss_price"], 70400.0)  # Must include buffer above pivot
+        self.assertLess(res_sell["take_profit_price"], 70000.0)
+        self.assertGreaterEqual(res_sell["stop_distance"], 500.0)
+
+    def test_strategy_agent_atr_validation(self):
+        agent = StrategyAgent()
+
+        # Sub-ATR micro-stop setup ($100 stop when 15m ATR is $600 -> 0.17x ATR)
+        micro_stop_analysis = {
+            "symbol": "BTCUSD",
+            "current_price": 70000.0,
+            "high_probability_setup": {
+                "qualified": True,
+                "side": "buy",
+                "score": 90,
+                "entry_price": 70000.0,
+                "stop_loss_price": 69900.0,
+                "take_profit_price": 70500.0,
+                "atr_14": 600.0
+            },
+            "macro_15m": {"atr_14": 600.0}
+        }
+        setup_micro = agent.evaluate_setup(micro_stop_analysis)
+        self.assertIsNone(setup_micro)  # MUST be vetoed!
+
+        # Optimal ATR stop ($600 stop when ATR is $600 -> 1.0x ATR)
+        optimal_stop_analysis = {
+            "symbol": "BTCUSD",
+            "current_price": 70000.0,
+            "high_probability_setup": {
+                "qualified": True,
+                "side": "buy",
+                "score": 86,
+                "entry_price": 70000.0,
+                "stop_loss_price": 69400.0,  # 600 stop
+                "take_profit_price": 71500.0,
+                "atr_14": 600.0
+            },
+            "macro_15m": {"atr_14": 600.0}
+        }
+        setup_opt = agent.evaluate_setup(optimal_stop_analysis)
+        self.assertIsNotNone(setup_opt)
+        self.assertIn("atr_detail", setup_opt["confluence"])
+        self.assertIn("1.00x ATR", setup_opt["confluence"]["atr_detail"])
+        self.assertIn("🛡️ [OPTIMAL 1.0x ATR STOP]", setup_opt["thesis"])
+
 
 if __name__ == "__main__":
     unittest.main()

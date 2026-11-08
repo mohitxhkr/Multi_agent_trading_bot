@@ -169,6 +169,22 @@ class RiskGatekeeperAgent:
         if stop_distance <= 0:
             return {"gate_decision": "REJECTED", "reason": "Invalid stop loss distance (zero or negative)."}
 
+        # ATR Volatility Stop Sizing Sanity Gate
+        atr_val = float(setup.get("atr_14") or setup.get("confluence", {}).get("atr_14") or 0.0)
+        atr_multiple = round(stop_distance / atr_val, 2) if atr_val > 0 else 1.0
+
+        if atr_val > 0:
+            if atr_multiple < 0.40:
+                return {
+                    "gate_decision": "REJECTED",
+                    "reason": f"ATR Sizing Gate: Stop distance (${stop_distance:.2f}) is only {atr_multiple:.2f}x ATR (< 0.40x ATR of ${atr_val:.2f}). Noise stop-out vulnerability."
+                }
+            elif atr_multiple > 3.0:
+                return {
+                    "gate_decision": "REJECTED",
+                    "reason": f"ATR Sizing Gate: Stop distance (${stop_distance:.2f}) is {atr_multiple:.2f}x ATR (> 3.0x ATR of ${atr_val:.2f}). Inefficient risk unit."
+                }
+
         per_contract_notional = contract_value * entry
         if per_contract_notional <= 0:
             return {"gate_decision": "REJECTED", "reason": "Invalid entry price or contract value."}
@@ -367,6 +383,12 @@ class RiskGatekeeperAgent:
             "thesis": setup.get("thesis"),
             "score": setup.get("score", 75),
             "spread_pct": spread_pct,
+            "atr_profile": {
+                "atr_14": atr_val,
+                "atr_stop_multiple": atr_multiple,
+                "stop_distance": stop_distance,
+                "volatility_scaled": True
+            },
             "liquidity_profile": {
                 "spread_pct": spread_pct,
                 "liquidity_grade": liq_grade,

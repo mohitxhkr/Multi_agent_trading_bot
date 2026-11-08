@@ -233,10 +233,19 @@ class ExposureCoachAgent:
             risk_mult = 0.0
             rationale = f"Market structure broken / severe chop ({breadth_pct:.0f}% breadth, Health: {health_score}/100). ZERO new trades authorized. 100% Cash Priority."
 
-        # Volatility Posture Adjustment - Enable Pro Momentum Scalp Execution
-        if btc_vol_state == "EXPANSION" and not cash_priority:
+        # Volatility Posture Adjustment - Enable Pro Momentum Scalp Execution & ATR Guardrails
+        vol_temp = scan_results.get("market_volatility_temperature", "NORMAL_VOLATILITY")
+        avg_atr_pct = float(scan_results.get("avg_watchlist_atr_pct") or 1.50)
+
+        if vol_temp == "EXTREME_VOLATILITY" and not cash_priority:
+            risk_mult = min(risk_mult, 0.70)
+            max_positions = 1
+            rationale += f" [Extreme ATR Volatility ({avg_atr_pct:.1f}%): Risk unit clamped to 0.70x, max 1 open position for whipsaw defense]."
+        elif btc_vol_state == "EXPANSION" and not cash_priority:
             risk_mult = max(0.90, risk_mult)
-            rationale += " [High Volatility Expansion: Pro Momentum Scalp Mode active with tight ATR stops]."
+            rationale += f" [High Volatility Expansion (ATR {avg_atr_pct:.1f}%): Pro Momentum Scalp Mode active with dynamic ATR stops]."
+        elif vol_temp == "CALM_COMPRESSION":
+            rationale += f" [Volatility Compression (ATR {avg_atr_pct:.1f}%): Tight consolidation, explosive expansion anticipated]."
 
         if extreme_crowding and crowding_note:
             rationale += f" [{crowding_note}]"

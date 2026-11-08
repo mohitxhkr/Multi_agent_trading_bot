@@ -231,6 +231,55 @@ class StrategyAgent:
 
         adjusted_score += liq_boost
 
+        # Smart Money Concepts (SMC) Fair Value Gap (FVG) Confluence
+        fvg_1h = analysis.get("fvg", {})
+        macro_15m = analysis.get("macro_15m", {})
+        fvg_15m = macro_15m.get("fvg", {}) if macro_15m else {}
+        fvg_data = fvg_15m if fvg_15m.get("retest_active") else fvg_1h
+
+        retest_type = fvg_data.get("retest_type", "NONE")
+        ce_tested = fvg_data.get("ce_tested", False)
+        wick_rejection = fvg_data.get("wick_rejection", False)
+        nearest_bullish_fvg = fvg_data.get("nearest_bullish_fvg")
+        nearest_bearish_fvg = fvg_data.get("nearest_bearish_fvg")
+        bull_fvg_dist = fvg_data.get("bullish_fvg_distance_pct")
+        bear_fvg_dist = fvg_data.get("bearish_fvg_distance_pct")
+
+        fvg_boost = 0
+        if side == "buy":
+            if retest_type == "BULLISH_FVG_RETEST":
+                if ce_tested and wick_rejection:
+                    fvg_boost += 10
+                    thesis = f"🔥 [BULLISH FVG CE RETEST + WICK REJECTION] {thesis}"
+                elif ce_tested:
+                    fvg_boost += 8
+                    thesis = f"🔥 [BULLISH FVG CE RETEST] {thesis}"
+                else:
+                    fvg_boost += 5
+                    thesis = f"🔥 [BULLISH FVG BOUNDARY RETEST] {thesis}"
+            # Overhead unmitigated Bearish FVG penalty (buying directly into supply)
+            if nearest_bearish_fvg and bear_fvg_dist is not None and bear_fvg_dist <= 0.35:
+                fvg_boost -= 6
+                thesis = f"⚠️ [OVERHEAD BEARISH FVG SUPPLY NEARBY] {thesis}"
+
+        elif side == "sell":
+            if retest_type == "BEARISH_FVG_RETEST":
+                if ce_tested and wick_rejection:
+                    fvg_boost += 10
+                    thesis = f"🔥 [BEARISH FVG CE RETEST + WICK REJECTION] {thesis}"
+                elif ce_tested:
+                    fvg_boost += 8
+                    thesis = f"🔥 [BEARISH FVG CE RETEST] {thesis}"
+                else:
+                    fvg_boost += 5
+                    thesis = f"🔥 [BEARISH FVG BOUNDARY RETEST] {thesis}"
+            # Underlying unmitigated Bullish FVG penalty (shorting directly into demand)
+            if nearest_bullish_fvg and bull_fvg_dist is not None and bull_fvg_dist <= 0.35:
+                fvg_boost -= 6
+                thesis = f"⚠️ [SUPPORT BULLISH FVG DEMAND NEARBY] {thesis}"
+
+        adjusted_score += fvg_boost
+
         # Adaptive Learning Check
         raw_strat = hp_setup.get("strategy") or f"Institutional_SMC_{priority_tag}_{side.upper()}"
         confluence_summary = {
@@ -284,6 +333,16 @@ class StrategyAgent:
             "spread_pct": spread_pct,
             "atr_14": atr_15m,
             "atr_stop_multiple": atr_multiple,
+            "fvg_profile": {
+                "retest_type": retest_type,
+                "ce_tested": ce_tested,
+                "wick_rejection": wick_rejection,
+                "active_bullish_count": fvg_data.get("active_bullish_count", 0),
+                "active_bearish_count": fvg_data.get("active_bearish_count", 0),
+                "nearest_bullish_fvg": nearest_bullish_fvg,
+                "nearest_bearish_fvg": nearest_bearish_fvg,
+                "active_retest_fvg": fvg_data.get("active_retest_fvg")
+            },
             "confluence": {
                 "execution_15m": f"{macro_15m.get('regime', 'NEUTRAL')} (RSI: {macro_15m.get('rsi_14', 'N/A')} | ATR: {macro_15m.get('atr_14', 'N/A')})",
                 "monthly": f"{macro_monthly.get('regime', 'NEUTRAL')} (M-Open: ${macro_monthly.get('monthly_open', 'N/A')})",
@@ -297,7 +356,8 @@ class StrategyAgent:
                 "macd_detail": f"15m: {m15_cross} ({m15_phase}) | 1H: {m1h_bias}",
                 "vwap_detail": f"${vwap_val:,.2f} ({v_stance} | {v_band} | {v_slope})",
                 "liquidity_detail": f"BSL: ${nearest_bsl:,.2f} ({f'{bsl_dist_pct:+.2f}%' if bsl_dist_pct is not None else 'N/A'}) | SSL: ${nearest_ssl:,.2f} ({f'{ssl_dist_pct:+.2f}%' if ssl_dist_pct is not None else 'N/A'}) | State: {liq_structure} | Spread: {spread_pct:.3f}%",
-                "atr_detail": f"15m ATR: ${atr_15m:,.2f} ({round(atr_15m/entry*100, 2) if entry > 0 else 0}%) | SL Multiple: {atr_multiple:.2f}x ATR"
+                "atr_detail": f"15m ATR: ${atr_15m:,.2f} ({round(atr_15m/entry*100, 2) if entry > 0 else 0}%) | SL Multiple: {atr_multiple:.2f}x ATR",
+                "fvg_detail": f"Retest: {retest_type} (CE: {'YES' if ce_tested else 'NO'} | Wick: {'YES' if wick_rejection else 'NO'}) | Bull FVG: ${nearest_bullish_fvg['gap_top']:,.2f} ({f'{bull_fvg_dist:.2f}%' if bull_fvg_dist is not None else 'N/A'})" if nearest_bullish_fvg else f"Retest: {retest_type} | Bear FVG: ${nearest_bearish_fvg['gap_bottom']:,.2f} ({f'{bear_fvg_dist:.2f}%' if bear_fvg_dist is not None else 'N/A'})" if nearest_bearish_fvg else f"Retest: {retest_type} | None"
             }
         }
 

@@ -389,6 +389,15 @@ class RiskGatekeeperAgent:
                 "stop_distance": stop_distance,
                 "volatility_scaled": True
             },
+            "fvg_profile": setup.get("fvg_profile", {
+                "retest_type": "NONE",
+                "ce_tested": False,
+                "wick_rejection": False,
+                "active_bullish_count": 0,
+                "active_bearish_count": 0,
+                "nearest_bullish_fvg": None,
+                "nearest_bearish_fvg": None
+            }),
             "liquidity_profile": {
                 "spread_pct": spread_pct,
                 "liquidity_grade": liq_grade,

@@ -818,6 +818,265 @@ def analyze_liquidity_pools_and_sweeps(
     }
 
 
+def detect_fair_value_gaps(
+    highs: List[float],
+    lows: List[float],
+    closes: List[float],
+    opens: Optional[List[float]] = None,
+    min_gap_pct: float = 0.03,
+    lookback: int = 60
+) -> Dict[str, Any]:
+    """
+    Smart Money Concepts (SMC) Fair Value Gap (FVG) Detection, 50% Consequent Encroachment (CE),
+    and Mitigation / Retest Life-cycle Engine.
+
+    A 3-candle Fair Value Gap occurs when:
+      - Bullish FVG (Buy-Side Imbalance / Sell-Side Inefficiency):
+          lows[i] > highs[i - 2]
+          gap_bottom = highs[i - 2], gap_top = lows[i]
+          Consequent Encroachment (CE): 50% midpoint = (gap_bottom + gap_top) / 2.0
+      - Bearish FVG (Sell-Side Imbalance / Buy-Side Inefficiency):
+          highs[i] < lows[i - 2]
+          gap_bottom = highs[i], gap_top = lows[i - 2]
+          Consequent Encroachment (CE): 50% midpoint = (gap_bottom + gap_top) / 2.0
+
+    Mitigation Life-cycle:
+      - UNTESTED: Price has never re-entered the gap since formation.
+      - RETESTING: Price has tapped into the gap boundary.
+      - CE_RETESTED: Price has touched or penetrated 50% Consequent Encroachment without invalidating.
+      - MITIGATED: Price has closed through or fully traversed the opposite gap boundary (gap filled).
+    """
+    n = len(closes)
+    if n < 4:
+        return {
+            "bullish_fvgs": [],
+            "bearish_fvgs": [],
+            "active_bullish_fvgs": [],
+            "active_bearish_fvgs": [],
+            "active_bullish_count": 0,
+            "active_bearish_count": 0,
+            "nearest_bullish_fvg": None,
+            "nearest_bearish_fvg": None,
+            "bullish_fvg_distance_pct": None,
+            "bearish_fvg_distance_pct": None,
+            "retest_active": False,
+            "retest_type": "NONE",
+            "active_retest_fvg": None,
+            "ce_tested": False,
+            "wick_rejection": False,
+            "bias": "NEUTRAL",
+            "narrative": "Insufficient candle history for FVG detection."
+        }
+
+    start_idx = max(2, n - lookback)
+    all_bullish_fvgs: List[Dict[str, Any]] = []
+    all_bearish_fvgs: List[Dict[str, Any]] = []
+    current_price = closes[-1]
+
+    for i in range(start_idx, n):
+        # 1. Bullish FVG: Candle i Low > Candle i-2 High
+        if lows[i] > highs[i - 2]:
+            gap_bottom = highs[i - 2]
+            gap_top = lows[i]
+            gap_size = gap_top - gap_bottom
+            gap_pct = (gap_size / closes[i] * 100.0) if closes[i] > 0 else 0.0
+
+            if gap_pct >= min_gap_pct:
+                ce = round((gap_bottom + gap_top) / 2.0, 4)
+
+                mitigated = False
+                tested = False
+                ce_tested = False
+                mitigated_idx = None
+
+                for k in range(i + 1, n):
+                    if lows[k] <= gap_top:
+                        tested = True
+                    if lows[k] <= ce:
+                        ce_tested = True
+                    # Invalidation: candle close below gap_bottom or low below gap_bottom
+                    if closes[k] < gap_bottom or lows[k] < gap_bottom:
+                        mitigated = True
+                        mitigated_idx = k
+                        break
+
+                fvg_item = {
+                    "type": "BULLISH_FVG",
+                    "formed_idx": i,
+                    "gap_top": round(gap_top, 4),
+                    "gap_bottom": round(gap_bottom, 4),
+                    "ce": ce,
+                    "gap_size": round(gap_size, 4),
+                    "gap_pct": round(gap_pct, 3),
+                    "mitigated": mitigated,
+                    "mitigated_idx": mitigated_idx,
+                    "tested": tested,
+                    "ce_tested": ce_tested,
+                    "state": "MITIGATED" if mitigated else ("CE_RETESTED" if ce_tested else ("RETESTING" if tested else "UNTESTED"))
+                }
+                all_bullish_fvgs.append(fvg_item)
+
+        # 2. Bearish FVG: Candle i High < Candle i-2 Low
+        elif highs[i] < lows[i - 2]:
+            gap_bottom = highs[i]
+            gap_top = lows[i - 2]
+            gap_size = gap_top - gap_bottom
+            gap_pct = (gap_size / closes[i] * 100.0) if closes[i] > 0 else 0.0
+
+            if gap_pct >= min_gap_pct:
+                ce = round((gap_bottom + gap_top) / 2.0, 4)
+
+                mitigated = False
+                tested = False
+                ce_tested = False
+                mitigated_idx = None
+
+                for k in range(i + 1, n):
+                    if highs[k] >= gap_bottom:
+                        tested = True
+                    if highs[k] >= ce:
+                        ce_tested = True
+                    # Invalidation: candle close above gap_top or high above gap_top
+                    if closes[k] > gap_top or highs[k] > gap_top:
+                        mitigated = True
+                        mitigated_idx = k
+                        break
+
+                fvg_item = {
+                    "type": "BEARISH_FVG",
+                    "formed_idx": i,
+                    "gap_top": round(gap_top, 4),
+                    "gap_bottom": round(gap_bottom, 4),
+                    "ce": ce,
+                    "gap_size": round(gap_size, 4),
+                    "gap_pct": round(gap_pct, 3),
+                    "mitigated": mitigated,
+                    "mitigated_idx": mitigated_idx,
+                    "tested": tested,
+                    "ce_tested": ce_tested,
+                    "state": "MITIGATED" if mitigated else ("CE_RETESTED" if ce_tested else ("RETESTING" if tested else "UNTESTED"))
+                }
+                all_bearish_fvgs.append(fvg_item)
+
+    active_bullish = [f for f in all_bullish_fvgs if not f["mitigated"]]
+    active_bearish = [f for f in all_bearish_fvgs if not f["mitigated"]]
+
+    # Nearest active Bullish FVG below current price (acting as dynamic support)
+    bullish_below = [f for f in active_bullish if f["gap_top"] <= current_price * 1.002]
+    bullish_below.sort(key=lambda f: f["gap_top"], reverse=True)
+    nearest_bullish_fvg = bullish_below[0] if bullish_below else (active_bullish[-1] if active_bullish else None)
+
+    # Nearest active Bearish FVG above current price (acting as dynamic resistance)
+    bearish_above = [f for f in active_bearish if f["gap_bottom"] >= current_price * 0.998]
+    bearish_above.sort(key=lambda f: f["gap_bottom"])
+    nearest_bearish_fvg = bearish_above[0] if bearish_above else (active_bearish[-1] if active_bearish else None)
+
+    # Distance percentages
+    bullish_dist_pct = round(abs(current_price - nearest_bullish_fvg["gap_top"]) / current_price * 100.0, 2) if (nearest_bullish_fvg and current_price > 0) else None
+    bearish_dist_pct = round(abs(nearest_bearish_fvg["gap_bottom"] - current_price) / current_price * 100.0, 2) if (nearest_bearish_fvg and current_price > 0) else None
+
+    # Current Retest & Wick Rejection Evaluation
+    retest_active = False
+    retest_type = "NONE"
+    active_retest_fvg: Optional[Dict[str, Any]] = None
+    ce_retested_now = False
+    wick_rejection = False
+
+    bar_o = opens[-1] if opens and len(opens) >= n else closes[-1]
+    bar_h = highs[-1]
+    bar_l = lows[-1]
+    bar_c = closes[-1]
+    bar_rng = max(bar_h - bar_l, 1e-6)
+
+    # Prior bar for multi-bar retest verification
+    bar_o_prev = opens[-2] if opens and len(opens) >= n - 1 else closes[-2]
+    bar_h_prev = highs[-2]
+    bar_l_prev = lows[-2]
+    bar_c_prev = closes[-2]
+    bar_rng_prev = max(bar_h_prev - bar_l_prev, 1e-6)
+
+    # 1. Bullish FVG Retest Check
+    for bf in active_bullish:
+        # Latest bar testing FVG or previous bar dipped in and current bar bounced
+        tested_curr = (bar_l <= bf["gap_top"] and bar_c >= bf["gap_bottom"])
+        tested_prev = (bar_l_prev <= bf["gap_top"] and bar_c_prev >= bf["gap_bottom"] and bar_c > bf["ce"])
+
+        if tested_curr or tested_prev:
+            retest_active = True
+            retest_type = "BULLISH_FVG_RETEST"
+            active_retest_fvg = bf
+            if bar_l <= bf["ce"] or bar_l_prev <= bf["ce"]:
+                ce_retested_now = True
+
+            lower_wick = min(bar_o, bar_c) - bar_l
+            lower_wick_prev = min(bar_o_prev, bar_c_prev) - bar_l_prev
+            if (lower_wick / bar_rng) >= 0.25 or (lower_wick_prev / bar_rng_prev) >= 0.25 or bar_c > bf["ce"]:
+                wick_rejection = True
+            break
+
+    # 2. Bearish FVG Retest Check
+    if not retest_active:
+        for bsf in active_bearish:
+            tested_curr = (bar_h >= bsf["gap_bottom"] and bar_c <= bsf["gap_top"])
+            tested_prev = (bar_h_prev >= bsf["gap_bottom"] and bar_c_prev <= bsf["gap_top"] and bar_c < bsf["ce"])
+
+            if tested_curr or tested_prev:
+                retest_active = True
+                retest_type = "BEARISH_FVG_RETEST"
+                active_retest_fvg = bsf
+                if bar_h >= bsf["ce"] or bar_h_prev >= bsf["ce"]:
+                    ce_retested_now = True
+
+                upper_wick = bar_h - max(bar_o, bar_c)
+                upper_wick_prev = bar_h_prev - max(bar_o_prev, bar_c_prev)
+                if (upper_wick / bar_rng) >= 0.25 or (upper_wick_prev / bar_rng_prev) >= 0.25 or bar_c < bsf["ce"]:
+                    wick_rejection = True
+                break
+
+    # Construct SMC institutional narrative
+    if retest_active and retest_type == "BULLISH_FVG_RETEST" and active_retest_fvg:
+        bias = "BULLISH"
+        ce_str = "with 50% CE tap" if ce_retested_now else "upper boundary retest"
+        rej_str = "and confirmed institutional wick rejection" if wick_rejection else ""
+        narrative = f"Bullish FVG Retest: Price entered active FVG [${active_retest_fvg['gap_bottom']:,.2f} - ${active_retest_fvg['gap_top']:,.2f}] ({ce_str}) {rej_str}."
+    elif retest_active and retest_type == "BEARISH_FVG_RETEST" and active_retest_fvg:
+        bias = "BEARISH"
+        ce_str = "with 50% CE tap" if ce_retested_now else "lower boundary retest"
+        rej_str = "and confirmed institutional rejection wick" if wick_rejection else ""
+        narrative = f"Bearish FVG Retest: Price rallied into active FVG [${active_retest_fvg['gap_bottom']:,.2f} - ${active_retest_fvg['gap_top']:,.2f}] ({ce_str}) {rej_str}."
+    elif nearest_bullish_fvg and bullish_dist_pct is not None and bullish_dist_pct <= 0.40:
+        bias = "MILD_BULLISH"
+        narrative = f"Price approaching dynamic Bullish FVG support at ${nearest_bullish_fvg['gap_top']:,.2f} ({bullish_dist_pct:.2f}% away)."
+    elif nearest_bearish_fvg and bearish_dist_pct is not None and bearish_dist_pct <= 0.40:
+        bias = "MILD_BEARISH"
+        narrative = f"Price approaching dynamic Bearish FVG resistance at ${nearest_bearish_fvg['gap_bottom']:,.2f} ({bearish_dist_pct:.2f}% away)."
+    else:
+        bias = "NEUTRAL"
+        n_bull_str = f"${nearest_bullish_fvg['gap_top']:,.2f}" if nearest_bullish_fvg else "None"
+        n_bear_str = f"${nearest_bearish_fvg['gap_bottom']:,.2f}" if nearest_bearish_fvg else "None"
+        narrative = f"No immediate FVG retest. Active Bullish FVG: {n_bull_str} | Active Bearish FVG: {n_bear_str}."
+
+    return {
+        "bullish_fvgs": all_bullish_fvgs,
+        "bearish_fvgs": all_bearish_fvgs,
+        "active_bullish_fvgs": active_bullish,
+        "active_bearish_fvgs": active_bearish,
+        "active_bullish_count": len(active_bullish),
+        "active_bearish_count": len(active_bearish),
+        "nearest_bullish_fvg": nearest_bullish_fvg,
+        "nearest_bearish_fvg": nearest_bearish_fvg,
+        "bullish_fvg_distance_pct": bullish_dist_pct,
+        "bearish_fvg_distance_pct": bearish_dist_pct,
+        "retest_active": retest_active,
+        "retest_type": retest_type,
+        "active_retest_fvg": active_retest_fvg,
+        "ce_tested": ce_retested_now,
+        "wick_rejection": wick_rejection,
+        "bias": bias,
+        "narrative": narrative
+    }
+
+
 def analyze_candlestick_and_chart_patterns(
     opens: List[float],
     highs: List[float],
@@ -1050,6 +1309,21 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
     # Smart Money Concepts (SMC) & Liquidity Sweep Engine
     liquidity_data = analyze_liquidity_pools_and_sweeps(highs, lows, closes, opens=opens, volumes=volumes)
 
+    # Smart Money Concepts (SMC) Fair Value Gap (FVG) Engine
+    fvg_data = detect_fair_value_gaps(highs, lows, closes, opens=opens)
+
+    # FVG Retest & Wick Rejection Alignment in Regime Confidence
+    if "BULLISH" in regime and fvg_data.get("retest_type") == "BULLISH_FVG_RETEST":
+        conf_score += 10
+        if fvg_data.get("wick_rejection"):
+            conf_score += 5
+    elif "BEARISH" in regime and fvg_data.get("retest_type") == "BEARISH_FVG_RETEST":
+        conf_score += 10
+        if fvg_data.get("wick_rejection"):
+            conf_score += 5
+
+    conf_score = max(10, min(100, conf_score))
+
     # Exhaustive Candlestick Pattern, Chart Pattern, and Dynamic Trendline Analysis
     patterns_info = analyze_candlestick_and_chart_patterns(opens, highs, lows, closes)
     
@@ -1085,6 +1359,7 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
         "support": round(sr["support"], 2),
         "resistance": round(sr["resistance"], 2),
         "liquidity": liquidity_data,
+        "fvg": fvg_data,
         "patterns": patterns_info,
         "candlestick_pattern": patterns_info["candlestick_pattern"],
         "chart_pattern": patterns_info["chart_pattern"],
@@ -1123,6 +1398,7 @@ def analyze_multi_timeframe(
     analysis_15m = None
     atr_15m = analysis_1h.get("atr_14", current_price * 0.005) * 0.5  # fallback estimate
     liq_15m = {}
+    fvg_15m = {}
     regime_15m = "NEUTRAL"
     rsi_15m = 50.0
     ema21_15m = current_price
@@ -1134,6 +1410,7 @@ def analyze_multi_timeframe(
             current_price = analysis_15m.get("current_price", current_price)
             atr_15m = analysis_15m.get("atr_14", atr_15m)
             liq_15m = analysis_15m.get("liquidity", {})
+            fvg_15m = analysis_15m.get("fvg", {})
             regime_15m = analysis_15m.get("regime", "NEUTRAL")
             rsi_15m = analysis_15m.get("rsi_14", 50.0)
             ema21_15m = analysis_15m.get("ema_21", current_price)
@@ -1146,6 +1423,7 @@ def analyze_multi_timeframe(
         "ema_21": round(ema21_15m, 2),
         "atr_14": round(atr_15m, 4),
         "liquidity": liq_15m,
+        "fvg": fvg_15m,
         "macd": macd_15m
     }
     analysis_1h["macro_15m"] = macro_15m
@@ -1722,6 +2000,103 @@ def analyze_multi_timeframe(
                     f"Trading below EMA21 (${ema21_15m:.2f}) with RSI {rsi_15m:.1f}. "
                     f"Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
                 )
+
+    # Priority D: SMC Fair Value Gap (FVG) Retest & Mitigation Engine
+    if not setup_qualified:
+        fvg_1h = analysis_1h.get("fvg", {})
+        active_fvg_ctx = fvg_15m if fvg_15m.get("retest_active") else (fvg_1h if fvg_1h.get("retest_active") else {})
+        retest_type = active_fvg_ctx.get("retest_type", "NONE")
+        retest_fvg = active_fvg_ctx.get("active_retest_fvg")
+        fvg_ce_tested = active_fvg_ctx.get("ce_tested", False)
+        fvg_wick_rej = active_fvg_ctx.get("wick_rejection", False)
+
+        if retest_type == "BULLISH_FVG_RETEST" and retest_fvg:
+            if macro_4h_regime == "MACRO_BEARISH" or (daily_regime == "DAILY_BEARISH" and weekly_regime == "WEEKLY_BEARISH"):
+                long_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily Bearish against Bullish FVG)."
+            else:
+                fvg_score = 65 + (10 if is_primary else 0)
+                if fvg_ce_tested:
+                    fvg_score += 10  # 50% CE level tested & defended
+                if fvg_wick_rej:
+                    fvg_score += 8   # Confirmed lower wick rejection
+                if "BULLISH" in regime_1h:
+                    fvg_score += 10
+                if is_killzone:
+                    fvg_score += 5
+
+                # MACD alignment
+                macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
+                if macd_15m.get("crossover") == "BULLISH_CROSS" or macd_15m.get("momentum_phase") == "BULLISH_EXPANSION":
+                    fvg_score += 10
+                elif macd_15m.get("histogram", 0) > 0 or "BULLISH" in macd_15m.get("bias", ""):
+                    fvg_score += 5
+
+                qual_threshold = 85 if is_primary else 90
+                if fvg_score >= qual_threshold:
+                    calc_entry = current_price
+                    fvg_bot = float(retest_fvg.get("gap_bottom", current_price - atr_15m))
+                    raw_sl = min(fvg_bot, calc_entry - (0.5 * atr_15m)) - (0.10 * atr_15m)
+                    raw_risk = calc_entry - raw_sl
+                    sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
+                    invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
+                    target_tp = round_price(calc_entry + (2.6 * sl_dist), calc_entry)
+
+                    setup_qualified = True
+                    setup_side = "buy"
+                    setup_score = min(98, fvg_score)
+                    strategy_label = "Institutional_SMC_Bullish_FVG_Retest"
+                    ce_tag = "50% CE Retest" if fvg_ce_tested else "Boundary Retest"
+                    wick_tag = " · Wick Rejection Confirmed" if fvg_wick_rej else ""
+                    m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
+                    thesis = (
+                        f"SMC Fair Value Gap Retest Long (Score {setup_score}/100 · {session_label}{m_tag}): "
+                        f"{ce_tag}{wick_tag} at [${fvg_bot:,.2f} - ${retest_fvg.get('gap_top', calc_entry):,.2f}]. "
+                        f"Protected SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.6:1."
+                    )
+
+        elif retest_type == "BEARISH_FVG_RETEST" and retest_fvg:
+            if macro_4h_regime == "MACRO_BULLISH" or (daily_regime == "DAILY_BULLISH" and weekly_regime == "WEEKLY_BULLISH"):
+                short_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily Bullish against Bearish FVG)."
+            else:
+                fvg_score = 65 + (10 if is_primary else 0)
+                if fvg_ce_tested:
+                    fvg_score += 10  # 50% CE level tested & rejected
+                if fvg_wick_rej:
+                    fvg_score += 8   # Confirmed upper wick rejection
+                if "BEARISH" in regime_1h:
+                    fvg_score += 10
+                if is_killzone:
+                    fvg_score += 5
+
+                # MACD alignment
+                macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
+                if macd_15m.get("crossover") == "BEARISH_CROSS" or macd_15m.get("momentum_phase") == "BEARISH_EXPANSION":
+                    fvg_score += 10
+                elif macd_15m.get("histogram", 0) < 0 or "BEARISH" in macd_15m.get("bias", ""):
+                    fvg_score += 5
+
+                qual_threshold = 85 if is_primary else 90
+                if fvg_score >= qual_threshold:
+                    calc_entry = current_price
+                    fvg_top = float(retest_fvg.get("gap_top", current_price + atr_15m))
+                    raw_sl = max(fvg_top, calc_entry + (0.5 * atr_15m)) + (0.10 * atr_15m)
+                    raw_risk = raw_sl - calc_entry
+                    sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
+                    invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
+                    target_tp = round_price(calc_entry - (2.6 * sl_dist), calc_entry)
+
+                    setup_qualified = True
+                    setup_side = "sell"
+                    setup_score = min(98, fvg_score)
+                    strategy_label = "Institutional_SMC_Bearish_FVG_Retest"
+                    ce_tag = "50% CE Retest" if fvg_ce_tested else "Boundary Retest"
+                    wick_tag = " · Wick Rejection Confirmed" if fvg_wick_rej else ""
+                    m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
+                    thesis = (
+                        f"SMC Fair Value Gap Retest Short (Score {setup_score}/100 · {session_label}{m_tag}): "
+                        f"{ce_tag}{wick_tag} at [${retest_fvg.get('gap_bottom', calc_entry):,.2f} - ${fvg_top:,.2f}]. "
+                        f"Protected SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.6:1."
+                    )
 
     if not setup_qualified:
         rejection_reason = short_rejection_reason or long_rejection_reason or "No high-probability trend or mean-reversion edge qualified (min score 85)."

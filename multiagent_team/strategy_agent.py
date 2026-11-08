@@ -280,6 +280,85 @@ class StrategyAgent:
 
         adjusted_score += fvg_boost
 
+        # -------------------------------------------------------------
+        # Institutional Order Flow Confluence (Volume Profile, CVD & OBI)
+        # -------------------------------------------------------------
+        vp_1h = analysis.get("volume_profile", {})
+        cvd_1h = analysis.get("cvd", {})
+        obi_1h = analysis.get("order_book_imbalance", {})
+
+        vp_15m = macro_15m.get("volume_profile", {}) if macro_15m else {}
+        cvd_15m = macro_15m.get("cvd", {}) if macro_15m else {}
+        obi_15m = macro_15m.get("order_book_imbalance", {}) if macro_15m else {}
+
+        active_vp = vp_15m if vp_15m.get("poc", 0) > 0 else vp_1h
+        active_cvd = cvd_15m if cvd_15m.get("current_cvd", 0) != 0 else cvd_1h
+        active_obi = obi_15m if obi_15m.get("obi_ratio", 0) != 0 else obi_1h
+
+        cvd_div = active_cvd.get("divergence", "NONE")
+        cvd_trend = active_cvd.get("cvd_trend", "FLAT_NEUTRAL")
+        obi_status = active_obi.get("imbalance_status", "BALANCED_ORDER_BOOK")
+        obi_ratio = float(active_obi.get("obi_ratio") or 0.0)
+        vp_stance = active_vp.get("stance", "INSIDE_VA")
+        vp_poc = float(active_vp.get("poc") or 0.0)
+        vp_vah = float(active_vp.get("vah") or 0.0)
+        vp_val = float(active_vp.get("val") or 0.0)
+
+        order_flow_boost = 0
+        if side == "buy":
+            # 1. Bullish CVD Absorption Divergence
+            if cvd_div == "BULLISH_ABSORPTION_DIV":
+                order_flow_boost += 10
+                thesis = f"🌊 [BULLISH CVD ABSORPTION DIVERGENCE] {thesis}"
+            elif cvd_trend == "RISING_ACCUMULATION":
+                order_flow_boost += 5
+                thesis = f"📈 [CVD ACCUMULATION DELTA] {thesis}"
+            elif cvd_div == "BEARISH_EXHAUSTION_DIV":
+                order_flow_boost -= 8  # Chasing against bearish exhaustion divergence
+                thesis = f"⚠️ [BEARISH CVD DIVERGENCE WARNING] {thesis}"
+
+            # 2. Order Book Imbalance (Resting Bid Support)
+            if obi_status == "HEAVY_BID_IMBALANCE" or obi_ratio >= 0.25:
+                order_flow_boost += 6
+                thesis = f"🧱 [HEAVY BID BOOK SUPPORT (OBI {obi_ratio:+.2f})] {thesis}"
+            elif obi_status == "HEAVY_ASK_IMBALANCE" or obi_ratio <= -0.25:
+                order_flow_boost -= 7  # Buying directly into thick ask resistance wall
+                thesis = f"⚠️ [HEAVY ASK WALL RESISTANCE (OBI {obi_ratio:+.2f})] {thesis}"
+
+            # 3. Volume Profile Value Area Stance
+            if vp_stance in ("INSIDE_VA", "ABOVE_VAH") and entry >= vp_val:
+                order_flow_boost += 4  # Holding value area support / POC
+            elif vp_stance == "BELOW_VAL" and entry < vp_val * 0.99:
+                order_flow_boost -= 4  # Trapped below Value Area Low
+
+        elif side == "sell":
+            # 1. Bearish CVD Exhaustion Divergence
+            if cvd_div == "BEARISH_EXHAUSTION_DIV":
+                order_flow_boost += 10
+                thesis = f"🌊 [BEARISH CVD EXHAUSTION DIVERGENCE] {thesis}"
+            elif cvd_trend == "FALLING_DISTRIBUTION":
+                order_flow_boost += 5
+                thesis = f"📉 [CVD DISTRIBUTION DELTA] {thesis}"
+            elif cvd_div == "BULLISH_ABSORPTION_DIV":
+                order_flow_boost -= 8  # Shorting against bullish absorption divergence
+                thesis = f"⚠️ [BULLISH CVD DIVERGENCE WARNING] {thesis}"
+
+            # 2. Order Book Imbalance (Resting Ask Resistance)
+            if obi_status == "HEAVY_ASK_IMBALANCE" or obi_ratio <= -0.25:
+                order_flow_boost += 6
+                thesis = f"🧱 [HEAVY ASK BOOK RESISTANCE (OBI {obi_ratio:+.2f})] {thesis}"
+            elif obi_status == "HEAVY_BID_IMBALANCE" or obi_ratio >= 0.25:
+                order_flow_boost -= 7  # Shorting directly into thick bid support wall
+                thesis = f"⚠️ [HEAVY BID WALL SUPPORT (OBI {obi_ratio:+.2f})] {thesis}"
+
+            # 3. Volume Profile Value Area Stance
+            if vp_stance in ("INSIDE_VA", "BELOW_VAL") and entry <= vp_vah:
+                order_flow_boost += 4  # Respecting value area distribution / POC
+            elif vp_stance == "ABOVE_VAH" and entry > vp_vah * 1.01:
+                order_flow_boost -= 4  # Shorting above Value Area High
+
+        adjusted_score += order_flow_boost
+
         # Adaptive Learning Check
         raw_strat = hp_setup.get("strategy") or f"Institutional_SMC_{priority_tag}_{side.upper()}"
         confluence_summary = {
@@ -343,6 +422,31 @@ class StrategyAgent:
                 "nearest_bearish_fvg": nearest_bearish_fvg,
                 "active_retest_fvg": fvg_data.get("active_retest_fvg")
             },
+            "order_flow_profile": {
+                "volume_profile": {
+                    "poc": vp_poc,
+                    "vah": vp_vah,
+                    "val": vp_val,
+                    "stance": vp_stance
+                },
+                "cvd": {
+                    "current_cvd": active_cvd.get("current_cvd", 0.0),
+                    "cvd_trend": cvd_trend,
+                    "divergence": cvd_div,
+                    "cvd_slope": active_cvd.get("cvd_slope", 0.0)
+                },
+                "order_book_imbalance": {
+                    "obi_ratio": obi_ratio,
+                    "imbalance_status": obi_status,
+                    "depth_ratio": active_obi.get("depth_ratio", 1.0),
+                    "bid_depth": active_obi.get("bid_depth", 0.0),
+                    "ask_depth": active_obi.get("ask_depth", 0.0),
+                    "bid_wall_detected": active_obi.get("bid_wall_detected", False),
+                    "bid_wall_price": active_obi.get("bid_wall_price"),
+                    "ask_wall_detected": active_obi.get("ask_wall_detected", False),
+                    "ask_wall_price": active_obi.get("ask_wall_price")
+                }
+            },
             "confluence": {
                 "execution_15m": f"{macro_15m.get('regime', 'NEUTRAL')} (RSI: {macro_15m.get('rsi_14', 'N/A')} | ATR: {macro_15m.get('atr_14', 'N/A')})",
                 "monthly": f"{macro_monthly.get('regime', 'NEUTRAL')} (M-Open: ${macro_monthly.get('monthly_open', 'N/A')})",
@@ -357,7 +461,8 @@ class StrategyAgent:
                 "vwap_detail": f"${vwap_val:,.2f} ({v_stance} | {v_band} | {v_slope})",
                 "liquidity_detail": f"BSL: ${nearest_bsl:,.2f} ({f'{bsl_dist_pct:+.2f}%' if bsl_dist_pct is not None else 'N/A'}) | SSL: ${nearest_ssl:,.2f} ({f'{ssl_dist_pct:+.2f}%' if ssl_dist_pct is not None else 'N/A'}) | State: {liq_structure} | Spread: {spread_pct:.3f}%",
                 "atr_detail": f"15m ATR: ${atr_15m:,.2f} ({round(atr_15m/entry*100, 2) if entry > 0 else 0}%) | SL Multiple: {atr_multiple:.2f}x ATR",
-                "fvg_detail": f"Retest: {retest_type} (CE: {'YES' if ce_tested else 'NO'} | Wick: {'YES' if wick_rejection else 'NO'}) | Bull FVG: ${nearest_bullish_fvg['gap_top']:,.2f} ({f'{bull_fvg_dist:.2f}%' if bull_fvg_dist is not None else 'N/A'})" if nearest_bullish_fvg else f"Retest: {retest_type} | Bear FVG: ${nearest_bearish_fvg['gap_bottom']:,.2f} ({f'{bear_fvg_dist:.2f}%' if bear_fvg_dist is not None else 'N/A'})" if nearest_bearish_fvg else f"Retest: {retest_type} | None"
+                "fvg_detail": f"Retest: {retest_type} (CE: {'YES' if ce_tested else 'NO'} | Wick: {'YES' if wick_rejection else 'NO'}) | Bull FVG: ${nearest_bullish_fvg['gap_top']:,.2f} ({f'{bull_fvg_dist:.2f}%' if bull_fvg_dist is not None else 'N/A'})" if nearest_bullish_fvg else f"Retest: {retest_type} | Bear FVG: ${nearest_bearish_fvg['gap_bottom']:,.2f} ({f'{bear_fvg_dist:.2f}%' if bear_fvg_dist is not None else 'N/A'})" if nearest_bearish_fvg else f"Retest: {retest_type} | None",
+                "order_flow_detail": f"VP POC: ${vp_poc:,.2f} ({vp_stance} | VAH: ${vp_vah:,.2f} | VAL: ${vp_val:,.2f}) | CVD: {cvd_trend} ({cvd_div}) | OBI: {obi_status} ({obi_ratio:+.2f} · Depth: {active_obi.get('depth_ratio', 1.0):.1f}x)"
             }
         }
 

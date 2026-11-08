@@ -63,13 +63,18 @@ class RegimeAnalystAgent:
         candles_1w_res = self.client.get_candles(symbol, resolution="W")
         candles_1w = candles_1w_res.get("result", {}) if candles_1w_res.get("success") else None
 
+        # Fetch Level-2 Order Book for Order Book Imbalance (OBI) analysis
+        orderbook_res = self.client.get_orderbook(symbol)
+        orderbook_data = orderbook_res.get("result") if (orderbook_res and orderbook_res.get("success")) else None
+
         analysis = analyze_multi_timeframe(
             candles_1h=candles_1h,
             candles_4h=candles_4h,
             candles_1d=candles_1d,
             candles_1w=candles_1w,
             candles_15m=candles_15m,
-            symbol=symbol
+            symbol=symbol,
+            orderbook=orderbook_data
         )
         analysis["symbol"] = symbol.upper()
         analysis["resolution"] = resolution
@@ -122,6 +127,8 @@ class RegimeAnalystAgent:
         above_ema_count = 0
         macd_bullish_count = 0
         vwap_above_count = 0
+        cvd_bullish_count = 0
+        obi_bullish_count = 0
         total_valid = 0
         funding_rates = []
         spreads = []
@@ -144,6 +151,15 @@ class RegimeAnalystAgent:
             if c_price > 0 and vwap_p > 0 and c_price >= vwap_p:
                 vwap_above_count += 1
 
+            # Watchlist Order Flow Breadth (CVD & OBI)
+            cvd_info = s_data.get("cvd", {})
+            if cvd_info.get("cvd_trend") == "RISING_ACCUMULATION" or cvd_info.get("current_cvd", 0) > 0:
+                cvd_bullish_count += 1
+
+            obi_info = s_data.get("order_book_imbalance", {})
+            if obi_info.get("obi_ratio", 0) > 0.05 or obi_info.get("imbalance_status") == "HEAVY_BID_IMBALANCE":
+                obi_bullish_count += 1
+
             if "funding_rate" in s_data:
                 funding_rates.append(s_data["funding_rate"])
 
@@ -158,6 +174,8 @@ class RegimeAnalystAgent:
         breadth_pct = round((above_ema_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
         macd_breadth_pct = round((macd_bullish_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
         vwap_breadth_pct = round((vwap_above_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
+        cvd_breadth_pct = round((cvd_bullish_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
+        obi_breadth_pct = round((obi_bullish_count / total_valid * 100.0), 1) if total_valid > 0 else 50.0
         avg_spread = round(sum(spreads) / len(spreads), 3) if spreads else 0.04
         market_liquidity_state = "PRIME_LIQUIDITY" if avg_spread <= 0.05 else ("NORMAL_LIQUIDITY" if avg_spread <= 0.12 else "ILLIQUID_CAUTION")
 
@@ -199,6 +217,8 @@ class RegimeAnalystAgent:
             "breadth_pct": breadth_pct,
             "macd_breadth_pct": macd_breadth_pct,
             "vwap_breadth_pct": vwap_breadth_pct,
+            "cvd_breadth_pct": cvd_breadth_pct,
+            "obi_breadth_pct": obi_breadth_pct,
             "avg_spread_pct": avg_spread,
             "market_liquidity_state": market_liquidity_state,
             "avg_watchlist_atr_pct": avg_atr_pct,

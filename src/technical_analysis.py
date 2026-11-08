@@ -1077,6 +1077,388 @@ def detect_fair_value_gaps(
     }
 
 
+def calculate_volume_profile(
+    highs: List[float],
+    lows: List[float],
+    closes: List[float],
+    volumes: List[float],
+    num_bins: int = 30,
+    value_area_pct: float = 0.70
+) -> Dict[str, Any]:
+    """
+    Volume Profile (VP) Engine:
+    Constructs price-volume distribution to identify:
+      - Point of Control (POC): Price level where highest volume transacted.
+      - Value Area High (VAH): Upper boundary containing 70% of volume.
+      - Value Area Low (VAL): Lower boundary containing 70% of volume.
+      - High Volume Nodes (HVN) & Low Volume Nodes (LVN).
+      - Institutional Market Stance: ABOVE_VAH, INSIDE_VA, BELOW_VAL, AT_POC.
+    """
+    n = len(closes)
+    if n < 10 or not volumes or sum(volumes) <= 0:
+        curr = closes[-1] if n > 0 else 0.0
+        return {
+            "poc": curr,
+            "vah": curr,
+            "val": curr,
+            "stance": "INSIDE_VA",
+            "distance_to_poc_pct": 0.0,
+            "distance_to_vah_pct": 0.0,
+            "distance_to_val_pct": 0.0,
+            "hvn_levels": [],
+            "lvn_levels": [],
+            "total_profile_volume": 0.0,
+            "narrative": "Insufficient volume data for Volume Profile."
+        }
+
+    p_min = min(lows)
+    p_max = max(highs)
+    if p_max <= p_min:
+        curr = closes[-1]
+        return {
+            "poc": curr,
+            "vah": curr,
+            "val": curr,
+            "stance": "AT_POC",
+            "distance_to_poc_pct": 0.0,
+            "distance_to_vah_pct": 0.0,
+            "distance_to_val_pct": 0.0,
+            "hvn_levels": [curr],
+            "lvn_levels": [],
+            "total_profile_volume": sum(volumes),
+            "narrative": "Flat price distribution."
+        }
+
+    bin_width = (p_max - p_min) / float(num_bins)
+    bins = [0.0] * num_bins
+    bin_centers = [p_min + (i + 0.5) * bin_width for i in range(num_bins)]
+
+    for i in range(n):
+        h_i = highs[i]
+        l_i = lows[i]
+        v_i = volumes[i]
+        if v_i <= 0:
+            continue
+        start_b = max(0, min(num_bins - 1, int((l_i - p_min) / bin_width)))
+        end_b = max(0, min(num_bins - 1, int((h_i - p_min) / bin_width)))
+        span = max(1, end_b - start_b + 1)
+        vol_per_bin = v_i / float(span)
+        for b in range(start_b, end_b + 1):
+            bins[b] += vol_per_bin
+
+    total_vol = sum(bins)
+    if total_vol <= 0:
+        total_vol = 1e-6
+
+    # Point of Control (POC)
+    poc_idx = max(range(num_bins), key=lambda b: bins[b])
+    poc = round(bin_centers[poc_idx], 2)
+
+    # Value Area (70% total volume around POC)
+    target_vol = total_vol * value_area_pct
+    accum_vol = bins[poc_idx]
+    lower_idx = poc_idx
+    upper_idx = poc_idx
+
+    while accum_vol < target_vol and (lower_idx > 0 or upper_idx < num_bins - 1):
+        vol_below = bins[lower_idx - 1] if lower_idx > 0 else -1.0
+        vol_above = bins[upper_idx + 1] if upper_idx < num_bins - 1 else -1.0
+
+        if vol_above >= vol_below and upper_idx < num_bins - 1:
+            upper_idx += 1
+            accum_vol += bins[upper_idx]
+        elif lower_idx > 0:
+            lower_idx -= 1
+            accum_vol += bins[lower_idx]
+        elif upper_idx < num_bins - 1:
+            upper_idx += 1
+            accum_vol += bins[upper_idx]
+        else:
+            break
+
+    val = round(bin_centers[lower_idx] - 0.5 * bin_width, 2)
+    vah = round(bin_centers[upper_idx] + 0.5 * bin_width, 2)
+
+    # High / Low Volume Nodes
+    mean_bin_vol = total_vol / float(num_bins)
+    hvn_levels = [round(bin_centers[b], 2) for b in range(num_bins) if bins[b] >= 1.35 * mean_bin_vol]
+    lvn_levels = [round(bin_centers[b], 2) for b in range(num_bins) if bins[b] <= 0.65 * mean_bin_vol]
+
+    current_price = closes[-1]
+    dist_poc_pct = round(abs(current_price - poc) / current_price * 100.0, 2) if current_price > 0 else 0.0
+    dist_vah_pct = round(abs(current_price - vah) / current_price * 100.0, 2) if current_price > 0 else 0.0
+    dist_val_pct = round(abs(current_price - val) / current_price * 100.0, 2) if current_price > 0 else 0.0
+
+    if current_price > vah:
+        stance = "ABOVE_VAH"
+        narrative = f"Price (${current_price:,.2f}) trading above Value Area High (${vah:,.2f}) - Bullish expansion."
+    elif current_price < val:
+        stance = "BELOW_VAL"
+        narrative = f"Price (${current_price:,.2f}) trading below Value Area Low (${val:,.2f}) - Bearish discount."
+    elif dist_poc_pct <= 0.20:
+        stance = "AT_POC"
+        narrative = f"Price (${current_price:,.2f}) consolidating at Point of Control (${poc:,.2f}) - High consensus value."
+    else:
+        stance = "INSIDE_VA"
+        narrative = f"Price (${current_price:,.2f}) rotating inside Value Area [${val:,.2f} - ${vah:,.2f}] around POC (${poc:,.2f})."
+
+    return {
+        "poc": poc,
+        "vah": vah,
+        "val": val,
+        "stance": stance,
+        "distance_to_poc_pct": dist_poc_pct,
+        "distance_to_vah_pct": dist_vah_pct,
+        "distance_to_val_pct": dist_val_pct,
+        "hvn_levels": hvn_levels[:5],
+        "lvn_levels": lvn_levels[:5],
+        "total_profile_volume": round(total_vol, 2),
+        "narrative": narrative
+    }
+
+
+def calculate_cumulative_volume_delta(
+    opens: List[float],
+    highs: List[float],
+    lows: List[float],
+    closes: List[float],
+    volumes: List[float],
+    lookback: int = 25
+) -> Dict[str, Any]:
+    """
+    Cumulative Volume Delta (CVD) & Delta Divergence Engine:
+    Calculates intrabar aggressor delta:
+      - Signed Delta per candle via price action & body distribution.
+      - Cumulative Volume Delta (CVD) running curve.
+      - CVD Slope & Order Flow Trend: RISING_ACCUMULATION, FALLING_DISTRIBUTION, FLAT_NEUTRAL.
+      - Institutional Divergences:
+          * Bullish Absorption Divergence: Price lower/equal low, CVD higher low (aggressive sellers absorbed).
+          * Bearish Exhaustion Divergence: Price higher/equal high, CVD lower high (aggressive buyers exhausted/absorbed).
+    """
+    n = len(closes)
+    if n < 5 or not volumes or sum(volumes) <= 0:
+        return {
+            "cvd_series": [0.0] * n,
+            "current_cvd": 0.0,
+            "delta_last_bar": 0.0,
+            "cvd_slope": 0.0,
+            "cvd_trend": "FLAT_NEUTRAL",
+            "divergence": "NONE",
+            "narrative": "Insufficient data for CVD calculation."
+        }
+
+    deltas: List[float] = []
+    for i in range(n):
+        h = highs[i]
+        l = lows[i]
+        c = closes[i]
+        o = opens[i] if opens and len(opens) > i else c
+        v = volumes[i]
+        rng = max(h - l, 1e-6)
+
+        # Delta Factor: Close relative to range midpoint [-1.0, +1.0]
+        wick_delta_factor = (2.0 * (c - l) - (h - l)) / rng
+        # Body Factor: Close relative to Open [-1.0, +1.0]
+        body_delta_factor = (c - o) / rng
+
+        # Blended signed delta
+        bar_delta = 0.5 * (wick_delta_factor + body_delta_factor) * v
+        deltas.append(bar_delta)
+
+    # Cumulative series
+    cvd_series: List[float] = []
+    run_sum = 0.0
+    for d in deltas:
+        run_sum += d
+        cvd_series.append(round(run_sum, 2))
+
+    current_cvd = cvd_series[-1]
+    delta_last = round(deltas[-1], 2)
+
+    # CVD Trend via Linear Regression over lookback
+    win = min(lookback, n)
+    x_vals = list(range(win))
+    y_vals = cvd_series[-win:]
+    x_mean = sum(x_vals) / float(win)
+    y_mean = sum(y_vals) / float(win)
+
+    num = sum((x_vals[k] - x_mean) * (y_vals[k] - y_mean) for k in range(win))
+    den = sum((x_vals[k] - x_mean) ** 2 for k in range(win))
+    cvd_slope = (num / den) if den != 0 else 0.0
+
+    avg_vol = (sum(volumes[-win:]) / float(win)) if win > 0 else 1.0
+    normalized_slope = cvd_slope / max(avg_vol, 1e-6)
+
+    if normalized_slope > 0.05:
+        cvd_trend = "RISING_ACCUMULATION"
+    elif normalized_slope < -0.05:
+        cvd_trend = "FALLING_DISTRIBUTION"
+    else:
+        cvd_trend = "FLAT_NEUTRAL"
+
+    # Divergence Analysis over recent lookback window
+    divergence = "NONE"
+    div_bars = min(20, n)
+    start_k = n - div_bars
+
+    p_lows = []
+    p_highs = []
+    for k in range(start_k + 2, n - 2):
+        if lows[k] <= lows[k - 1] and lows[k] <= lows[k - 2] and lows[k] <= lows[k + 1] and lows[k] <= lows[k + 2]:
+            p_lows.append((k, lows[k], cvd_series[k]))
+        if highs[k] >= highs[k - 1] and highs[k] >= highs[k - 2] and highs[k] >= highs[k + 1] and highs[k] >= highs[k + 2]:
+            p_highs.append((k, highs[k], cvd_series[k]))
+
+    curr_low = min(lows[-3:])
+    curr_high = max(highs[-3:])
+    curr_cvd_low = min(cvd_series[-3:])
+    curr_cvd_high = max(cvd_series[-3:])
+
+    # 1. Bullish CVD Divergence (Price lower/equal low, CVD higher low)
+    if len(p_lows) >= 1:
+        _, prev_p_low, prev_cvd_low = p_lows[-1]
+        if curr_low <= prev_p_low * 1.002 and curr_cvd_low > prev_cvd_low:
+            divergence = "BULLISH_ABSORPTION_DIV"
+    if len(p_lows) >= 2 and divergence == "NONE":
+        _, l1, c1 = p_lows[-2]
+        _, l2, c2 = p_lows[-1]
+        if l2 <= l1 * 1.001 and c2 > c1:
+            divergence = "BULLISH_ABSORPTION_DIV"
+
+    # 2. Bearish CVD Divergence (Price higher/equal high, CVD lower high)
+    if len(p_highs) >= 1 and divergence == "NONE":
+        _, prev_p_high, prev_cvd_high = p_highs[-1]
+        if curr_high >= prev_p_high * 0.998 and curr_cvd_high < prev_cvd_high:
+            divergence = "BEARISH_EXHAUSTION_DIV"
+    if len(p_highs) >= 2 and divergence == "NONE":
+        _, h1, c1 = p_highs[-2]
+        _, h2, c2 = p_highs[-1]
+        if h2 >= h1 * 0.999 and c2 < c1:
+            divergence = "BEARISH_EXHAUSTION_DIV"
+
+    if divergence == "BULLISH_ABSORPTION_DIV":
+        narrative = f"Bullish CVD Divergence: Price pressing lows but CVD rising (Institutional limit buyers absorbing market sells)."
+    elif divergence == "BEARISH_EXHAUSTION_DIV":
+        narrative = f"Bearish CVD Divergence: Price pressing highs but CVD declining (Buyer exhaustion / Institutional limit selling)."
+    else:
+        narrative = f"CVD trend is {cvd_trend} (Slope: {cvd_slope:+.2f}). No divergence."
+
+    return {
+        "cvd_series": cvd_series[-win:],
+        "current_cvd": current_cvd,
+        "delta_last_bar": delta_last,
+        "cvd_slope": round(cvd_slope, 4),
+        "cvd_trend": cvd_trend,
+        "divergence": divergence,
+        "narrative": narrative
+    }
+
+
+def calculate_order_book_imbalance(
+    orderbook: Optional[Dict[str, Any]],
+    depth: int = 10
+) -> Dict[str, Any]:
+    """
+    Level-2 Order Book Imbalance (OBI) & Resting Wall Detection Engine.
+    Computes:
+      - Bid Depth vs Ask Depth across top K levels.
+      - Order Book Imbalance Ratio: (Bid_Vol - Ask_Vol) / (Bid_Vol + Ask_Vol) in [-1.0, +1.0].
+      - Depth Ratio: Bid_Vol / Ask_Vol.
+      - Resting Liquidity Walls (Whale Iceberg/Limit order >= 35% of side depth).
+      - Status: HEAVY_BID_IMBALANCE, HEAVY_ASK_IMBALANCE, BALANCED_ORDER_BOOK.
+    """
+    if not orderbook or not isinstance(orderbook, dict):
+        return {
+            "obi_ratio": 0.0,
+            "depth_ratio": 1.0,
+            "bid_depth": 0.0,
+            "ask_depth": 0.0,
+            "imbalance_status": "BALANCED_ORDER_BOOK",
+            "bid_wall_detected": False,
+            "bid_wall_price": None,
+            "bid_wall_size": 0.0,
+            "ask_wall_detected": False,
+            "ask_wall_price": None,
+            "ask_wall_size": 0.0,
+            "narrative": "Order book data not available."
+        }
+
+    raw_bids = orderbook.get("buy") or orderbook.get("bids") or []
+    raw_asks = orderbook.get("sell") or orderbook.get("asks") or []
+
+    bids: List[Tuple[float, float]] = []
+    for b in raw_bids[:depth]:
+        if isinstance(b, dict):
+            bids.append((float(b.get("price") or b.get("limit_price") or 0.0), float(b.get("size") or 0.0)))
+        elif isinstance(b, (list, tuple)) and len(b) >= 2:
+            bids.append((float(b[0]), float(b[1])))
+
+    asks: List[Tuple[float, float]] = []
+    for a in raw_asks[:depth]:
+        if isinstance(a, dict):
+            asks.append((float(a.get("price") or a.get("limit_price") or 0.0), float(a.get("size") or 0.0)))
+        elif isinstance(a, (list, tuple)) and len(a) >= 2:
+            asks.append((float(a[0]), float(a[1])))
+
+    bid_vol = sum(size for _, size in bids)
+    ask_vol = sum(size for _, size in asks)
+    total_vol = bid_vol + ask_vol
+
+    if total_vol <= 0:
+        obi_ratio = 0.0
+        depth_ratio = 1.0
+    else:
+        obi_ratio = round((bid_vol - ask_vol) / float(total_vol), 4)
+        depth_ratio = round(bid_vol / max(ask_vol, 1e-6), 2)
+
+    bid_wall_detected = False
+    bid_wall_price = None
+    bid_wall_size = 0.0
+    if bids and bid_vol > 0:
+        largest_bid = max(bids, key=lambda x: x[1])
+        if (largest_bid[1] / bid_vol) >= 0.35:
+            bid_wall_detected = True
+            bid_wall_price = largest_bid[0]
+            bid_wall_size = largest_bid[1]
+
+    ask_wall_detected = False
+    ask_wall_price = None
+    ask_wall_size = 0.0
+    if asks and ask_vol > 0:
+        largest_ask = max(asks, key=lambda x: x[1])
+        if (largest_ask[1] / ask_vol) >= 0.35:
+            ask_wall_detected = True
+            ask_wall_price = largest_ask[0]
+            ask_wall_size = largest_ask[1]
+
+    if obi_ratio >= 0.25:
+        imbalance_status = "HEAVY_BID_IMBALANCE"
+        wall_msg = f" (Bid Wall @ ${bid_wall_price:,.2f})" if bid_wall_detected else ""
+        narrative = f"Strong Bid Imbalance ({obi_ratio:+.2f} · {depth_ratio:.1f}x): Heavy resting buy support protecting downside{wall_msg}."
+    elif obi_ratio <= -0.25:
+        imbalance_status = "HEAVY_ASK_IMBALANCE"
+        wall_msg = f" (Ask Wall @ ${ask_wall_price:,.2f})" if ask_wall_detected else ""
+        narrative = f"Strong Ask Imbalance ({obi_ratio:+.2f} · {1.0/max(depth_ratio, 0.01):.1f}x): Heavy resting sell resistance capping upside{wall_msg}."
+    else:
+        imbalance_status = "BALANCED_ORDER_BOOK"
+        narrative = f"Order book balanced ({obi_ratio:+.2f} · Bid: {bid_vol:.1f} vs Ask: {ask_vol:.1f})."
+
+    return {
+        "obi_ratio": obi_ratio,
+        "depth_ratio": depth_ratio,
+        "bid_depth": round(bid_vol, 2),
+        "ask_depth": round(ask_vol, 2),
+        "imbalance_status": imbalance_status,
+        "bid_wall_detected": bid_wall_detected,
+        "bid_wall_price": bid_wall_price,
+        "bid_wall_size": round(bid_wall_size, 2),
+        "ask_wall_detected": ask_wall_detected,
+        "ask_wall_price": ask_wall_price,
+        "ask_wall_size": round(ask_wall_size, 2),
+        "narrative": narrative
+    }
+
+
 def analyze_candlestick_and_chart_patterns(
     opens: List[float],
     highs: List[float],
@@ -1202,7 +1584,10 @@ def analyze_candlestick_and_chart_patterns(
     }
 
 
-def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
+def analyze_market_structure(
+    candles_dict: Dict[str, Any],
+    orderbook: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """
     Perform a full technical regime & indicator analysis on Delta Exchange chart history.
     candles_dict schema: {'t': [...], 'o': [...], 'h': [...], 'l': [...], 'c': [...], 'v': [...]}
@@ -1312,6 +1697,15 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
     # Smart Money Concepts (SMC) Fair Value Gap (FVG) Engine
     fvg_data = detect_fair_value_gaps(highs, lows, closes, opens=opens)
 
+    # Institutional Volume Profile (VP) Engine
+    volume_profile = calculate_volume_profile(highs, lows, closes, volumes)
+
+    # Cumulative Volume Delta (CVD) Engine
+    cvd_data = calculate_cumulative_volume_delta(opens, highs, lows, closes, volumes)
+
+    # Level-2 Order Book Imbalance (OBI) Engine
+    obi_data = calculate_order_book_imbalance(orderbook)
+
     # FVG Retest & Wick Rejection Alignment in Regime Confidence
     if "BULLISH" in regime and fvg_data.get("retest_type") == "BULLISH_FVG_RETEST":
         conf_score += 10
@@ -1320,6 +1714,22 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
     elif "BEARISH" in regime and fvg_data.get("retest_type") == "BEARISH_FVG_RETEST":
         conf_score += 10
         if fvg_data.get("wick_rejection"):
+            conf_score += 5
+
+    # Order Flow Alignment (CVD Divergence, OBI Imbalance, Volume Profile Stance)
+    if "BULLISH" in regime:
+        if cvd_data.get("divergence") == "BULLISH_ABSORPTION_DIV" or cvd_data.get("cvd_trend") == "RISING_ACCUMULATION":
+            conf_score += 10
+        if obi_data.get("imbalance_status") == "HEAVY_BID_IMBALANCE":
+            conf_score += 5
+        if volume_profile.get("stance") in ("INSIDE_VA", "ABOVE_VAH"):
+            conf_score += 5
+    elif "BEARISH" in regime:
+        if cvd_data.get("divergence") == "BEARISH_EXHAUSTION_DIV" or cvd_data.get("cvd_trend") == "FALLING_DISTRIBUTION":
+            conf_score += 10
+        if obi_data.get("imbalance_status") == "HEAVY_ASK_IMBALANCE":
+            conf_score += 5
+        if volume_profile.get("stance") in ("INSIDE_VA", "BELOW_VAL"):
             conf_score += 5
 
     conf_score = max(10, min(100, conf_score))
@@ -1360,6 +1770,9 @@ def analyze_market_structure(candles_dict: Dict[str, Any]) -> Dict[str, Any]:
         "resistance": round(sr["resistance"], 2),
         "liquidity": liquidity_data,
         "fvg": fvg_data,
+        "volume_profile": volume_profile,
+        "cvd": cvd_data,
+        "order_book_imbalance": obi_data,
         "patterns": patterns_info,
         "candlestick_pattern": patterns_info["candlestick_pattern"],
         "chart_pattern": patterns_info["chart_pattern"],
@@ -1374,7 +1787,8 @@ def analyze_multi_timeframe(
     candles_1d: Optional[Dict[str, Any]] = None,
     candles_1w: Optional[Dict[str, Any]] = None,
     candles_15m: Optional[Dict[str, Any]] = None,
-    symbol: Optional[str] = None
+    symbol: Optional[str] = None,
+    orderbook: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Multi-Timeframe Institutional Confluence Matrix with Intraday Scalp Engine:
@@ -1382,11 +1796,11 @@ def analyze_multi_timeframe(
       1W (Weekly): High-Timeframe Trend (Weekly EMA 21, RSI, PWH, PWL).
       1D (Daily): Intermediate Swing Anchor (Daily EMA 21, 50, 200, RSI, PDH, PDL).
       4H (4-Hour): Cycle Momentum (4H EMA Stack, RSI).
-      1H (1-Hour): Trend Context & Higher-Timeframe Liquidity Pools.
-      15m (15-Minute): Ultra-Fast Intraday Scalp Execution Trigger (Liquidity Sweeps, MSS, Tight SL/TP).
+      1H (1-Hour): Trend Context & Higher-Timeframe Liquidity Pools, Volume Profile & CVD.
+      15m (15-Minute): Ultra-Fast Intraday Scalp Execution Trigger (Sweeps, FVG, OBI, Tight SL/TP).
     Generates >= 2 confirmed, practically achievable intraday/scalp trades daily on BTC/ETH/XAU.
     """
-    analysis_1h = analyze_market_structure(candles_1h)
+    analysis_1h = analyze_market_structure(candles_1h, orderbook=orderbook)
     if "error" in analysis_1h:
         return analysis_1h
 
@@ -1399,18 +1813,24 @@ def analyze_multi_timeframe(
     atr_15m = analysis_1h.get("atr_14", current_price * 0.005) * 0.5  # fallback estimate
     liq_15m = {}
     fvg_15m = {}
+    vp_15m = {}
+    cvd_15m = {}
+    obi_15m = {}
     regime_15m = "NEUTRAL"
     rsi_15m = 50.0
     ema21_15m = current_price
     macd_15m = {}
 
     if candles_15m and len(candles_15m.get('c', [])) >= 20:
-        analysis_15m = analyze_market_structure(candles_15m)
+        analysis_15m = analyze_market_structure(candles_15m, orderbook=orderbook)
         if "error" not in analysis_15m:
             current_price = analysis_15m.get("current_price", current_price)
             atr_15m = analysis_15m.get("atr_14", atr_15m)
             liq_15m = analysis_15m.get("liquidity", {})
             fvg_15m = analysis_15m.get("fvg", {})
+            vp_15m = analysis_15m.get("volume_profile", {})
+            cvd_15m = analysis_15m.get("cvd", {})
+            obi_15m = analysis_15m.get("order_book_imbalance", {})
             regime_15m = analysis_15m.get("regime", "NEUTRAL")
             rsi_15m = analysis_15m.get("rsi_14", 50.0)
             ema21_15m = analysis_15m.get("ema_21", current_price)
@@ -1424,6 +1844,9 @@ def analyze_multi_timeframe(
         "atr_14": round(atr_15m, 4),
         "liquidity": liq_15m,
         "fvg": fvg_15m,
+        "volume_profile": vp_15m,
+        "cvd": cvd_15m,
+        "order_book_imbalance": obi_15m,
         "macd": macd_15m
     }
     analysis_1h["macro_15m"] = macro_15m

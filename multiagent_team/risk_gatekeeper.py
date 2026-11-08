@@ -100,6 +100,22 @@ class RiskGatekeeperAgent:
                 "reason": f"Order Book Liquidity Veto: Bid-ask spread ({spread_pct:.3f}%) exceeds safety ceiling (0.150%). High slippage risk."
             }
 
+        # 1.7. Order Flow & Order Book Imbalance (OBI) Safety Gate
+        order_flow = setup.get("order_flow_profile", {})
+        obi_info = order_flow.get("order_book_imbalance", {})
+        obi_val = float(obi_info.get("obi_ratio") or 0.0)
+
+        if side == "buy" and obi_val <= -0.50:
+            return {
+                "gate_decision": "REJECTED",
+                "reason": f"Order Book Imbalance Veto: Extreme ask-side dominance (OBI {obi_val:+.2f}). Heavy sell wall blocking upside."
+            }
+        elif side == "sell" and obi_val >= 0.50:
+            return {
+                "gate_decision": "REJECTED",
+                "reason": f"Order Book Imbalance Veto: Extreme bid-side dominance (OBI {obi_val:+.2f}). Heavy buy wall blocking downside."
+            }
+
         # 2. Check open positions and portfolio correlation
         pos_res = self.client.get_positions()
         raw_positions = pos_res.get("result", []) if pos_res.get("success") else []
@@ -397,6 +413,11 @@ class RiskGatekeeperAgent:
                 "active_bearish_count": 0,
                 "nearest_bullish_fvg": None,
                 "nearest_bearish_fvg": None
+            }),
+            "order_flow_profile": setup.get("order_flow_profile", {
+                "volume_profile": {},
+                "cvd": {},
+                "order_book_imbalance": {}
             }),
             "liquidity_profile": {
                 "spread_pct": spread_pct,

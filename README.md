@@ -96,6 +96,9 @@ flowchart TD
   * Computes **Multi-Timeframe ATR & Volatility State**: Evaluates 15m, 1H, and 4H ATR, ATR percentage of price, rolling 30-bar ATR expansion ratio, and rates watchlist volatility temperature (`CALM_COMPRESSION`, `NORMAL_VOLATILITY`, `HIGH_VOLATILITY_EXPANSION`, `EXTREME_VOLATILITY`).
   * Identifies **SMC Liquidity Pools & Sweeps**: Detects Buy-Side Liquidity (BSL) swing highs, Sell-Side Liquidity (SSL) swing lows, pool distance percentages, and classifies market structure state (`SWEEP_MSS_CONFIRMED`, `SWEEP_WICK_REJECTION`, `TESTING_BSL_LIQUIDITY`, `TESTING_SSL_LIQUIDITY`, `BALANCED_LIQUIDITY_CORE`).
   * Identifies **SMC Fair Value Gaps (FVG) & 50% Consequent Encroachment (CE)**: Detects 3-candle imbalance zones (Bullish FVG: `Candle 3 Low > Candle 1 High`; Bearish FVG: `Candle 3 High < Candle 1 Low`), computes 50% CE midpoint entries, and tracks full mitigation life-cycle (`UNTESTED`, `RETESTING`, `CE_RETESTED`, `MITIGATED`).
+  * Computes **Institutional Volume Profile (VP)**: Calculates Point of Control (POC), Value Area High (VAH), Value Area Low (VAL) covering 70% of traded volume, High/Low Volume Nodes (HVN/LVN), and monitors price stance (`ABOVE_VAH`, `INSIDE_VA`, `BELOW_VAL`, `AT_POC`).
+  * Computes **Cumulative Volume Delta (CVD) & Delta Divergences**: Evaluates intrabar aggressor delta curves, CVD accumulation/distribution trends, and flags **Bullish Absorption Divergence** (price lower low, CVD higher low) and **Bearish Exhaustion Divergence** (price higher high, CVD lower high).
+  * Evaluates **Level-2 Order Book Imbalance (OBI) & Whale Walls**: Aggregates top-10 bid/ask depth, calculates OBI ratio ($-1.0$ to $+1.0$), bid/ask depth ratio, and detects resting liquidity walls ($\ge 35\%$ of side depth).
   * Evaluates **Market-Wide Order Book Liquidity Health**: Monitors average watchlist bid-ask spreads and rates universe liquidity quality (`PRIME_LIQUIDITY` <= 0.05%, `NORMAL_LIQUIDITY` <= 0.12%, `ILLIQUID_CAUTION`).
   * Identifies funding rate skew to filter crowded longs (> +0.03%) or short cascades.
 * **Output:** Regime classifications, trend directions, EMA/MACD/VWAP breadth percentages, and support/resistance anchors.
@@ -156,6 +159,9 @@ flowchart TD
   * Enforces **SMC Fair Value Gap (FVG) Retest Confluence & Mitigation Protection**:
     * Long setups: Awards +8 to +10 pts for active Bullish FVG 50% Consequent Encroachment (CE) retests accompanied by confirmed lower wick rejection. Applies -6 pts penalty if buying directly into an unmitigated overhead Bearish FVG resistance within 0.35%.
     * Short setups: Awards +8 to +10 pts for active Bearish FVG 50% CE retests accompanied by confirmed upper wick rejection. Applies -6 pts penalty if shorting directly into an unmitigated support Bullish FVG demand within 0.35%.
+  * Enforces **Order Flow Confluence (Volume Profile, CVD & Order Book Imbalance)**:
+    * Long setups: Awards +10 pts for confirmed Bullish CVD Absorption Divergence (limit buyers absorbing aggressive market sells), +5 pts for rising CVD accumulation, +6 pts for heavy bid support (OBI $\ge +0.25$), and +4 pts for holding Volume Profile Value Area Low / POC. Penalizes buying into heavy ask resistance walls (OBI $\le -0.25$) or bearish CVD divergence.
+    * Short setups: Awards +10 pts for confirmed Bearish CVD Exhaustion Divergence, +5 pts for falling CVD distribution, +6 pts for heavy ask resistance (OBI $\le -0.25$), and +4 pts for rejecting Volume Profile Value Area High / POC. Penalizes shorting into heavy bid support walls (OBI $\ge +0.25$) or bullish CVD divergence.
   * Enforces **Structural Stop Invalidation**: Stop loss must align with structural swing extremes. Synthetic or arbitrary stops are strictly vetoed.
   * Mandates asymmetric payout: Planned Reward-to-Risk must be >= 2.20:1.
   * Assigns quality scores (0 to 100). Minimum score threshold: >= 85 for Primary assets; >= 90 for Secondary assets.
@@ -184,6 +190,7 @@ flowchart TD
     $$\text{Contracts} = \left\lfloor \frac{\text{Calculated Dollar Risk}}{(\text{Contract Value} \times \text{ATR Stop Distance}) + \text{Friction}} \right\rfloor$$
   * **SMC Fair Value Gap Audit Profile:** Tags authoritative `fvg_profile` (active retest state, CE tap confirmation, wick rejection status, and nearest FVG distance) into the approved trade specification for execution provenance and postmortem learning.
     Automatically scales down position size during high volatility and scales up during low volatility, locking dollar loss to the exact budget ($2.00 - $4.00 USD).
+  * **Order Flow Audit Profile & Hard Safety Gate:** Attaches `order_flow_profile` (Volume Profile POC/VAH/VAL, CVD trend/divergence, OBI ratio) to approved specs. Strictly vetoes buying if extreme ask dominance blocks the path (OBI $\le -0.50$) or shorting if extreme bid dominance blocks the path (OBI $\ge +0.50$).
   * **Pre-Trade ATR Volatility Sanity Gate:** Hard veto on setups with micro-stops (< 0.40x ATR) or loose stops (> 3.0x ATR).
   * **Minimum Lot Protection:** If the minimum contract risk exceeds the risk budget, returns `gate_decision: "NO_TRADE"` and `contracts: 0`.
   * **Pre-Trade Order Book Liquidity Gate:** Hard veto on illiquid books where the bid-ask spread exceeds 0.150% (slippage prevention). Approved setups are graded with institutional depth ratings (`A+_PRIME_DEPTH`, `HIGH_DEPTH`, `STANDARD_DEPTH`).

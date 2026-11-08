@@ -42,4 +42,13 @@ state/*.jsonl
 state/*.log
 state/*.db
 state/*.sqlite
-reports/*.md
+reports/
+
+# Temporary files & logs
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+*.log
+

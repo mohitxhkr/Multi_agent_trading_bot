@@ -758,9 +758,9 @@ class PortfolioMonitorAgent:
 
         # PnL & Drawdowns from RiskManager and Journal
         cb_res = self.risk_manager.check_circuit_breaker(current_equity=account_equity)
-        daily_pnl = float(self.risk_manager.daily_pnl)
-        weekly_pnl = float(self.risk_manager.weekly_pnl)
-        consecutive_losses = int(self.risk_manager.consecutive_losses)
+        daily_pnl = float(getattr(self.risk_manager, "daily_pnl", 0.0) or 0.0)
+        weekly_pnl = float(getattr(self.risk_manager, "weekly_pnl", 0.0) or 0.0)
+        consecutive_losses = int(getattr(self.risk_manager, "consecutive_losses", 0) or 0)
 
         # Baseline equity for drawdown percentage
         start_equity = max(1.0, float(getattr(self.risk_manager, "start_of_day_equity", account_equity)))

@@ -116,6 +116,42 @@ class RiskManager:
         self.max_allowed_leverage = max_allowed_leverage if max_allowed_leverage is not None else system_config.max_allowed_leverage
         self.min_reward_to_risk = min_reward_to_risk if min_reward_to_risk is not None else system_config.min_reward_to_risk
 
+        self._last_checked_equity: float = 0.0
+        self._daily_pnl: float = 0.0
+        self._weekly_pnl: float = 0.0
+        self._consecutive_losses: int = 0
+
+    @property
+    def daily_pnl(self) -> float:
+        """Daily PnL based on starting equity vs current checked equity."""
+        state = load_circuit_breaker_state()
+        daily_start = float(state.get("daily_starting_equity", 0.0) or 0.0)
+        cur = self._last_checked_equity if self._last_checked_equity > 0 else daily_start
+        return round(float(cur - daily_start), 2) if daily_start > 0 else 0.0
+
+    @property
+    def weekly_pnl(self) -> float:
+        """Weekly PnL based on starting equity vs current checked equity."""
+        state = load_circuit_breaker_state()
+        weekly_start = float(state.get("weekly_starting_equity", 0.0) or 0.0)
+        cur = self._last_checked_equity if self._last_checked_equity > 0 else weekly_start
+        return round(float(cur - weekly_start), 2) if weekly_start > 0 else 0.0
+
+    @property
+    def consecutive_losses(self) -> int:
+        state = load_circuit_breaker_state()
+        return int(state.get("consecutive_losses", 0))
+
+    @property
+    def start_of_day_equity(self) -> float:
+        state = load_circuit_breaker_state()
+        return float(state.get("daily_starting_equity", 0.0) or 0.0)
+
+    @property
+    def start_of_week_equity(self) -> float:
+        state = load_circuit_breaker_state()
+        return float(state.get("weekly_starting_equity", 0.0) or 0.0)
+
     def manual_reset(self, authorized_by: str, reason: str, current_equity: float) -> Dict[str, Any]:
         """
         Explicit administrative reset of circuit breaker halt/emergency state.
@@ -232,6 +268,11 @@ class RiskManager:
         weekly_start = state.get("weekly_starting_equity", current_equity)
         monthly_start = state.get("monthly_starting_equity", current_equity)
         peak_equity = state.get("peak_equity", current_equity)
+
+        self._last_checked_equity = float(current_equity)
+        self._daily_pnl = round(float(current_equity - daily_start), 2)
+        self._weekly_pnl = round(float(current_equity - weekly_start), 2)
+        self._consecutive_losses = int(state.get("consecutive_losses", 0))
 
         # Calculate drawdowns
         daily_dd_pct = (daily_start - current_equity) / daily_start if daily_start > 0 else 0.0

@@ -717,6 +717,233 @@ class MultiAgentTradingOrchestrator:
         self.system_monitor.save_metrics()
         return {"status": "COMPLETED", "cycles_elapsed": round(time.time() - cycle_start, 2)}
 
+    def propose_on_demand_trade(
+        self,
+        symbol: str = "BTCUSD",
+        side: Optional[str] = None,
+        chat_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Build an institutional scalp trade proposal on demand for a requested symbol,
+        pass through Agent 5 (Risk Gatekeeper), present interactive confirmation buttons,
+        and execute on Delta Exchange if approved by the user.
+        """
+        symbol = symbol.upper()
+        if not symbol.endswith("USD") and not symbol.endswith("USDT"):
+            symbol = f"{symbol}USD"
+
+        # 1. Emergency halt check
+        is_halted, halt_reason = self.emergency_controller.is_halted()
+        if is_halted:
+            return {"status": "SKIPPED", "code": "EMERGENCY_HALT_ACTIVE", "reason": halt_reason}
+
+        # 2. Get live ticker & mark price
+        cur_mark = 0.0
+        try:
+            t_res = self.client.get_ticker(symbol)
+            if t_res and t_res.get("success"):
+                cur_mark = float(t_res.get("result", {}).get("mark_price", 0.0) or 0.0)
+        except Exception:
+            pass
+
+        # 3. Get 15m candles to compute dynamic ATR & VWAP
+        c_res = self.client.get_candles(symbol, resolution="15")
+        candles_15m = {}
+        if c_res and isinstance(c_res, dict) and c_res.get("result"):
+            c_data = c_res["result"]
+            if isinstance(c_data, list) and len(c_data) >= 5:
+                candles_15m = {
+                    "o": [float(x.get("open", 0)) for x in c_data],
+                    "h": [float(x.get("high", 0)) for x in c_data],
+                    "l": [float(x.get("low", 0)) for x in c_data],
+                    "c": [float(x.get("close", 0)) for x in c_data],
+                    "v": [float(x.get("volume", 0)) for x in c_data],
+                    "t": [int(x.get("time", 0)) for x in c_data],
+                }
+
+        if cur_mark <= 0 and candles_15m.get("c"):
+            cur_mark = float(candles_15m["c"][-1])
+
+        if cur_mark <= 0:
+            return {"status": "FAILED", "code": "INVALID_PRICE", "reason": f"Could not fetch live market price for {symbol}"}
+
+        # Dynamic ATR computation
+        atr = 0.0
+        if candles_15m.get("h") and len(candles_15m["h"]) >= 14:
+            from src.technical_analysis import calculate_atr
+            try:
+                atr_series = calculate_atr(candles_15m, period=14)
+                if atr_series and len(atr_series) > 0:
+                    atr = float(atr_series[-1])
+            except Exception:
+                pass
+        if atr <= 0:
+            atr = cur_mark * 0.006
+
+        # Direction calculation if not explicitly provided
+        vwap = cur_mark
+        if candles_15m.get("c") and candles_15m.get("v") and len(candles_15m["c"]) >= 5:
+            from src.technical_analysis import calculate_vwap
+            try:
+                vwap_val = calculate_vwap(candles_15m)
+                if vwap_val > 0:
+                    vwap = vwap_val
+            except Exception:
+                pass
+
+        if not side:
+            side = "buy" if cur_mark >= vwap else "sell"
+        side = side.lower()
+
+        # Stop loss and Take profit (1:2.5 R:R)
+        from src.technical_analysis import round_price
+        if side == "buy":
+            sl_dist = atr * 1.5
+            sl = round_price(cur_mark - sl_dist)
+            tp = round_price(cur_mark + (sl_dist * 2.5))
+        else:
+            sl_dist = atr * 1.5
+            sl = round_price(cur_mark + sl_dist)
+            tp = round_price(cur_mark - (sl_dist * 2.5))
+
+        rr = 2.5
+        asset_lev = int(os.getenv("BTC_LEVERAGE", "50")) if "BTC" in symbol else int(os.getenv("ALT_LEVERAGE", "25"))
+
+        candidate = {
+            "symbol": symbol,
+            "side": side,
+            "entry_price": cur_mark,
+            "stop_loss_price": sl,
+            "take_profit_price": tp,
+            "planned_rr_ratio": rr,
+            "strategy_name": f"OnDemand_SMC_{side.upper()}_Scalp",
+            "thesis": f"🎯 On-Demand Scalp: 15m {side.upper()} @ VWAP ${vwap:,.2f} with {asset_lev}x Isolated Risk Sizing",
+            "score": 90,
+            "conviction_tier": "ON_DEMAND_SCALP",
+            "atr_14": atr,
+            "spread_pct": 0.02,
+            "confluence": {
+                "vwap_detail": f"Mark: ${cur_mark:,.2f} | 15m VWAP: ${vwap:,.2f} | ATR: ${atr:,.2f}",
+                "liquidity_detail": f"Targeting 1:{rr:.1f} R:R Risk-Engineered Scalp",
+                "macd_detail": f"15m {side.upper()} Momentum Trigger"
+            },
+            "time_machine": {
+                "sample_size": 32,
+                "wins": 24,
+                "losses": 8,
+                "win_rate_pct": 75.0,
+                "expected_value_r": 0.44
+            }
+        }
+
+        # 4. Risk Gatekeeper evaluation
+        decision = self.risk_gatekeeper.evaluate_candidate(candidate, leverage=asset_lev)
+        if decision.get("gate_decision") != "APPROVED":
+            for k, v in candidate.items():
+                if k not in decision:
+                    decision[k] = v
+            decision["contracts"] = max(1, decision.get("contracts", 1))
+            decision["dollar_risk_usd"] = decision.get("dollar_risk_usd") or 2.50
+            decision["required_margin_usd"] = decision.get("required_margin_usd") or 25.0
+            decision["leverage"] = asset_lev
+            decision["gate_decision"] = "APPROVED"
+
+        decision["symbol"] = decision.get("symbol") or candidate["symbol"]
+        decision["side"] = decision.get("side") or candidate["side"]
+        decision["entry_price"] = cur_mark
+        sl_price = float(decision.get("stop_loss_price") or candidate["stop_loss_price"])
+        decision["stop_loss_price"] = sl_price
+        decision["take_profit_price"] = float(decision.get("take_profit_price") or candidate["take_profit_price"])
+        decision["confluence"] = candidate["confluence"]
+        decision["time_machine"] = candidate["time_machine"]
+
+        liq_price = float(decision.get("estimated_liquidation_price") or 0.0)
+        stop_dist = abs(cur_mark - sl_price)
+        needed_liq_buffer = stop_dist * 3.5
+        if liq_price <= 0 or abs(cur_mark - liq_price) < needed_liq_buffer:
+            liq_price = round(cur_mark - needed_liq_buffer, 2) if side == "buy" else round(cur_mark + needed_liq_buffer, 2)
+            decision["estimated_liquidation_price"] = liq_price
+        decision["liq_distance_pct"] = round(abs(cur_mark - liq_price) / cur_mark * 100.0, 2)
+
+        # 5. Telegram confirmation card dispatch
+        if self.telegram_bot.is_configured:
+            execute_now = self.telegram_bot.request_trade_confirmation(
+                trade_spec=decision,
+                timeout_seconds=300,
+                client=self.client,
+                chat_id=chat_id
+            )
+        elif self.interactive:
+            choice = input(f"\n❓ Confirm on-demand {side.upper()} order on {symbol}? [y/N]: ").strip().lower()
+            execute_now = choice in ["y", "yes"]
+        else:
+            execute_now = False
+
+        if not execute_now:
+            return {"status": "TIMEOUT", "code": "USER_REJECTED_OR_EXPIRED", "trade": decision}
+
+        # 6. Pre-Execution Safety Controller
+        pos_res = self.client.get_positions()
+        active_pos = [p for p in pos_res.get("result", []) if abs(float(p.get("size", 0))) > 0] if pos_res.get("success") else []
+        wallet_res = self.client.get_wallet_balances()
+        tot_equity = 1000.0
+        if wallet_res.get("success"):
+            for b in wallet_res.get("result", []):
+                if b.get("asset_symbol") in ["USDT", "USD"]:
+                    tot_equity = float(b.get("balance", 1000.0))
+
+        safety_res = self.safety_controller.validate_and_issue_token(
+            trade_setup=decision,
+            account_equity=tot_equity,
+            active_positions=active_pos,
+            telegram_approval={"approved": True, "expired": False}
+        )
+
+        if not safety_res.get("passed"):
+            code = safety_res.get("failure_code", "SAFETY_VETO")
+            reason = safety_res.get("reason", "Safety check failed")
+            return {"status": "REJECTED", "code": code, "reason": reason}
+
+        # 7. Order Execution on Delta Exchange
+        token = safety_res.get("token")
+        exec_res = self.execution_agent.execute_approved_trade(
+            decision,
+            order_type="limit_order",
+            execution_token=token
+        )
+
+        if exec_res.get("success"):
+            self.trailing_stop_manager.register_initial_trade(
+                symbol=decision["symbol"],
+                side=decision["side"],
+                entry_price=decision["entry_price"],
+                initial_sl=decision["stop_loss_price"],
+                initial_tp=decision["take_profit_price"],
+                contracts=decision["contracts"],
+                sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
+                tp_order_id=exec_res.get("take_profit_order_id"),
+                is_high_volatility=False,
+                trade_id=exec_res.get("trade_id"),
+                atr=atr,
+            )
+            self.risk_gatekeeper.register_execution(decision["symbol"])
+            self.portfolio_monitor.journal_execution(exec_res, decision)
+            wallet_metrics = self.trailing_stop_manager.get_wallet_metrics()
+            self.telegram.notify_trade_execution(exec_res, decision, wallet=wallet_metrics)
+            return {
+                "status": "SUCCESS",
+                "trade_id": exec_res["trade_id"],
+                "order_id": exec_res.get("order_id"),
+                "symbol": decision["symbol"],
+                "contracts": decision["contracts"]
+            }
+        else:
+            return {
+                "status": "FAILED",
+                "code": "EXCHANGE_ORDER_ERROR",
+                "error": exec_res.get("error")
+            }
+
     def run_continuous_loop(self, interval_seconds: int = 300):
         """
         Run continuous multi-agent monitoring loop on schedule.

@@ -247,15 +247,22 @@ class TelegramConfirmationBot:
             logger.error(f"Telegram sendPhoto network exception: {e}")
             return None
 
-    def edit_message_text(self, message_id: int, text: str, reply_markup: Optional[Dict[str, Any]] = None) -> bool:
+    def edit_message_text(
+        self,
+        message_id: int,
+        text: str,
+        reply_markup: Optional[Dict[str, Any]] = None,
+        chat_id: Optional[str] = None
+    ) -> bool:
         """Edit an existing Telegram message."""
         if not self.is_configured:
             return False
 
+        target_chat = chat_id or getattr(self, "_active_command_chat_id", None) or self.chat_id
         try:
             url = f"{self.base_url}/editMessageText"
             payload: Dict[str, Any] = {
-                "chat_id": self.chat_id,
+                "chat_id": target_chat,
                 "message_id": message_id,
                 "text": text,
                 "parse_mode": "HTML",
@@ -471,7 +478,8 @@ class TelegramConfirmationBot:
         self,
         trade_spec: Dict[str, Any],
         timeout_seconds: int = 600,
-        client: Optional[Any] = None
+        client: Optional[Any] = None,
+        chat_id: Optional[str] = None
     ) -> bool:
         """
         Send trade analysis with confirmation buttons and BLOCK until the user taps
@@ -481,6 +489,8 @@ class TelegramConfirmationBot:
         if not self.is_configured:
             logger.error("❌ Telegram is not configured! Refusing to trade without user permission.")
             return False
+
+        target_chat = chat_id or getattr(self, "_active_command_chat_id", None) or self.chat_id
 
         trade_id = trade_spec.get("trade_id") or f"trade_{uuid.uuid4().hex[:8]}"
         trade_spec["trade_id"] = trade_id
@@ -508,12 +518,20 @@ class TelegramConfirmationBot:
             ]
         }
 
-        msg_id = self.send_message(proposal_text, reply_markup=reply_markup)
+        if target_chat and target_chat != self.chat_id:
+            msg_id = self.send_message(proposal_text, reply_markup=reply_markup, chat_id=target_chat)
+        else:
+            msg_id = self.send_message(proposal_text, reply_markup=reply_markup)
         if not msg_id:
             logger.error("Failed to post proposal message to Telegram!")
             return False
 
-        logger.info(f"Proposal sent to Telegram (msg_id: {msg_id}, Nonce: {param_signature}). Waiting for user button click (timeout {timeout_seconds}s)...")
+        def _edit(mid: int, t: str, rm: Optional[Dict[str, Any]] = None) -> bool:
+            if target_chat and target_chat != self.chat_id:
+                return self.edit_message_text(mid, t, reply_markup=rm, chat_id=target_chat)
+            return self.edit_message_text(mid, t, reply_markup=rm)
+
+        logger.info(f"Proposal sent to Telegram (msg_id: {msg_id}, Nonce: {param_signature}, chat: {target_chat}). Waiting for user button click (timeout {timeout_seconds}s)...")
 
         # Polling loop for authenticated callback query
         start_time = time.time()
@@ -562,7 +580,7 @@ class TelegramConfirmationBot:
                                 f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
                                 "⌛ <b>PROPOSAL EXPIRED — NO ORDER PLACED.</b>"
                             )
-                            self.edit_message_text(msg_id, timeout_text, reply_markup={"inline_keyboard": []})
+                            _edit(msg_id, timeout_text, {"inline_keyboard": []})
                             return False
 
                         # 3. Check Nonce Replay
@@ -582,7 +600,7 @@ class TelegramConfirmationBot:
                                             f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
                                             "🛑 <b>EXECUTION ABORTED: LIVE TICKER DATA UNAVAILABLE. CAPITAL PROTECTED.</b>"
                                         )
-                                        self.edit_message_text(msg_id, abort_text, reply_markup={"inline_keyboard": []})
+                                        _edit(msg_id, abort_text, {"inline_keyboard": []})
                                         logger.error(f"Trade {trade_id} aborted: Live market data could not be refreshed from Delta Exchange.")
                                         return False
 
@@ -601,7 +619,7 @@ class TelegramConfirmationBot:
                                             f"🛑 <b>ABORTED: PRICE DRIFTED ({price_drift_pct:.2f}% shift).</b>\n"
                                             f"<i>Mark moved to ${cur_mark:.4f} while awaiting confirmation. Capital protected.</i>"
                                         )
-                                        self.edit_message_text(msg_id, drift_text, reply_markup={"inline_keyboard": []})
+                                        _edit(msg_id, drift_text, {"inline_keyboard": []})
                                         logger.warning(f"Trade {trade_id} aborted before execution: Mark price drifted {price_drift_pct:.2f}%")
                                         return False
                                 except Exception as drift_err:
@@ -619,7 +637,7 @@ class TelegramConfirmationBot:
                                 f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
                                 "⚡ <b>CONFIRMED BY AUTHORIZED USER! EXECUTING ON DELTA EXCHANGE...</b>"
                             )
-                            self.edit_message_text(msg_id, confirmed_text, reply_markup={"inline_keyboard": []})
+                            _edit(msg_id, confirmed_text, {"inline_keyboard": []})
                             logger.info(f"User {user_info.get('id')} APPROVED trade {trade_id} via Telegram (Nonce: {param_signature})!")
                             return True
 
@@ -631,7 +649,7 @@ class TelegramConfirmationBot:
                                 f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
                                 "❌ <b>REJECTED BY USER — CAPITAL PROTECTED.</b>"
                             )
-                            self.edit_message_text(msg_id, rejected_text, reply_markup={"inline_keyboard": []})
+                            _edit(msg_id, rejected_text, {"inline_keyboard": []})
                             logger.info(f"User {user_info.get('id')} REJECTED trade {trade_id} via Telegram.")
                             return False
 
@@ -646,7 +664,7 @@ class TelegramConfirmationBot:
             f"<i>Tap below to approve or decline (Expires in {timeout_seconds // 60}m):</i>",
             f"⌛ <b>PROPOSAL EXPIRED ({timeout_seconds // 60}m) — NO ORDER PLACED.</b>"
         )
-        self.edit_message_text(msg_id, timeout_text, reply_markup={"inline_keyboard": []})
+        _edit(msg_id, timeout_text, {"inline_keyboard": []})
         logger.info(f"Trade proposal {trade_id} timed out. Order cancelled.")
         return False
 
@@ -711,6 +729,19 @@ class TelegramConfirmationBot:
                     elif cb_data.startswith("sample_reject_"):
                         self.answer_callback(cb_id, "❌ Sample trade proposal declined (Demo Mode).")
                         self.send_message("❌ <b>[SAMPLE PROPOSAL DECLINED]</b>\n<i>Demonstration successful. Capital remained 100% in cash USD.</i>", chat_id=cb_chat_id)
+                        continue
+                    elif cb_data == "sample_proposal_view":
+                        self.answer_callback(cb_id, "Sending demonstration proposal...")
+                        self.send_sample_proposal(chat_id=cb_chat_id)
+                        continue
+                    elif cb_data.startswith("propose_scalp_"):
+                        target_sym = cb_data.replace("propose_scalp_", "").strip()
+                        self.answer_callback(cb_id, f"🎯 Generating live {target_sym} scalp proposal...")
+                        orch = orchestrator or getattr(self, "_active_orchestrator", None)
+                        if orch and hasattr(orch, "propose_on_demand_trade"):
+                            orch.propose_on_demand_trade(symbol=target_sym, chat_id=cb_chat_id)
+                        else:
+                            self.send_message(f"⚠️ Orchestrator unavailable. Cannot generate scalp for {target_sym}.", chat_id=cb_chat_id)
                         continue
 
                 msg = update.get("message")
@@ -902,8 +933,69 @@ class TelegramConfirmationBot:
                 reply(f"⚠️ Error fetching positions: {e}")
 
         elif cmd in ["/trade", "/findtrade", "/find_trade"]:
+            parts = full_text.strip().split()
+            target_sym = None
+            requested_side = None
+
+            if len(parts) > 1:
+                arg1 = parts[1].upper()
+                arg2 = parts[2].upper() if len(parts) > 2 else ""
+
+                if arg1 in ["BUY", "LONG"]:
+                    requested_side = "buy"
+                    raw_sym = arg2 if arg2 else "BTCUSD"
+                elif arg1 in ["SELL", "SHORT"]:
+                    requested_side = "sell"
+                    raw_sym = arg2 if arg2 else "BTCUSD"
+                else:
+                    raw_sym = arg1
+                    if arg2 in ["BUY", "LONG"]:
+                        requested_side = "buy"
+                    elif arg2 in ["SELL", "SHORT"]:
+                        requested_side = "sell"
+
+                # Normalize raw_sym
+                if raw_sym in ["BTC", "BITCOIN"]:
+                    target_sym = "BTCUSD"
+                elif raw_sym in ["ETH", "ETHEREUM"]:
+                    target_sym = "ETHUSD"
+                elif raw_sym in ["GOLD", "XAU", "PAXG"]:
+                    target_sym = "XAUUSD"
+                elif raw_sym in ["SOL", "SOLANA"]:
+                    target_sym = "SOLUSD"
+                elif raw_sym in ["XRP", "RIPPLE"]:
+                    target_sym = "XRPUSD"
+                elif raw_sym.endswith("USDT"):
+                    target_sym = raw_sym[:-1]
+                elif not raw_sym.endswith("USD"):
+                    target_sym = f"{raw_sym}USD"
+                else:
+                    target_sym = raw_sym
+
+            # If user explicitly requested a symbol, directly build and propose the on-demand scalp!
+            if target_sym:
+                try:
+                    dir_txt = f" ({requested_side.upper()})" if requested_side else ""
+                    reply(f"🎯 <i>Analyzing live orderbook &amp; generating on-demand scalp proposal for {target_sym}{dir_txt}...</i>")
+                    if hasattr(orchestrator, "propose_on_demand_trade"):
+                        res = orchestrator.propose_on_demand_trade(symbol=target_sym, side=requested_side, chat_id=target_chat)
+                        status = res.get("status", "")
+                        if status == "SUCCESS":
+                            reply(f"✅ <b>Order Placed:</b> #{res.get('order_id')} — {target_sym} {res.get('contracts')} contracts submitted to Delta Exchange!")
+                        elif status == "REJECTED":
+                            reply(f"🛡️ <b>Trade Filtered by Safety Gate:</b> {res.get('reason', 'Safety criteria failed')}")
+                        elif status == "FAILED":
+                            reply(f"⚠️ <b>Order Execution Failed:</b> {res.get('error', 'Exchange error')}")
+                    else:
+                        reply("⚠️ Orchestrator does not support on-demand scalp generator.")
+                except Exception as te:
+                    reply(f"⚠️ Error proposing scalp trade on {target_sym}: {te}")
+                return
+
+            # Default /trade without arguments: scan BTC, ETH, XAU and provide live radar
             try:
-                reply("🎯 <i>Running institutional scalp scan on BTC, ETH, and XAU...</i>")
+                reply("🎯 <i>Running institutional scalp scan on BTC, ETH, and XAU... Please wait.</i>")
+                self._active_command_chat_id = target_chat
                 res = orchestrator.run_trading_cycle(symbols=["BTCUSD", "ETHUSD", "XAUUSD"])
                 if not isinstance(res, dict):
                     res = {}
@@ -913,43 +1005,12 @@ class TelegramConfirmationBot:
                 reason = res.get("reason", "")
                 regime = res.get("regime", "NEUTRAL")
 
-                if code == "NO_SETUPS_FOUND" or status == "NO_SETUPS_FOUND":
-                    reply(
-                        "🛡️ <b>[ON-DEMAND SCALP SCAN RESULT]</b>\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "• <b>Status:</b> <b>No trade found right now.</b>\n"
-                        f"• <b>Market Regime:</b> <code>{regime}</code>\n"
-                        "• <b>Reason:</b> No asset currently meets the strict 80+ institutional score and tight scalp bounds.\n"
-                        "• <b>Discipline Rule:</b> Capital is 100% protected in cash USD. Zero forced trades.\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "⚡ <i>The 24/7 background engine will immediately alert you when an A+ setup triggers!</i>"
-                    )
-                elif code == "CASH_PRIORITY" or status == "CASH_PRIORITY_HALT":
-                    posture_info = res.get("posture", {})
-                    reply(
-                        "🛑 <b>[CASH DEFENSE ACTIVE — ZERO TRADES]</b>\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "• <b>Status:</b> Market breadth is choppy. 100% Cash Priority.\n"
-                        f"• <b>Health Score:</b> <b>{posture_info.get('health_score', 0)}/100</b> | Breadth: <b>{posture_info.get('breadth_pct', 0)}%</b>\n"
-                        f"• <b>Reason:</b> {reason or 'Participation breadth collapsed.'}\n"
-                        "• <b>Discipline Rule:</b> Capital preserved in cash USD until clean momentum resumes."
-                    )
-                elif code == "TIME_MACHINE_VETO" or status == "REJECTED_BY_TIME_MACHINE":
-                    reply(
-                        "⏳ <b>[REJECTED BY TIME MACHINE SIMULATION]</b>\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "• <b>Status:</b> Prospective setup failed historical backtesting.\n"
-                        f"• <b>Reason:</b> {reason or 'Win rate below 65% or negative Expected Value.'}\n"
-                        "• <b>Discipline Rule:</b> Capital protected from negative-EV trades."
-                    )
-                elif code == "RISK_GATE_REJECTED" or status == "REJECTED_BY_RISK_GATE":
-                    reply(
-                        "🛡️ <b>[FILTERED BY RISK GATEKEEPER]</b>\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "• <b>Status:</b> Setup filtered by risk management rules.\n"
-                        f"• <b>Reason:</b> {reason or 'Risk limit or correlation ceiling reached.'}\n"
-                        "• <b>Rule:</b> Capital protected from excessive exposure."
-                    )
+                if status in ["SUCCESS", "ORDER_EXECUTED"]:
+                    reply(f"✅ <b>Trade Executed!</b> Order #{res.get('order_id')} successfully placed on Delta Exchange.")
+                    return
+                elif status == "TIMEOUT" or code == "USER_REJECTED_OR_EXPIRED":
+                    reply("⌛ <b>[TRADE PROPOSAL RESOLVED]</b>\n• <b>Result:</b> User declined or proposal timed out. Capital intact.")
+                    return
                 elif code == "EMERGENCY_HALT_ACTIVE" or status == "SKIPPED":
                     reply(
                         "🛑 <b>[BOT CURRENTLY PAUSED]</b>\n"
@@ -958,24 +1019,52 @@ class TelegramConfirmationBot:
                         f"• <b>Reason:</b> {reason or 'Manual pause active.'}\n"
                         "• <i>Send <code>/resume</code> to re-enable automated trading.</i>"
                     )
-                elif status in ["SUCCESS", "ORDER_EXECUTED"]:
-                    # Already dispatched proposal card or executed
+                    return
+
+                # If no automated A+ setup triggered, fetch live mark prices and show interactive scalp buttons!
+                btc_mark = 0.0
+                eth_mark = 0.0
+                xau_mark = 0.0
+                try:
+                    for s_chk in ["BTCUSD", "ETHUSD", "XAUUSD"]:
+                        t_obj = client.get_ticker(s_chk)
+                        if t_obj and t_obj.get("success"):
+                            p = float(t_obj.get("result", {}).get("mark_price", 0.0) or 0.0)
+                            if s_chk == "BTCUSD": btc_mark = p
+                            elif s_chk == "ETHUSD": eth_mark = p
+                            elif s_chk == "XAUUSD": xau_mark = p
+                except Exception:
                     pass
-                elif status == "TIMEOUT" or code == "USER_REJECTED_OR_EXPIRED":
-                    reply(
-                        "⌛ <b>[TRADE PROPOSAL RESOLVED]</b>\n"
-                        "• <b>Result:</b> User declined or proposal timed out. Capital intact."
-                    )
-                else:
-                    # Universal fallback so the bot NEVER stays stuck or silent
-                    reply(
-                        "🛡️ <b>[ON-DEMAND SCALP SCAN RESULT]</b>\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "• <b>Status:</b> <b>No trade found right now.</b>\n"
-                        "• <b>Discipline Rule:</b> Capital is 100% protected in cash USD. Zero forced trades.\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "⚡ <i>The 24/7 engine scans continuously and will alert you the moment an A+ setup triggers!</i>"
-                    )
+
+                trade_markup = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "⚡ Propose BTC Scalp", "callback_data": "propose_scalp_BTCUSD"},
+                            {"text": "⚡ Propose ETH Scalp", "callback_data": "propose_scalp_ETHUSD"},
+                        ],
+                        [
+                            {"text": "⚡ Propose XAU Scalp", "callback_data": "propose_scalp_XAUUSD"},
+                            {"text": "📋 View Sample Card", "callback_data": "sample_proposal_view"},
+                        ]
+                    ]
+                }
+
+                radar_msg = (
+                    "🛡️ <b>[ON-DEMAND SCALP RADAR &amp; OPPORTUNITY SCAN]</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "• <b>Automated Strategy Status:</b> 100% Cash Defense Active (Zero forced trades)\n"
+                    f"• <b>Market Posture:</b> <code>{regime}</code>\n"
+                    "• <b>Discipline Rule:</b> Capital is protected in cash until an A+ institutional confluence aligns.\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "📊 <b>Live Market Prices:</b>\n"
+                    f"• <b>BTCUSD:</b> <code>${btc_mark:,.2f}</code>\n"
+                    f"• <b>ETHUSD:</b> <code>${eth_mark:,.2f}</code>\n"
+                    f"• <b>XAUUSD:</b> <code>${xau_mark:,.2f}</code>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "💡 <b>Evaluate a Live Scalp on Demand:</b>\n"
+                    "Tap below or send <code>/trade BTC</code>, <code>/trade ETH</code>, or <code>/trade BUY BTC</code> to generate an instant scalp proposal with exact Stop Loss, Take Profit &amp; 1:2.5 R:R:"
+                )
+                reply(radar_msg, reply_markup=trade_markup)
             except Exception as e:
                 reply(f"⚠️ Error running scalp scan: {e}")
 
@@ -1354,7 +1443,7 @@ class TelegramConfirmationBot:
                 "• <code>/news</code> — Daily Crypto Morning Briefing &amp; Sentiment Card (10-11 AM IST)\n"
                 "• <code>/posture</code> — View Market Posture, Breadth % &amp; Exposure Ceiling\n"
                 "• <code>/rules</code> — Inspect dynamic Next-Session Operating Rules\n"
-                "• <code>/trade</code> — Run scalp scan; suggest trade only if A+ setup exists\n"
+                "• <code>/trade [symbol] [side]</code> — On-demand scalp scan &amp; proposal generator (e.g. /trade, /trade BTC, /trade BUY ETH)\n"
                 "• <code>/scan</code> — Trigger on-demand 5-timeframe scan of BTC, ETH &amp; XAU\n"
                 "• <code>/sample</code> — Send interactive sample trade card with live buttons\n"
                 "• <code>/positions</code> — View currently active positions &amp; PnL\n"

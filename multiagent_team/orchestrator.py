@@ -458,13 +458,15 @@ class MultiAgentTradingOrchestrator:
                 code = safety_res.get("failure_code", "SAFETY_VETO")
                 reason = safety_res.get("reason", "Safety check failed")
                 logger.warning(f"🚨 [SAFETY CONTROLLER VETO] {code}: {reason}")
+                if self.telegram_bot and self.telegram_bot.is_configured:
+                    self.telegram_bot.send_message(f"🛑 <b>Execution Blocked by Safety Controller:</b>\nReason: <code>{reason}</code> (Code: <code>{code}</code>)\nCapital protected.", chat_id=chat_id)
                 return {"status": "REJECTED", "code": code, "reason": reason}
 
             token = safety_res.get("token")
             logger.info(f"🚀 Safety passed! Submitting automated confirmed order for {sym} to Delta Exchange...")
             exec_res = self.execution_agent.execute_approved_trade(
                 trade,
-                order_type="limit_order",
+                order_type="market_order",
                 execution_token=token
             )
 
@@ -496,8 +498,11 @@ class MultiAgentTradingOrchestrator:
                     "contracts": trade["contracts"]
                 }
             else:
-                logger.error(f"⚠️ Order execution failed on Delta Exchange: {exec_res.get('error')}")
-                return {"status": "FAILED", "code": "EXCHANGE_ORDER_ERROR", "error": exec_res.get("error")}
+                err_msg = exec_res.get("error")
+                logger.error(f"⚠️ Order execution failed on Delta Exchange: {err_msg}")
+                if self.telegram_bot and self.telegram_bot.is_configured:
+                    self.telegram_bot.send_message(f"⚠️ <b>Order Execution Failed on Delta Exchange:</b>\n<code>{err_msg}</code>", chat_id=chat_id)
+                return {"status": "FAILED", "code": "EXCHANGE_ORDER_ERROR", "error": err_msg}
         except Exception as e:
             logger.error(f"Error in _execute_proposal_flow for {trade.get('symbol')}: {e}", exc_info=True)
             return {"status": "FAILED", "error": str(e)}
@@ -836,7 +841,7 @@ class MultiAgentTradingOrchestrator:
             print("   🚀 Safety Checks PASSED! Token issued. Submitting bracket order on Delta Exchange...")
             exec_res = self.execution_agent.execute_approved_trade(
                 trade,
-                order_type="limit_order",
+                order_type="market_order",
                 execution_token=token
             )
             self.system_monitor.record_agent_duration("Agent7_ExecutionEngine", (time.time() - t7) * 1000)
@@ -1125,7 +1130,7 @@ class MultiAgentTradingOrchestrator:
         token = safety_res.get("token")
         exec_res = self.execution_agent.execute_approved_trade(
             decision,
-            order_type="limit_order",
+            order_type="market_order",
             execution_token=token
         )
 

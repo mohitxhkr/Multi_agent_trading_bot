@@ -1132,13 +1132,19 @@ class TelegramConfirmationBot:
                     status = res.get("status", "")
                     code = res.get("code", "")
                     if status == "SUCCESS":
-                        reply(f"✅ <b>Order Placed:</b> #{res.get('order_id')} — {res.get('symbol', target_sym or 'BTCUSD')} {res.get('contracts')} contracts submitted to Delta Exchange!")
+                        reply(
+                            f"🚀 <b>TRADE EXECUTED ON DELTA EXCHANGE!</b>\n\n"
+                            f"• <b>Order ID:</b> <code>#{res.get('order_id')}</code>\n"
+                            f"• <b>Contract:</b> <code>{res.get('symbol', target_sym or 'BTCUSD')}</code>\n"
+                            f"• <b>Size:</b> <code>{res.get('contracts')}</code> contracts\n"
+                            f"• <b>Status:</b> 🟢 <b>PUNCHED & ACTIVE</b> (SL & TP attached)"
+                        )
                     elif code == "USER_REJECTED_OR_EXPIRED" or status == "TIMEOUT":
                         pass
                     elif status == "REJECTED":
-                        reply(f"🛡️ <b>Trade Filtered by Safety Gate:</b> {res.get('reason', 'Safety criteria failed')}")
+                        reply(f"🛡️ <b>Trade Filtered by Safety Gate:</b> <code>{res.get('reason', 'Safety criteria failed')}</code>")
                     elif status == "FAILED":
-                        reply(f"⚠️ <b>Order Execution Failed:</b> {res.get('error', res.get('reason', 'Exchange error'))}")
+                        reply(f"⚠️ <b>Order Execution Failed:</b> <code>{res.get('error', res.get('reason', 'Exchange error'))}</code>")
                 else:
                     reply("⚠️ Orchestrator does not support on-demand scalp generator.")
             except Exception as te:

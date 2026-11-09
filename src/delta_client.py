@@ -467,6 +467,7 @@ class DeltaExchangeClient:
     ) -> Dict[str, Any]:
         """
         Place order with attached protective bracket Stop-Loss and Take-Profit.
+        Supports both limit_order and market_order executions.
         """
         pid = self.get_product_id(symbol)
         if not pid:
@@ -483,16 +484,20 @@ class DeltaExchangeClient:
         if client_order_id:
             payload["client_order_id"] = str(client_order_id)
 
-        if limit_price is not None:
-            payload["limit_price"] = str(limit_price)
+        if limit_price is not None and order_type.lower() == "limit_order":
+            payload["limit_price"] = str(self.round_to_tick(symbol, limit_price))
 
         if stop_loss_price is not None:
-            payload["bracket_stop_loss_price"] = str(stop_loss_price)
-            payload["bracket_stop_loss_limit_price"] = str(stop_loss_price)
+            sl_tick = self.round_to_tick(symbol, stop_loss_price)
+            payload["bracket_stop_loss_price"] = str(sl_tick)
+            payload["bracket_stop_loss_limit_price"] = str(sl_tick)
 
         if take_profit_price is not None:
-            payload["bracket_take_profit_price"] = str(take_profit_price)
-            payload["bracket_take_profit_limit_price"] = str(take_profit_price)
+            tp_tick = self.round_to_tick(symbol, take_profit_price)
+            payload["bracket_take_profit_price"] = str(tp_tick)
+            payload["bracket_take_profit_limit_price"] = str(tp_tick)
+
+        payload["bracket_stop_trigger_method"] = "mark_price"
 
         return self._request("POST", "/v2/orders", payload=payload, authenticated=True)
 
@@ -581,10 +586,32 @@ class DeltaExchangeClient:
         return self._request("DELETE", "/v2/orders/all", payload=payload, authenticated=True)
 
     def close_position(self, symbol: str) -> Dict[str, Any]:
-        """Close an active position using market order."""
-        pid = self.get_product_id(symbol)
-        if not pid:
-            return {"success": False, "error": f"Product not found for symbol {symbol}"}
+        """
+        Close an active position using an offsetting reduce-only market order.
+        Inspects active position size and executes opposite side to guarantee flat closure.
+        """
+        pos_res = self.get_positions()
+        if not pos_res.get("success"):
+            return {"success": False, "error": f"Failed to retrieve positions: {pos_res.get('error')}"}
 
-        payload = {"product_id": pid}
-        return self._request("POST", "/v2/positions/close", payload=payload, authenticated=True)
+        matching = [
+            p for p in pos_res.get("result", [])
+            if self.resolve_symbol(p.get("symbol") or p.get("product_symbol") or "") == self.resolve_symbol(symbol)
+            and abs(float(p.get("size", 0))) > 0
+        ]
+
+        if not matching:
+            return {"success": True, "message": f"No open position found for {symbol}"}
+
+        target_pos = matching[0]
+        pos_size = float(target_pos.get("size", 0))
+        contracts = int(abs(pos_size))
+        exit_side = "sell" if pos_size > 0 else "buy"
+
+        return self.place_order(
+            symbol=symbol,
+            size=contracts,
+            side=exit_side,
+            order_type="market_order",
+            reduce_only=True
+        )

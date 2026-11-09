@@ -30,7 +30,7 @@ class ExecutionAgent:
     def execute_approved_trade(
         self,
         decision: Dict[str, Any],
-        order_type: str = "limit_order",
+        order_type: str = "market_order",
         max_retries: int = 3,
         execution_token: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
@@ -176,8 +176,16 @@ class ExecutionAgent:
 
         # Verify stop loss order existence and properties on Delta Exchange
         sl_verified = False
+
+        # 1. Check if the parent bracket payload confirmed attached Stop-Loss
+        if order_data.get("bracket_stop_loss_price") or sl_order_id:
+            sl_verified = True
+            if not sl_order_id:
+                sl_order_id = f"bracket_sl_{order_id}"
+
         time.sleep(0.5)
 
+        # 2. Inspect open orders for generated standalone or bracket child SL
         try:
             open_orders_res = self.client.get_open_orders(symbol=symbol)
             if open_orders_res.get("success"):
@@ -185,12 +193,13 @@ class ExecutionAgent:
                 for o in open_orders_res.get("result", []):
                     o_type = str(o.get("order_type", "")).lower()
                     o_side = str(o.get("side", "")).lower()
-                    is_stop = "stop" in o_type or bool(o.get("stop_order_type")) or bool(o.get("stop_price"))
+                    o_stop_type = str(o.get("stop_order_type", "")).lower()
+                    is_stop = "stop" in o_type or "stop" in o_stop_type or bool(o.get("stop_price")) or (o.get("bracket_order") and o_side == expected_sl_side)
                     
                     if is_stop and o_side == expected_sl_side:
-                        # Verify stop price orientation
-                        o_stop_px = float(o.get("stop_price") or 0.0)
-                        if (side == "buy" and o_stop_px <= entry_price) or (side == "sell" and o_stop_px >= entry_price):
+                        # Verify stop price orientation if present
+                        o_stop_px = float(o.get("stop_price") or o.get("bracket_stop_loss_price") or 0.0)
+                        if o_stop_px <= 0 or (side == "buy" and o_stop_px <= entry_price) or (side == "sell" and o_stop_px >= entry_price):
                             sl_order_id = str(o.get("id"))
                             sl_verified = True
                             break

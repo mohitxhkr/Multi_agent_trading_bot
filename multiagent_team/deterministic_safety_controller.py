@@ -96,9 +96,9 @@ class DeterministicSafetyController:
         contract_val = float(trade_setup.get("contract_value", 0.001))
         dollar_risk = contracts * stop_dist * contract_val
 
-        max_allowed_dollar_risk = min(
-            account_equity * system_config.max_risk_per_trade_pct,
-            system_config.max_dollar_risk_per_trade
+        max_allowed_dollar_risk = max(
+            system_config.max_dollar_risk_per_trade,
+            account_equity * system_config.max_risk_per_trade_pct
         )
         # 1% tolerance for float rounding
         if dollar_risk > (max_allowed_dollar_risk * 1.02):

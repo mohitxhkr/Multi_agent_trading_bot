@@ -50,3 +50,4 @@
 ### Agent 10 Adaptive Learning Engine
 - **Walk-Forward Validation:** Confirmed that rolling multi-window splits detect overfitting when in-sample expectancy is high but out-of-sample collapses.
 - **Promotion Lifecycle:** Verified that promotions from `BASELINE` to `LIVE_APPROVED` strictly require passing walk-forward validation and authorized human researcher sign-off.
+

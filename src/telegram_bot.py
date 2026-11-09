@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional
 import os
 import sys
 import time
+import threading
 import uuid
 import json
 import hashlib
@@ -57,6 +58,7 @@ class TelegramConfirmationBot:
 
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
         self.last_update_id = 0
+        self._poll_lock = threading.Lock()
         self._confirmed_trade_ids = set()
         self._processed_nonces = set()
         self.max_price_drift_pct = config.max_price_drift_pct
@@ -68,8 +70,17 @@ class TelegramConfirmationBot:
     def is_configured(self) -> bool:
         return bool(self.bot_token and self.chat_id)
 
+    @staticmethod
+    def _normalize_chat_id(cid: Any) -> str:
+        s = str(cid or "").strip()
+        if s.startswith("-100"):
+            return s[4:]
+        if s.startswith("-"):
+            return s[1:]
+        return s
+
     def _is_user_authorized(self, user_info: Any) -> bool:
-        """Authenticate callback sender against authorized user IDs."""
+        """Authenticate callback or command sender against authorized user IDs."""
         if not user_info:
             return False
         if isinstance(user_info, dict):
@@ -81,11 +92,21 @@ class TelegramConfirmationBot:
                 return False
         if uid is None:
             return False
-        if not self.authorized_user_ids:
-            if self.chat_id and str(uid) == str(self.chat_id):
-                return True
-            return False
-        return int(uid) in self.authorized_user_ids
+
+        # If authorized user IDs are configured, check membership
+        if self.authorized_user_ids:
+            try:
+                i_uid = int(uid)
+                if i_uid in self.authorized_user_ids or abs(i_uid) in self.authorized_user_ids:
+                    return True
+            except (ValueError, TypeError):
+                pass
+
+        # Check matching chat_id
+        if self.chat_id and self._normalize_chat_id(uid) == self._normalize_chat_id(self.chat_id):
+            return True
+
+        return False
 
     def _record_approval_audit(
         self,
@@ -143,16 +164,26 @@ class TelegramConfirmationBot:
         except Exception:
             pass
 
-    def send_message(self, text: str, reply_markup: Optional[Dict[str, Any]] = None) -> Optional[int]:
+    def send_message(
+        self,
+        text: str,
+        reply_markup: Optional[Dict[str, Any]] = None,
+        chat_id: Optional[str] = None
+    ) -> Optional[int]:
         """Send formatted HTML message to Telegram. Returns message_id if successful."""
         if not self.is_configured:
             logger.warning("Telegram not configured. Cannot send message.")
             return None
 
+        target_chat = chat_id or self.chat_id
+        if not target_chat:
+            logger.warning("No target chat_id available to send message.")
+            return None
+
         try:
             url = f"{self.base_url}/sendMessage"
             payload: Dict[str, Any] = {
-                "chat_id": self.chat_id,
+                "chat_id": str(target_chat),
                 "text": text,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True
@@ -164,7 +195,7 @@ class TelegramConfirmationBot:
             data = res.json()
             if data.get("ok"):
                 return data["result"]["message_id"]
-            logger.error(f"Telegram sendMessage failed: {data.get('description')}")
+            logger.error(f"Telegram sendMessage failed to {target_chat}: {data.get('description')}")
             return None
         except Exception as e:
             logger.error(f"Telegram network error: {e}")
@@ -173,7 +204,8 @@ class TelegramConfirmationBot:
     def send_photo(
         self,
         photo_path_or_bytes: Any,
-        caption: Optional[str] = None
+        caption: Optional[str] = None,
+        chat_id: Optional[str] = None
     ) -> Optional[int]:
         """
         Send candlestick chart photo to Telegram with optional HTML caption.
@@ -183,9 +215,14 @@ class TelegramConfirmationBot:
             logger.warning("Telegram not configured. Cannot send photo.")
             return None
 
+        target_chat = chat_id or self.chat_id
+        if not target_chat:
+            logger.warning("No target chat_id available to send photo.")
+            return None
+
         try:
             url = f"{self.base_url}/sendPhoto"
-            data: Dict[str, Any] = {"chat_id": self.chat_id}
+            data: Dict[str, Any] = {"chat_id": str(target_chat)}
             if caption:
                 data["caption"] = caption[:1020]
                 data["parse_mode"] = "HTML"
@@ -357,7 +394,7 @@ class TelegramConfirmationBot:
         )
         return proposal_text
 
-    def send_sample_proposal(self) -> Optional[int]:
+    def send_sample_proposal(self, chat_id: Optional[str] = None) -> Optional[int]:
         """Send an interactive demonstration trade proposal card to Telegram."""
         if not self.is_configured:
             logger.error("❌ Telegram is not configured!")
@@ -428,7 +465,7 @@ class TelegramConfirmationBot:
                 ]
             ]
         }
-        return self.send_message(card_text, reply_markup=reply_markup)
+        return self.send_message(card_text, reply_markup=reply_markup, chat_id=chat_id)
 
     def request_trade_confirmation(
         self,
@@ -484,14 +521,26 @@ class TelegramConfirmationBot:
             try:
                 url = f"{self.base_url}/getUpdates"
                 params = {"offset": self.last_update_id, "timeout": 3}
-                res = requests.get(url, params=params, timeout=5)
-                data = res.json()
+                with self._poll_lock:
+                    res = requests.get(url, params=params, timeout=5)
+                    data = res.json()
 
                 if data.get("ok"):
                     for update in data.get("result", []):
                         self.last_update_id = max(self.last_update_id, update["update_id"] + 1)
                         cb = update.get("callback_query")
                         if not cb:
+                            # Handle interactive slash commands even while trade confirmation is active
+                            msg = update.get("message")
+                            if msg:
+                                text = (msg.get("text") or "").strip()
+                                if text.startswith("/"):
+                                    c_id = str(msg.get("chat", {}).get("id", ""))
+                                    f_user = msg.get("from", {})
+                                    if self._is_user_authorized(f_user) or self._normalize_chat_id(c_id) == self._normalize_chat_id(self.chat_id):
+                                        c_cmd = text.split()[0].lower().split("@")[0]
+                                        orch = getattr(self, "_active_orchestrator", None)
+                                        self._handle_command(c_cmd, orchestrator=orch, full_text=text, chat_id=c_id)
                             continue
 
                         user_info = cb.get("from", {})
@@ -609,7 +658,13 @@ class TelegramConfirmationBot:
         if not self.is_configured:
             return
 
+        if not self._poll_lock.acquire(blocking=False):
+            return
+
         try:
+            if orchestrator:
+                self._active_orchestrator = orchestrator
+
             url = f"{self.base_url}/getUpdates"
             params = {"offset": self.last_update_id, "timeout": 2}
             res = requests.get(url, params=params, timeout=5)
@@ -624,29 +679,38 @@ class TelegramConfirmationBot:
                 if cb:
                     cb_data = cb.get("data", "")
                     cb_id = cb.get("id")
+                    from_user = cb.get("from", {})
+                    cb_chat_id = str(cb.get("message", {}).get("chat", {}).get("id", self.chat_id))
+
+                    if not self._is_user_authorized(from_user):
+                        self.answer_callback(cb_id, "⛔ Unauthorized user.")
+                        continue
+
                     if cb_data == "execute_emergency_closeall":
                         self.answer_callback(cb_id, "🚨 Flattening all positions now...")
-                        if orchestrator:
+                        orch = orchestrator or getattr(self, "_active_orchestrator", None)
+                        if orch:
                             from src.emergency_controller import EmergencyController
-                            ec = EmergencyController(client=orchestrator.client)
+                            ec = EmergencyController(client=orch.client)
                             res = ec.emergency_flatten_all(authorized=True)
                             self.send_message(
                                 f"🛑 <b>[EMERGENCY FLATTEN COMPLETE]</b>\n"
                                 f"• Flattened <b>{len(res.get('closed_positions', []))}</b> active positions.\n"
-                                f"• Cancelled all open orders. Account is 100% in cash USD."
+                                f"• Cancelled all open orders. Account is 100% in cash USD.",
+                                chat_id=cb_chat_id
                             )
                         continue
                     elif cb_data == "cancel_emergency_closeall":
                         self.answer_callback(cb_id, "Cancelled.")
-                        self.send_message("✅ Emergency close cancelled. Protective trailing stops remain active.")
+                        self.send_message("✅ Emergency close cancelled. Protective trailing stops remain active.", chat_id=cb_chat_id)
                         continue
                     elif cb_data.startswith("sample_confirm_"):
                         self.answer_callback(cb_id, "✅ Sample trade proposal approved (Demo Mode).")
-                        self.send_message("✅ <b>[SAMPLE PROPOSAL CONFIRMED]</b>\n<i>Demonstration successful. In live trading, this triggers pre-execution safety validation and bracket order submission on Delta Exchange.</i>")
+                        self.send_message("✅ <b>[SAMPLE PROPOSAL CONFIRMED]</b>\n<i>Demonstration successful. In live trading, this triggers pre-execution safety validation and bracket order submission on Delta Exchange.</i>", chat_id=cb_chat_id)
                         continue
                     elif cb_data.startswith("sample_reject_"):
                         self.answer_callback(cb_id, "❌ Sample trade proposal declined (Demo Mode).")
-                        self.send_message("❌ <b>[SAMPLE PROPOSAL DECLINED]</b>\n<i>Demonstration successful. Capital remained 100% in cash USD.</i>")
+                        self.send_message("❌ <b>[SAMPLE PROPOSAL DECLINED]</b>\n<i>Demonstration successful. Capital remained 100% in cash USD.</i>", chat_id=cb_chat_id)
                         continue
 
                 msg = update.get("message")
@@ -655,37 +719,67 @@ class TelegramConfirmationBot:
 
                 chat_id = str(msg.get("chat", {}).get("id", ""))
                 from_user = msg.get("from", {})
-                if chat_id != str(self.chat_id) and not self._is_user_authorized(from_user):
-                    continue
+
+                # Authorization check
+                is_authorized = (
+                    self._is_user_authorized(from_user) or
+                    self._normalize_chat_id(chat_id) == self._normalize_chat_id(self.chat_id)
+                )
 
                 text = (msg.get("text") or "").strip()
                 if not text.startswith("/"):
                     continue
 
                 full_text = text.strip()
-                cmd = full_text.split()[0].lower()
-                cmd = cmd.split("@")[0]  # Strip bot handle e.g. /chart@MyBot -> /chart
+                cmd = full_text.split()[0].lower().split("@")[0]
+
+                if not is_authorized:
+                    logger.warning(f"Ignored Telegram command '{cmd}' from unauthorized user {from_user} in chat {chat_id}")
+                    uid = from_user.get("id") or "unknown"
+                    self.send_message(
+                        f"⛔ <b>Access Denied:</b> You are not authorized to control this trading bot.\n"
+                        f"Your Telegram User ID is: <code>{uid}</code>\n"
+                        f"Add this ID to <code>AUTHORIZED_TELEGRAM_USERS</code> in your environment variables.",
+                        chat_id=chat_id
+                    )
+                    continue
+
                 logger.info(f"Received Telegram command: {cmd} from chat {chat_id}")
-                self._handle_command(cmd, orchestrator, full_text=full_text)
+                orch = orchestrator or getattr(self, "_active_orchestrator", None)
+                self._handle_command(cmd, orch, full_text=full_text, chat_id=chat_id)
         except Exception as e:
             logger.error(f"Error checking Telegram commands: {e}")
+        finally:
+            self._poll_lock.release()
 
-    def _handle_command(self, cmd: str, orchestrator=None, full_text: str = "") -> None:
+    def _handle_command(self, cmd: str, orchestrator=None, full_text: str = "", chat_id: Optional[str] = None) -> None:
         """Route user slash command to response."""
+        target_chat = chat_id or self.chat_id
         if not orchestrator:
-            self.send_message("⚠️ Orchestrator unavailable. Bot is initializing.")
+            orchestrator = getattr(self, "_active_orchestrator", None)
+
+        def reply(text: str, reply_markup=None):
+            return self.send_message(text, reply_markup=reply_markup, chat_id=target_chat)
+
+        def reply_photo(photo_path_or_bytes: Any, caption: Optional[str] = None):
+            return self.send_photo(photo_path_or_bytes, caption=caption, chat_id=target_chat)
+
+        if not orchestrator:
+            reply("⚠️ Orchestrator unavailable. Bot is initializing. Please try again in 5 seconds.")
             return
 
         client = orchestrator.client
 
-        if cmd in ["/status", "/ping"]:
+        if cmd in ["/status", "/ping", "/balance", "/wallet", "/equity", "/cash"]:
             try:
                 wallet = client.get_wallet_balances()
                 avail_usd = 0.0
                 if isinstance(wallet, dict) and wallet.get("result"):
                     for a in wallet["result"]:
-                        if a.get("asset_symbol") == "USD":
-                            avail_usd = float(a.get("available_balance", "0"))
+                        if a.get("asset_symbol") in ["USD", "USDT", "USDC"]:
+                            avail_usd += float(a.get("available_balance", "0") or 0.0)
+                elif isinstance(wallet, dict) and wallet.get("meta", {}).get("net_equity"):
+                    avail_usd = float(wallet["meta"]["net_equity"])
 
                 pos_res = client.get_positions()
                 active_pos = [p for p in pos_res.get("result", []) if int(p.get("size", 0)) != 0] if pos_res.get("success") else []
@@ -727,19 +821,19 @@ class TelegramConfirmationBot:
 
                 status_lines.append("━━━━━━━━━━━━━━━━━━━━━━")
                 status_lines.append("⚡ <i>Type /positions for full risk spec or /scan for on-demand analysis.</i>")
-                self.send_message("\n".join(status_lines))
+                reply("\n".join(status_lines))
             except Exception as e:
-                self.send_message(f"⚠️ Error fetching status: {e}")
+                reply(f"⚠️ Error fetching status: {e}")
 
         elif cmd in ["/scan", "/market"]:
             try:
-                self.send_message("🔍 <i>Scanning BTC, ETH, and XAU across 5 timeframes... Please wait a few seconds.</i>")
+                reply("🔍 <i>Scanning BTC, ETH, and XAU across 5 timeframes... Please wait a few seconds.</i>")
                 digest = orchestrator.get_market_digest_text()
-                self.send_message(digest)
+                reply(digest)
             except Exception as e:
-                self.send_message(f"⚠️ Error generating scan: {e}")
+                reply(f"⚠️ Error generating scan: {e}")
 
-        elif cmd in ["/positions", "/pos"]:
+        elif cmd in ["/positions", "/pos", "/portfolio", "/openpositions"]:
             try:
                 pos_res = client.get_positions()
                 if not pos_res.get("success"):
@@ -747,7 +841,7 @@ class TelegramConfirmationBot:
                     err_code = err.get("code") if isinstance(err, dict) else str(err)
                     if "ip_not_whitelisted" in err_code:
                         client_ip = err.get("context", {}).get("client_ip", "") if isinstance(err, dict) else ""
-                        self.send_message(
+                        reply(
                             f"🔒 <b>[DELTA EXCHANGE IP RESTRICTION DETECTED]</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━━━━\n"
                             f"• <b>Issue:</b> Your Delta API Key has IP Whitelisting enabled.\n"
@@ -756,7 +850,7 @@ class TelegramConfirmationBot:
                             f"• Once saved, your cloud bot will instantly access positions and execute trades 24/7!"
                         )
                     else:
-                        self.send_message(f"⚠️ <b>Could not fetch positions from Delta Exchange:</b>\n<code>{err}</code>")
+                        reply(f"⚠️ <b>Could not fetch positions from Delta Exchange:</b>\n<code>{err}</code>")
                     return
 
                 active_pos = [p for p in pos_res.get("result", []) if int(p.get("size", 0)) != 0]
@@ -764,7 +858,7 @@ class TelegramConfirmationBot:
                 open_orders = orders_res.get("result", []) if orders_res.get("success") else []
 
                 if not active_pos:
-                    self.send_message("📊 <b>No open positions.</b> Capital is 100% in cash USD.")
+                    reply("📊 <b>No open positions.</b> Capital is 100% in cash USD.")
                 else:
                     lines = ["📊 <b>[ACTIVE OPEN POSITIONS]</b>", "━━━━━━━━━━━━━━━━━━━━━━"]
                     for p in active_pos:
@@ -803,13 +897,13 @@ class TelegramConfirmationBot:
                         lines.append("")
                     lines.append("━━━━━━━━━━━━━━━━━━━━━━")
                     lines.append("🛡️ <i>Actively monitored by Trailing Stop Manager (+0.50R BE Shield).</i>")
-                    self.send_message("\n".join(lines))
+                    reply("\n".join(lines))
             except Exception as e:
-                self.send_message(f"⚠️ Error fetching positions: {e}")
+                reply(f"⚠️ Error fetching positions: {e}")
 
         elif cmd in ["/trade", "/findtrade", "/find_trade"]:
             try:
-                self.send_message("🎯 <i>Running institutional scalp scan on BTC, ETH, and XAU...</i>")
+                reply("🎯 <i>Running institutional scalp scan on BTC, ETH, and XAU...</i>")
                 res = orchestrator.run_trading_cycle(symbols=["BTCUSD", "ETHUSD", "XAUUSD"])
                 if not isinstance(res, dict):
                     res = {}
@@ -820,7 +914,7 @@ class TelegramConfirmationBot:
                 regime = res.get("regime", "NEUTRAL")
 
                 if code == "NO_SETUPS_FOUND" or status == "NO_SETUPS_FOUND":
-                    self.send_message(
+                    reply(
                         "🛡️ <b>[ON-DEMAND SCALP SCAN RESULT]</b>\n"
                         "━━━━━━━━━━━━━━━━━━━━━━\n"
                         "• <b>Status:</b> <b>No trade found right now.</b>\n"
@@ -832,7 +926,7 @@ class TelegramConfirmationBot:
                     )
                 elif code == "CASH_PRIORITY" or status == "CASH_PRIORITY_HALT":
                     posture_info = res.get("posture", {})
-                    self.send_message(
+                    reply(
                         "🛑 <b>[CASH DEFENSE ACTIVE — ZERO TRADES]</b>\n"
                         "━━━━━━━━━━━━━━━━━━━━━━\n"
                         "• <b>Status:</b> Market breadth is choppy. 100% Cash Priority.\n"
@@ -841,7 +935,7 @@ class TelegramConfirmationBot:
                         "• <b>Discipline Rule:</b> Capital preserved in cash USD until clean momentum resumes."
                     )
                 elif code == "TIME_MACHINE_VETO" or status == "REJECTED_BY_TIME_MACHINE":
-                    self.send_message(
+                    reply(
                         "⏳ <b>[REJECTED BY TIME MACHINE SIMULATION]</b>\n"
                         "━━━━━━━━━━━━━━━━━━━━━━\n"
                         "• <b>Status:</b> Prospective setup failed historical backtesting.\n"
@@ -849,7 +943,7 @@ class TelegramConfirmationBot:
                         "• <b>Discipline Rule:</b> Capital protected from negative-EV trades."
                     )
                 elif code == "RISK_GATE_REJECTED" or status == "REJECTED_BY_RISK_GATE":
-                    self.send_message(
+                    reply(
                         "🛡️ <b>[FILTERED BY RISK GATEKEEPER]</b>\n"
                         "━━━━━━━━━━━━━━━━━━━━━━\n"
                         "• <b>Status:</b> Setup filtered by risk management rules.\n"
@@ -857,7 +951,7 @@ class TelegramConfirmationBot:
                         "• <b>Rule:</b> Capital protected from excessive exposure."
                     )
                 elif code == "EMERGENCY_HALT_ACTIVE" or status == "SKIPPED":
-                    self.send_message(
+                    reply(
                         "🛑 <b>[BOT CURRENTLY PAUSED]</b>\n"
                         "━━━━━━━━━━━━━━━━━━━━━━\n"
                         "• <b>Status:</b> Trading is paused via Emergency Controller.\n"
@@ -868,13 +962,13 @@ class TelegramConfirmationBot:
                     # Already dispatched proposal card or executed
                     pass
                 elif status == "TIMEOUT" or code == "USER_REJECTED_OR_EXPIRED":
-                    self.send_message(
+                    reply(
                         "⌛ <b>[TRADE PROPOSAL RESOLVED]</b>\n"
                         "• <b>Result:</b> User declined or proposal timed out. Capital intact."
                     )
                 else:
                     # Universal fallback so the bot NEVER stays stuck or silent
-                    self.send_message(
+                    reply(
                         "🛡️ <b>[ON-DEMAND SCALP SCAN RESULT]</b>\n"
                         "━━━━━━━━━━━━━━━━━━━━━━\n"
                         "• <b>Status:</b> <b>No trade found right now.</b>\n"
@@ -883,19 +977,19 @@ class TelegramConfirmationBot:
                         "⚡ <i>The 24/7 engine scans continuously and will alert you the moment an A+ setup triggers!</i>"
                     )
             except Exception as e:
-                self.send_message(f"⚠️ Error running scalp scan: {e}")
+                reply(f"⚠️ Error running scalp scan: {e}")
 
-        elif cmd in ["/orders", "/orderbook"]:
+        elif cmd in ["/orders", "/orderbook", "/pending"]:
             try:
                 orders_res = client.get_open_orders()
                 if not orders_res.get("success"):
                     err = orders_res.get("error", "Failed to query Delta orders")
-                    self.send_message(f"⚠️ <b>Could not fetch orders from Delta Exchange:</b>\n<code>{err}</code>")
+                    reply(f"⚠️ <b>Could not fetch orders from Delta Exchange:</b>\n<code>{err}</code>")
                     return
 
                 open_orders = orders_res.get("result", [])
                 if not open_orders:
-                    self.send_message("📋 <b>No pending orders on orderbook.</b>")
+                    reply("📋 <b>No pending orders on orderbook.</b>")
                 else:
                     lines = ["📋 <b>[PENDING ORDERS ON DELTA EXCHANGE]</b>", "━━━━━━━━━━━━━━━━━━━━━━"]
                     for o in open_orders:
@@ -907,16 +1001,16 @@ class TelegramConfirmationBot:
                         lines.append(f"• <b>#{oid}</b>: <b>{sym} {side}</b> | {sz} contracts @ <code>${lp:,.4f}</code>")
                     lines.append("━━━━━━━━━━━━━━━━━━━━━━")
                     lines.append("⚡ <i>Orders execute automatically when limit price is filled.</i>")
-                    self.send_message("\n".join(lines))
+                    reply("\n".join(lines))
             except Exception as e:
-                self.send_message(f"⚠️ Error fetching orders: {e}")
+                reply(f"⚠️ Error fetching orders: {e}")
 
-        elif cmd in ["/pause", "/halt"]:
+        elif cmd in ["/pause", "/halt", "/stop", "/freeze"]:
             try:
                 from src.emergency_controller import EmergencyController
                 ec = EmergencyController(client=client)
                 res = ec.engage_emergency_halt("User requested pause via Telegram")
-                self.send_message(
+                reply(
                     f"🛑 <b>[TRADING BOT PAUSED BY USER]</b>\n"
                     f"• <b>Status:</b> All new scan entries BLOCKED.\n"
                     f"• <b>Pending Entries Cancelled:</b> {res.get('cancelled_entry_orders_count', 0)}\n"
@@ -924,22 +1018,22 @@ class TelegramConfirmationBot:
                     f"• <i>Send <code>/resume</code> to re-enable automated scanning.</i>"
                 )
             except Exception as e:
-                self.send_message(f"⚠️ Error pausing bot: {e}")
+                reply(f"⚠️ Error pausing bot: {e}")
 
-        elif cmd in ["/resume", "/unpause"]:
+        elif cmd in ["/resume", "/unpause", "/start_scanning"]:
             try:
                 from src.emergency_controller import EmergencyController
                 ec = EmergencyController(client=client)
                 ec.release_emergency_halt("User via Telegram")
-                self.send_message(
+                reply(
                     "🟢 <b>[TRADING BOT RESUMED]</b>\n"
                     "• <b>Status:</b> 24/7 Scanning & Trade Evaluation ACTIVE.\n"
                     "• Capital allocation and risk gates re-engaged."
                 )
             except Exception as e:
-                self.send_message(f"⚠️ Error resuming bot: {e}")
+                reply(f"⚠️ Error resuming bot: {e}")
 
-        elif cmd in ["/closeall", "/panic"]:
+        elif cmd in ["/closeall", "/panic", "/flatten", "/killall"]:
             try:
                 confirm_markup = {
                     "inline_keyboard": [
@@ -949,30 +1043,30 @@ class TelegramConfirmationBot:
                         ]
                     ]
                 }
-                self.send_message(
+                reply(
                     "⚠️ <b>CRITICAL CONFIRMATION REQUIRED:</b>\n"
                     "Are you sure you want to market close ALL active positions and cancel all orders on Delta Exchange?",
                     reply_markup=confirm_markup
                 )
             except Exception as e:
-                self.send_message(f"⚠️ Error initiating closeall: {e}")
+                reply(f"⚠️ Error initiating closeall: {e}")
 
         elif cmd == "/close":
             parts = full_text.split()
             if len(parts) < 2:
-                self.send_message("⚠️ Please specify symbol to close, e.g.: <code>/close BTCUSD</code> or use <code>/closeall</code>")
+                reply("⚠️ Please specify symbol to close, e.g.: <code>/close BTCUSD</code> or use <code>/closeall</code>")
             else:
                 sym = parts[1].upper()
                 try:
-                    self.send_message(f"🛑 <i>Closing position on {sym}...</i>")
+                    reply(f"🛑 <i>Closing position on {sym}...</i>")
                     res = client.close_position(sym)
                     client.cancel_all_orders(symbol=sym)
                     if res.get("success"):
-                        self.send_message(f"✅ <b>Position on {sym} closed successfully at market.</b> Open bracket orders cancelled.")
+                        reply(f"✅ <b>Position on {sym} closed successfully at market.</b> Open bracket orders cancelled.")
                     else:
-                        self.send_message(f"⚠️ Could not close {sym}: {res.get('error', 'Unknown error')}")
+                        reply(f"⚠️ Could not close {sym}: {res.get('error', 'Unknown error')}")
                 except Exception as e:
-                    self.send_message(f"⚠️ Error closing {sym}: {e}")
+                    reply(f"⚠️ Error closing {sym}: {e}")
 
         elif cmd in ["/scorecard", "/learning", "/performance", "/audit"]:
             try:
@@ -1083,57 +1177,78 @@ class TelegramConfirmationBot:
 
                 lines.append("🛡️ <b>Capital Safety:</b> <b>100% Protected</b> (Zero liquidation risk, max $8.00 open risk ceiling)")
                 lines.append("⚡ <i>Bot scans continuously and scales trade size dynamically to maximize profit on prime setups.</i>")
-                self.send_message("\n".join(lines))
+                reply("\n".join(lines))
             except Exception as e:
-                self.send_message(f"⚠️ Error fetching scorecard: {e}")
+                reply(f"⚠️ Error fetching scorecard: {e}")
 
         elif cmd in ["/posture", "/regime", "/marketposture"]:
             try:
                 from multiagent_team.exposure_coach import ExposureCoachAgent
                 coach = ExposureCoachAgent()
                 msg = coach.format_telegram_posture()
-                self.send_message(msg)
+                reply(msg)
             except Exception as e:
-                self.send_message(f"⚠️ Error fetching market posture: {e}")
+                reply(f"⚠️ Error fetching market posture: {e}")
 
         elif cmd in ["/rules", "/discipline", "/operatingrules"]:
             try:
                 from multiagent_team.performance_coach import PerformanceCoachAgent
                 coach = PerformanceCoachAgent()
                 msg = coach.format_telegram_rules()
-                self.send_message(msg)
+                reply(msg)
             except Exception as e:
-                self.send_message(f"⚠️ Error fetching operating rules: {e}")
+                reply(f"⚠️ Error fetching operating rules: {e}")
 
         elif cmd in ["/sample", "/testproposal", "/sampletrade"]:
             try:
-                self.send_sample_proposal()
+                self.send_sample_proposal(chat_id=target_chat)
             except Exception as e:
-                self.send_message(f"⚠️ Error sending sample proposal: {e}")
+                reply(f"⚠️ Error sending sample proposal: {e}")
 
         elif cmd in ["/news", "/briefing", "/morning", "/sentiment"]:
             try:
-                self.send_message("🗞️ <i>Generating today's Daily Crypto Morning Briefing &amp; Sentiment Card...</i>")
+                reply("🗞️ <i>Generating today's Daily Crypto Morning Briefing &amp; Sentiment Card...</i>")
                 from multiagent_team.news_sentiment_agent import NewsSentimentAgent
                 agent = NewsSentimentAgent()
                 briefing_card = agent.format_daily_morning_briefing()
-                self.send_message(briefing_card)
+                reply(briefing_card)
             except Exception as e:
-                self.send_message(f"⚠️ Error generating news briefing: {e}")
+                reply(f"⚠️ Error generating news briefing: {e}")
 
         elif cmd in ["/levels", "/breakout", "/breakdown", "/keylevels"]:
             try:
-                self.send_message("⚡ <i>Calculating critical breakout &amp; breakdown levels across all assets... Please wait.</i>")
+                reply("⚡ <i>Calculating critical breakout &amp; breakdown levels across all assets... Please wait.</i>")
                 msg = orchestrator.format_market_levels_telegram()
-                self.send_message(msg)
+                reply(msg)
 
                 # Generate and dispatch live candlestick chart with levels overlay for BTCUSD
                 try:
                     from src.candlestick_chart import generate_candlestick_chart
                     btc_analysis = orchestrator.regime_analyst.analyze_symbol("BTCUSD", resolution="15")
                     candles = btc_analysis.get("_raw_candles_15m") or btc_analysis.get("_raw_candles_1h")
-                    if candles:
+                    if not candles or len(candles.get("c", [])) < 5:
+                        c_res = client.get_candles("BTCUSD", resolution="15")
+                        if c_res and isinstance(c_res, dict) and c_res.get("result"):
+                            c_list = c_res["result"]
+                            if isinstance(c_list, list) and len(c_list) >= 5:
+                                candles = {
+                                    "o": [float(x.get("open", 0)) for x in c_list],
+                                    "h": [float(x.get("high", 0)) for x in c_list],
+                                    "l": [float(x.get("low", 0)) for x in c_list],
+                                    "c": [float(x.get("close", 0)) for x in c_list],
+                                    "v": [float(x.get("volume", 0)) for x in c_list],
+                                    "t": [int(x.get("time", 0)) for x in c_list],
+                                }
+                    if candles and len(candles.get("c", [])) >= 5:
                         kl = btc_analysis.get("key_levels_analysis", {})
+                        if not kl or not kl.get("current_price"):
+                            cur_p = candles["c"][-1]
+                            kl = {
+                                "current_price": cur_p,
+                                "breakout_level": max(candles["h"][-20:]),
+                                "breakdown_level": min(candles["l"][-20:]),
+                                "status_label": "MONITORING"
+                            }
                         chart_path = generate_candlestick_chart(candles, "BTCUSD", key_levels=kl, timeframe_label="15m")
                         cap = (
                             f"📊 <b>[BTCUSD LIVE 15m CANDLESTICK CHART]</b>\n"
@@ -1141,11 +1256,11 @@ class TelegramConfirmationBot:
                             f"Breakout: <code>${kl.get('breakout_level', 0):,.2f}</code> | "
                             f"Breakdown: <code>${kl.get('breakdown_level', 0):,.2f}</code>"
                         )
-                        self.send_photo(chart_path, caption=cap)
+                        reply_photo(chart_path, caption=cap)
                 except Exception as c_err:
                     logger.debug(f"Chart attachment in /levels skipped: {c_err}")
             except Exception as e:
-                self.send_message(f"⚠️ Error calculating market levels: {e}")
+                reply(f"⚠️ Error calculating market levels: {e}")
 
         elif cmd in ["/chart", "/candlestick", "/graph"]:
             parts = full_text.split()
@@ -1169,7 +1284,7 @@ class TelegramConfirmationBot:
                 target_sym = raw_sym
 
             try:
-                self.send_message(f"📊 <i>Generating live 15m candlestick chart for {target_sym}...</i>")
+                reply(f"📊 <i>Generating live 15m candlestick chart for {target_sym}...</i>")
                 from src.candlestick_chart import generate_candlestick_chart
                 regime_analyst = getattr(orchestrator, "regime_analyst", None)
                 if not regime_analyst:
@@ -1179,24 +1294,54 @@ class TelegramConfirmationBot:
                 analysis = regime_analyst.analyze_symbol(target_sym, resolution="15")
                 candles = analysis.get("_raw_candles_15m") or analysis.get("_raw_candles_1h")
                 if not candles or len(candles.get("c", [])) < 5:
-                    self.send_message(f"⚠️ Could not fetch sufficient candlestick history for {target_sym}.")
+                    c_res = client.get_candles(target_sym, resolution="15")
+                    if c_res and isinstance(c_res, dict) and c_res.get("result"):
+                        c_list = c_res["result"]
+                        if isinstance(c_list, list) and len(c_list) >= 5:
+                            candles = {
+                                "o": [float(x.get("open", 0)) for x in c_list],
+                                "h": [float(x.get("high", 0)) for x in c_list],
+                                "l": [float(x.get("low", 0)) for x in c_list],
+                                "c": [float(x.get("close", 0)) for x in c_list],
+                                "v": [float(x.get("volume", 0)) for x in c_list],
+                                "t": [int(x.get("time", 0)) for x in c_list],
+                            }
+
+                if not candles or len(candles.get("c", [])) < 5:
+                    reply(f"⚠️ Could not fetch sufficient candlestick history for {target_sym}.")
                 else:
                     kl = analysis.get("key_levels_analysis", {})
-                    chart_path = generate_candlestick_chart(candles, target_sym, key_levels=kl, timeframe_label="15m")
+                    cur_price = kl.get("current_price") or (candles["c"][-1] if candles.get("c") else 0.0)
+                    bo_level = kl.get("breakout_level") or (max(candles["h"][-20:]) if candles.get("h") else cur_price)
+                    bd_level = kl.get("breakdown_level") or (min(candles["l"][-20:]) if candles.get("l") else cur_price)
+                    dist_bo = kl.get("distance_to_breakout_pct") or ((bo_level - cur_price) / cur_price * 100.0 if cur_price > 0 else 0.0)
+                    dist_bd = kl.get("distance_to_breakdown_pct") or ((cur_price - bd_level) / cur_price * 100.0 if cur_price > 0 else 0.0)
+                    st_label = kl.get("status_label") or "ACTIVE_SCAN"
+
+                    chart_kl = {
+                        "current_price": cur_price,
+                        "breakout_level": bo_level,
+                        "breakdown_level": bd_level,
+                        "distance_to_breakout_pct": dist_bo,
+                        "distance_to_breakdown_pct": dist_bd,
+                        "status_label": st_label
+                    }
+
+                    chart_path = generate_candlestick_chart(candles, target_sym, key_levels=chart_kl, timeframe_label="15m")
                     import html
-                    st_label = html.escape(str(kl.get('status_label', 'SCANNING')))
+                    st_label_escaped = html.escape(str(st_label))
                     cap = (
                         f"📊 <b>[{target_sym} LIVE CANDLESTICK CHART · 15m]</b>\n"
-                        f"• <b>Mark Price:</b> <code>${kl.get('current_price', 0):,.2f}</code>\n"
-                        f"• <b>Breakout Ceiling:</b> <code>${kl.get('breakout_level', 0):,.2f}</code> (+{kl.get('distance_to_breakout_pct', 0):.2f}%)\n"
-                        f"• <b>Breakdown Floor:</b> <code>${kl.get('breakdown_level', 0):,.2f}</code> (-{kl.get('distance_to_breakdown_pct', 0):.2f}%)\n"
-                        f"• <b>Status:</b> <b>{st_label}</b>"
+                        f"• <b>Mark Price:</b> <code>${cur_price:,.2f}</code>\n"
+                        f"• <b>Breakout Ceiling:</b> <code>${bo_level:,.2f}</code> (+{dist_bo:.2f}%)\n"
+                        f"• <b>Breakdown Floor:</b> <code>${bd_level:,.2f}</code> (-{dist_bd:.2f}%)\n"
+                        f"• <b>Status:</b> <b>{st_label_escaped}</b>"
                     )
-                    sent = self.send_photo(chart_path, caption=cap)
+                    sent = reply_photo(chart_path, caption=cap)
                     if not sent:
-                        self.send_message("⚠️ Chart was generated but could not be sent to Telegram. Check bot permissions.")
+                        reply("⚠️ Chart was generated but could not be sent to Telegram. Check bot permissions.")
             except Exception as ce:
-                self.send_message(f"⚠️ Error generating candlestick chart: {ce}")
+                reply(f"⚠️ Error generating candlestick chart: {ce}")
 
         elif cmd in ["/help", "/start"]:
             help_msg = (
@@ -1222,5 +1367,11 @@ class TelegramConfirmationBot:
                 "🎯 <b>Primary Focus:</b> BTC, ETH, XAU (Gold)\n"
                 "⚠️ <b>Zero trades execute without your explicit button click.</b>"
             )
-            self.send_message(help_msg)
+            reply(help_msg)
+
+        else:
+            reply(
+                f"❓ <b>Unrecognized command:</b> <code>{cmd}</code>\n"
+                f"Type <code>/help</code> to see all available bot controls and commands."
+            )
 

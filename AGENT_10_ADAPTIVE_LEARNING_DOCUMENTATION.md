@@ -88,3 +88,4 @@ def promote_parameter_version(self, version_id: str, target_stage: str, authoriz
 def rollback_configuration(self, target_version: Optional[str] = None) -> Dict[str, Any]
 def get_active_configuration(self) -> Dict[str, Any]
 ```
+

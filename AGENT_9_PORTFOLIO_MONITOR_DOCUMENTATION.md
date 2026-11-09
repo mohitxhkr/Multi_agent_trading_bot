@@ -86,3 +86,4 @@ def get_contract_spec(
     raw_product: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]
 ```
+

@@ -125,12 +125,32 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         return
 
 
+def run_telegram_command_listener(orchestrator):
+    """
+    Dedicated background listener thread that polls and responds to Telegram
+    slash commands (/chart, /levels, /news, /scan, /status, /positions, etc.)
+    instantaneously without waiting for 24/7 market analysis cycles or confirmation windows.
+    """
+    logger.info("Dedicated Telegram command listener thread active (polling every 1.0s).")
+    while True:
+        try:
+            orchestrator.telegram_bot.process_incoming_commands(orchestrator)
+        except Exception as e:
+            logger.error(f"Telegram command listener loop error: {e}")
+        time.sleep(1.0)
+
+
 def run_scanner_loop():
     """Background scanner thread that runs the 24/7 multi-agent trading loop."""
     time.sleep(3)  # Wait for server to bind port
     client = DeltaExchangeClient()
     telegram = TelegramNotifier()
     orchestrator = MultiAgentTradingOrchestrator(client=client, interactive=False)
+
+    # Start dedicated Telegram command listener thread so slash commands (/chart, /status, etc.)
+    # are handled instantaneously even while trading cycles or order proposals are active.
+    tg_thread = threading.Thread(target=run_telegram_command_listener, args=(orchestrator,), daemon=True)
+    tg_thread.start()
 
     interval = int(os.getenv("SCAN_INTERVAL_SECONDS", "120"))
     scanner_status["status"] = "ACTIVE_SCANNING"

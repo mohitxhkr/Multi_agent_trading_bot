@@ -1041,6 +1041,39 @@ class MultiAgentTradingOrchestrator:
         self.system_monitor.save_metrics()
         return {"status": "COMPLETED", "cycles_elapsed": round(time.time() - cycle_start, 2)}
 
+    def notify_telegram_rejection(
+        self,
+        symbol: str,
+        reason: str,
+        code: str,
+        chat_id: Optional[str] = None
+    ) -> None:
+        """
+        Send an explicit, formatted rejection notification to Telegram
+        whenever a trade proposal is vetoed or suppressed by background agents.
+        Ensures two-way communication never fails silently.
+        """
+        target_chat = chat_id or getattr(getattr(self, "telegram_bot", None), "chat_id", None)
+        if not (self.telegram_bot and self.telegram_bot.is_configured and target_chat):
+            return
+
+        rejection_msg = (
+            "🛡️ <b>[TRADE PROPOSAL VETOED BY RISK CONTROLLER]</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• <b>Target Symbol:</b> <code>{symbol}</code>\n"
+            f"• <b>Evaluation:</b> 🛑 <b>REJECTED IN BACKGROUND</b>\n"
+            f"• <b>Veto Reason:</b> <code>{reason}</code>\n"
+            f"• <b>Protection Code:</b> <code>{code}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "💡 <i>Capital protected. Zero risk incurred. All funds remain in safe USD cash.</i>\n"
+            "⚡ <i>Send <code>/positions</code>, <code>/status</code>, or <code>/rules</code> for live telemetry.</i>"
+        )
+        try:
+            self.telegram_bot.send_message(rejection_msg, chat_id=target_chat)
+            logger.info(f"Orchestrator: Dispatched trade rejection notification to Telegram chat {target_chat} for {symbol} ({code})")
+        except Exception as e:
+            logger.error(f"Failed to send Telegram rejection notification: {e}")
+
     def propose_on_demand_trade(
         self,
         symbol: Optional[str] = None,
@@ -1059,7 +1092,10 @@ class MultiAgentTradingOrchestrator:
         # 1. Emergency halt check
         is_halted, halt_reason = self.emergency_controller.is_halted()
         if is_halted:
-            return {"status": "SKIPPED", "code": "EMERGENCY_HALT_ACTIVE", "reason": halt_reason}
+            reason = f"Emergency halt is active: {halt_reason}"
+            code = "EMERGENCY_HALT_ACTIVE"
+            self.notify_telegram_rejection(symbol or "PORTFOLIO", reason, code, chat_id=chat_id)
+            return {"status": "SKIPPED", "code": code, "reason": reason, "notified": True}
 
         candidate = None
         direction_bias = "BOTH"
@@ -1099,10 +1135,14 @@ class MultiAgentTradingOrchestrator:
                     logger.info(f"Orchestrator: Active {symbol} position is in profit (+${pos_pnl:.2f}). Approving scale-in for /trade!")
                     is_scale_in = True
                 else:
+                    reason = f"An active position on {symbol} already exists on Delta Exchange and is currently flat or in drawdown (PnL: ${pos_pnl:.2f}). Adding quantity is only permitted when trade is in profit. Use /close {symbol} to close it first."
+                    code = "POSITION_ALREADY_EXISTS"
+                    self.notify_telegram_rejection(symbol, reason, code, chat_id=chat_id)
                     return {
                         "status": "REJECTED",
-                        "code": "POSITION_ALREADY_EXISTS",
-                        "reason": f"An active position on {symbol} already exists on Delta Exchange and is currently flat or in drawdown (PnL: ${pos_pnl:.2f}). Adding quantity is only permitted when trade is in profit. Use /close {symbol} to close it first."
+                        "code": code,
+                        "reason": reason,
+                        "notified": True
                     }
         else:
             # No specific symbol requested (/trade):
@@ -1121,20 +1161,28 @@ class MultiAgentTradingOrchestrator:
             else:
                 available = [s for s in ["BTCUSD", "ETHUSD", "XAUUSD", "SOLUSD"] if s not in active_pos_symbols]
                 if not available:
+                    reason = f"Active positions already exist on all core assets ({', '.join(active_pos_symbols)}). Use /close <symbol> to free up an asset."
+                    code = "ALL_ASSETS_HAVE_POSITIONS"
+                    self.notify_telegram_rejection("PORTFOLIO", reason, code, chat_id=chat_id)
                     return {
                         "status": "REJECTED",
-                        "code": "ALL_ASSETS_HAVE_POSITIONS",
-                        "reason": f"Active positions already exist on all core assets ({', '.join(active_pos_symbols)}). Use /close <symbol> to free up an asset."
+                        "code": code,
+                        "reason": reason,
+                        "notified": True
                     }
                 symbol = available[0]
                 logger.info(f"Orchestrator: Fast-path selected primary asset {symbol} for immediate /trade proposal.")
 
         # Check portfolio concurrency limit (scale-in does not consume a new asset slot)
         if not is_scale_in and len(active_pos_symbols) >= system_config.max_portfolio_concurrency:
+            reason = f"Maximum concurrent positions reached ({len(active_pos_symbols)}/{system_config.max_portfolio_concurrency} active: {', '.join(active_pos_symbols)}). Use /close <symbol> to close a position first."
+            code = "PORTFOLIO_CONCURRENCY_LIMIT"
+            self.notify_telegram_rejection(symbol or "PORTFOLIO", reason, code, chat_id=chat_id)
             return {
                 "status": "REJECTED",
-                "code": "PORTFOLIO_CONCURRENCY_LIMIT",
-                "reason": f"Maximum concurrent positions reached ({len(active_pos_symbols)}/{system_config.max_portfolio_concurrency} active: {', '.join(active_pos_symbols)}). Use /close <symbol> to close a position first."
+                "code": code,
+                "reason": reason,
+                "notified": True
             }
 
         if not symbol:
@@ -1174,7 +1222,10 @@ class MultiAgentTradingOrchestrator:
                 cur_mark = float(candles_15m["c"][-1])
 
         if cur_mark <= 0:
-            return {"status": "FAILED", "code": "INVALID_PRICE", "reason": f"Could not fetch live market price for {symbol}"}
+            reason = f"Could not fetch live market price for {symbol} from Delta Exchange."
+            code = "INVALID_PRICE"
+            self.notify_telegram_rejection(symbol, reason, code, chat_id=chat_id)
+            return {"status": "FAILED", "code": code, "reason": reason, "notified": True}
 
         asset_lev = int(os.getenv("BTC_LEVERAGE", "50")) if "BTC" in symbol else int(os.getenv("ALT_LEVERAGE", "25"))
 
@@ -1299,10 +1350,13 @@ class MultiAgentTradingOrchestrator:
         if decision.get("gate_decision") != "APPROVED":
             rg_reason = decision.get("reason", "Risk parameters exceeded.")
             logger.info(f"Orchestrator: Candidate {candidate.get('symbol')} vetoed in background by Risk Gatekeeper: {rg_reason}")
+            code = "RISK_GATEKEEPER_VETO"
+            self.notify_telegram_rejection(candidate.get("symbol", symbol), rg_reason, code, chat_id=chat_id)
             return {
                 "status": "REJECTED",
-                "code": "RISK_GATEKEEPER_VETO",
-                "reason": f"Risk Gatekeeper rejected trade in background: {rg_reason}"
+                "code": code,
+                "reason": f"Risk Gatekeeper rejected trade in background: {rg_reason}",
+                "notified": True
             }
 
         decision["symbol"] = decision.get("symbol") or candidate["symbol"]
@@ -1344,10 +1398,12 @@ class MultiAgentTradingOrchestrator:
             code = pre_safety.get("failure_code", "SAFETY_VETO")
             reason = pre_safety.get("reason", "Safety criteria failed")
             logger.info(f"Orchestrator: Candidate {decision['symbol']} vetoed in background by Safety Controller ({code}: {reason}). Proposal suppressed.")
+            self.notify_telegram_rejection(decision['symbol'], f"Safety Controller pre-trade check: {reason}", code, chat_id=chat_id)
             return {
                 "status": "REJECTED",
                 "code": code,
-                "reason": f"Safety Controller vetoed trade in background: {reason}"
+                "reason": f"Safety Controller vetoed trade in background: {reason}",
+                "notified": True
             }
 
         # 6. ONLY IF 100% PERFECT -> Dispatch Telegram confirmation card

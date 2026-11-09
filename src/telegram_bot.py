@@ -4,7 +4,7 @@ Ensures ZERO trades execute without explicit user confirmation via Telegram inli
 Provides trailing stop alerts, position monitoring, and command handling (/status, /positions).
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple, List
 import os
 import sys
 import time
@@ -782,6 +782,123 @@ class TelegramConfirmationBot:
         finally:
             self._active_trade_confirmations.pop(trade_id, None)
 
+    def _normalize_incoming_command(self, text: str) -> Tuple[str, str]:
+        """
+        Normalize incoming Telegram message into (cmd, full_text).
+        Supports:
+        1. Standard slash commands: /trade BTC, /status, /levels, /close BTCUSD, etc.
+        2. Natural language commands & common typos:
+           - 'propse trade btc', 'propose trade btc', 'trade btc', 'propose btc', 'buy btc', 'sell btc' -> ('/trade', '/trade BTCUSD [side]')
+           - 'status', 'ping', 'balance', 'wallet', 'equity', 'cash' -> ('/status', '/status')
+           - 'positions', 'position', 'pos', 'portfolio', 'openpositions' -> ('/positions', '/positions')
+           - 'orders', 'pending', 'orderbook' -> ('/orders', '/orders')
+           - 'close btc', 'close eth', 'closeall', 'panic', 'flatten' -> ('/close', '/close BTCUSD') or ('/closeall', '/closeall')
+           - 'radar', 'pretrade', 'levels', 'chart btc', 'news', 'scorecard', 'rules', 'sample', 'pause', 'resume', 'help'
+        3. Unrecognized messages -> ('/unknown', raw_text)
+        """
+        raw = text.strip()
+        if raw.startswith("/"):
+            parts = raw.split()
+            cmd = parts[0].lower().split("@")[0]
+            return cmd, raw
+
+        lower = raw.lower().replace("?", "").replace("!", "").replace(",", " ").strip()
+        tokens = lower.split()
+        if not tokens:
+            return "/unknown", raw
+
+        # Check for asset mention
+        asset = None
+        for tok in tokens:
+            tok_u = tok.upper()
+            if tok_u in ["BTC", "BITCOIN", "BTCUSD", "BTCUSDT"]:
+                asset = "BTCUSD"
+            elif tok_u in ["ETH", "ETHEREUM", "ETHUSD", "ETHUSDT"]:
+                asset = "ETHUSD"
+            elif tok_u in ["XAU", "GOLD", "PAXG", "XAUUSD"]:
+                asset = "XAUUSD"
+            elif tok_u in ["SOL", "SOLANA", "SOLUSD", "SOLUSDT"]:
+                asset = "SOLUSD"
+            elif tok_u in ["XRP", "RIPPLE", "XRPUSD"]:
+                asset = "XRPUSD"
+            elif tok_u in ["DOGE", "DOGEUSD"]:
+                asset = "DOGEUSD"
+            elif tok_u in ["ADA", "ADAUSD"]:
+                asset = "ADAUSD"
+
+        # Check for side mention
+        side = None
+        for tok in tokens:
+            if tok in ["buy", "long"]:
+                side = "buy"
+            elif tok in ["sell", "short"]:
+                side = "sell"
+
+        # 1. Trade / Scalp intent: e.g. "propse trade btc", "propose trade btc", "trade btc", "propose btc", "find trade"
+        trade_keywords = {"trade", "propose", "propse", "propsal", "proposal", "scalp", "findtrade", "find_trade"}
+        if any(w in trade_keywords for w in tokens) or (side and asset):
+            cmd_str = f"/trade {asset or ''} {side or ''}".strip()
+            return "/trade", cmd_str
+
+        # 2. Status / balance
+        if any(w in {"status", "ping", "balance", "wallet", "equity", "cash"} for w in tokens):
+            return "/status", "/status"
+
+        # 3. Positions
+        if any(w in {"positions", "position", "pos", "portfolio", "openpositions"} for w in tokens):
+            return "/positions", "/positions"
+
+        # 4. Orders
+        if any(w in {"orders", "orderbook", "pending"} for w in tokens):
+            return "/orders", "/orders"
+
+        # 5. Close / Closeall
+        if any(w in {"closeall", "panic", "flatten", "killall"} for w in tokens):
+            return "/closeall", "/closeall"
+        if "close" in tokens:
+            return "/close", f"/close {asset or ''}".strip()
+
+        # 6. Radar / Opportunity
+        if any(w in {"radar", "preradar", "scalpradar", "pretrade"} for w in tokens):
+            return "/radar", f"/radar {asset or ''}".strip()
+
+        # 7. Levels / Breakout / Breakdown
+        if any(w in {"levels", "breakout", "breakdown", "keylevels"} for w in tokens):
+            return "/levels", "/levels"
+
+        # 8. Chart / Candlestick / Graph
+        if any(w in {"chart", "candlestick", "graph"} for w in tokens):
+            return "/chart", f"/chart {asset or 'BTCUSD'}".strip()
+
+        # 9. News / Morning / Sentiment
+        if any(w in {"news", "briefing", "morning", "sentiment"} for w in tokens):
+            return "/news", "/news"
+
+        # 10. Scorecard / Learning / Performance
+        if any(w in {"scorecard", "learning", "performance", "audit"} for w in tokens):
+            return "/scorecard", "/scorecard"
+
+        # 11. Rules / Discipline
+        if any(w in {"rules", "discipline", "operatingrules"} for w in tokens):
+            return "/rules", "/rules"
+
+        # 12. Pause / Stop / Resume
+        if any(w in {"pause", "halt", "stop", "freeze"} for w in tokens):
+            return "/pause", "/pause"
+        if any(w in {"resume", "unpause", "start"} for w in tokens):
+            return "/resume", "/resume"
+
+        # 13. Sample
+        if any(w in {"sample", "testproposal", "sampletrade"} for w in tokens):
+            return "/sample", "/sample"
+
+        # 14. Help
+        if any(w in {"help", "commands", "menu", "start", "hi", "hello"} for w in tokens):
+            return "/help", "/help"
+
+        # Unrecognized message
+        return "/unknown", raw
+
     def process_incoming_commands(self, orchestrator=None) -> None:
         """
         Poll Telegram for incoming user commands (/status, /scan, /positions, /orders, /help)
@@ -871,11 +988,32 @@ class TelegramConfirmationBot:
                     self.answer_callback(cb_id, f"🎯 Generating live {target_sym} scalp proposal...")
                     orch = orchestrator or getattr(self, "_active_orchestrator", None)
                     if orch and hasattr(orch, "propose_on_demand_trade"):
-                        threading.Thread(
-                            target=orch.propose_on_demand_trade,
-                            kwargs={"symbol": target_sym, "chat_id": cb_chat_id},
-                            daemon=True
-                        ).start()
+                        def _scalp_worker():
+                            try:
+                                res = orch.propose_on_demand_trade(symbol=target_sym, chat_id=cb_chat_id)
+                                if res and not res.get("notified"):
+                                    if res.get("status") == "REJECTED":
+                                        self.send_message(
+                                            f"🛡️ <b>[TRADE PROPOSAL VETOED BY RISK CONTROLLER]</b>\n"
+                                            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                                            f"• <b>Target Symbol:</b> <code>{target_sym}</code>\n"
+                                            f"• <b>Evaluation:</b> 🛑 <b>REJECTED IN BACKGROUND</b>\n"
+                                            f"• <b>Veto Reason:</b> <code>{res.get('reason', 'Risk parameters exceeded')}</code>\n"
+                                            f"• <b>Protection Code:</b> <code>{res.get('code', 'RISK_VETO')}</code>\n"
+                                            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                                            f"💡 <i>Capital protected. Zero risk incurred.</i>",
+                                            chat_id=cb_chat_id
+                                        )
+                                    elif res.get("status") == "FAILED":
+                                        self.send_message(
+                                            f"⚠️ <b>Trade Evaluation Failed:</b>\n<code>{res.get('reason') or res.get('error')}</code>",
+                                            chat_id=cb_chat_id
+                                        )
+                            except Exception as we:
+                                logger.error(f"Error in scalp worker thread: {we}", exc_info=True)
+                                self.send_message(f"⚠️ Error evaluating {target_sym}: {we}", chat_id=cb_chat_id)
+
+                        threading.Thread(target=_scalp_worker, daemon=True).start()
                     else:
                         self.send_message(f"⚠️ Orchestrator unavailable. Cannot generate scalp for {target_sym}.", chat_id=cb_chat_id)
                     continue
@@ -891,14 +1029,11 @@ class TelegramConfirmationBot:
             is_authorized = self._is_user_authorized(from_user, chat_id=chat_id)
 
             text = (msg.get("text") or "").strip()
-            if not text.startswith("/"):
+            if not text:
                 continue
 
-            full_text = text.strip()
-            cmd = full_text.split()[0].lower().split("@")[0]
-
             if not is_authorized:
-                logger.warning(f"Ignored Telegram command '{cmd}' from unauthorized user {from_user} in chat {chat_id}")
+                logger.warning(f"Ignored Telegram message '{text}' from unauthorized user {from_user} in chat {chat_id}")
                 uid = from_user.get("id") or "unknown"
                 self.send_message(
                     f"⛔ <b>Access Denied:</b> You are not authorized to control this trading bot.\n"
@@ -908,7 +1043,8 @@ class TelegramConfirmationBot:
                 )
                 continue
 
-            logger.info(f"Received Telegram command: {cmd} from chat {chat_id}")
+            cmd, full_text = self._normalize_incoming_command(text)
+            logger.info(f"Received Telegram command: '{cmd}' (normalized from '{text}') in chat {chat_id}")
             orch = orchestrator or getattr(self, "_active_orchestrator", None)
             self._handle_command(cmd, orch, full_text=full_text, chat_id=chat_id)
 
@@ -1132,7 +1268,10 @@ class TelegramConfirmationBot:
                         res = orchestrator.propose_on_demand_trade(symbol=target_sym, side=requested_side, chat_id=target_chat)
                         status = res.get("status", "")
                         code = res.get("code", "")
-                        if status == "SUCCESS":
+                        if res.get("notified"):
+                            # Detailed rejection or notification already dispatched directly to Telegram
+                            pass
+                        elif status == "SUCCESS":
                             reply(
                                 f"🚀 <b>TRADE EXECUTED ON DELTA EXCHANGE!</b>\n\n"
                                 f"• <b>Order ID:</b> <code>#{res.get('order_id')}</code>\n"
@@ -1143,16 +1282,25 @@ class TelegramConfirmationBot:
                         elif code == "USER_REJECTED_OR_EXPIRED" or status == "TIMEOUT":
                             pass
                         elif status == "REJECTED":
-                            reply(f"🛡️ <b>Pre-Trade Agent Veto (Background Evaluation):</b>\n<code>{res.get('reason', 'Safety criteria failed')}</code>\n<i>Capital protected. Proposal withheld.</i>")
+                            reply(
+                                f"🛡️ <b>[TRADE PROPOSAL VETOED BY RISK CONTROLLER]</b>\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                                f"• <b>Target Symbol:</b> <code>{target_sym or 'Universe'}</code>\n"
+                                f"• <b>Evaluation:</b> 🛑 <b>REJECTED IN BACKGROUND</b>\n"
+                                f"• <b>Veto Reason:</b> <code>{res.get('reason', 'Safety criteria failed')}</code>\n"
+                                f"• <b>Protection Code:</b> <code>{code or 'RISK_VETO'}</code>\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                                f"💡 <i>Capital protected. Proposal withheld. Zero risk incurred.</i>"
+                            )
                         elif status == "FAILED":
-                            reply(f"⚠️ <b>Order Execution Failed:</b> <code>{res.get('error', res.get('reason', 'Exchange error'))}</code>")
+                            reply(f"⚠️ <b>Trade Generation Failed:</b> <code>{res.get('error', res.get('reason', 'Exchange error'))}</code>")
                         else:
                             reply(f"ℹ️ <b>Trade Search Result:</b> <code>{res.get('reason', res.get('code', 'No setup available this cycle.'))}</code>")
                     else:
                         reply("⚠️ Orchestrator does not support on-demand scalp generator.")
                 except Exception as te:
                     logger.error(f"Error in on-demand trade worker: {te}", exc_info=True)
-                    reply(f"⚠️ Error finding trade on {target_sym or 'universe'}: {te}")
+                    reply(f"⚠️ Error evaluating trade on {target_sym or 'universe'}: {te}")
 
             threading.Thread(target=_async_trade_task, daemon=True).start()
 
@@ -1316,14 +1464,19 @@ class TelegramConfirmationBot:
                 reply("⚠️ Please specify symbol to close, e.g.: <code>/close BTCUSD</code> or use <code>/closeall</code>")
             else:
                 sym = parts[1].upper()
+                if not sym.endswith("USD") and not sym.endswith("USDT"):
+                    sym = f"{sym}USD"
                 try:
-                    reply(f"🛑 <i>Closing position on {sym}...</i>")
+                    reply(f"🛑 <i>Checking position on {sym}...</i>")
                     res = client.close_position(sym)
                     client.cancel_all_orders(symbol=sym)
                     if res.get("success"):
-                        reply(f"✅ <b>Position on {sym} closed successfully at market.</b> Open bracket orders cancelled.")
+                        if res.get("message") and "No open position" in res.get("message"):
+                            reply(f"ℹ️ <b>[CLOSE REJECTED / NO ACTIVE POSITION]</b>\nNo open position found for <code>{sym}</code> on Delta Exchange to close.\nUse <code>/positions</code> to inspect active positions.")
+                        else:
+                            reply(f"✅ <b>Position on {sym} closed successfully at market.</b> Open bracket orders cancelled.")
                     else:
-                        reply(f"⚠️ Could not close {sym}: {res.get('error', 'Unknown error')}")
+                        reply(f"⚠️ <b>Could not close {sym}:</b> <code>{res.get('error', 'Unknown error')}</code>")
                 except Exception as e:
                     reply(f"⚠️ Error closing {sym}: {e}")
 
@@ -1631,6 +1784,23 @@ class TelegramConfirmationBot:
                 "⚠️ <b>Zero trades execute without your explicit button click.</b>"
             )
             reply(help_msg)
+
+        elif cmd == "/unknown":
+            import html
+            reply(
+                f"❓ <b>Unrecognized Command / Input:</b> <i>\"{html.escape(full_text)}\"</i>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "I didn't recognize that instruction. Here are quick commands you can use:\n\n"
+                "• <code>/trade BTC</code> (or <i>propse trade btc</i>) — Propose live BTC trade\n"
+                "• <code>/trade</code> — Evaluate best setup across primary assets\n"
+                "• <code>/radar</code> — Pre-trade opportunity scanner & quick action buttons\n"
+                "• <code>/status</code> — System health & cash balances\n"
+                "• <code>/positions</code> — Active running positions & PnL\n"
+                "• <code>/levels</code> — Breakout/breakdown levels & candlestick chart\n"
+                "• <code>/help</code> — Full command center manual\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "💡 <i>Tip: You can use slash commands like <code>/trade btc</code> or plain English phrases.</i>"
+            )
 
         else:
             reply(

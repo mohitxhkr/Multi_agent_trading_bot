@@ -16,6 +16,31 @@
 
 ---
 
+## 📑 Table of Contents
+
+- [🏛️ System Architecture](#️-system-architecture)
+- [🔄 End-to-End System Workflow](#-end-to-end-system-workflow)
+- [🤖 Detailed Breakdown of the 11 Specialized Agents](#-detailed-breakdown-of-the-11-specialized-agents)
+  - [1. Market Regime Analyst](#1️⃣-agent-1-market-regime-analyst)
+  - [2. News & Sentiment Engine](#2️⃣-agent-2-autonomous-news--social-sentiment-intelligence-engine)
+  - [3. Exposure Coach](#3️⃣-agent-3-exposure-coach--market-posture-engine)
+  - [4. Alpha Strategy Generator](#4️⃣-agent-4-alpha-strategy-generator)
+  - [5. Time Machine Probability Engine](#5️⃣-agent-5-time-machine-probability-engine)
+  - [6. Pre-Trade Risk Gatekeeper](#6️⃣-agent-6-pre-trade-risk-gatekeeper)
+  - [7. Telegram Confirmation Gate](#7️⃣-agent-7-telegram-two-way-confirmation-gate)
+  - [8. Delta Execution Engine](#8️⃣-agent-8-delta-execution-engine)
+  - [9. Portfolio Monitor & Sentinel](#9️⃣-agent-9-portfolio-monitor--position-sentinel)
+  - [10. Adaptive Learning Engine](#-agent-10-adaptive-learning-engine)
+  - [11. Performance Coach](#1️⃣1️⃣-agent-11-performance-coach--operating-rules)
+- [📚 Quantitative Audit & Documentation Deliverables](#-quantitative-audit--documentation-deliverables)
+- [🔒 Deterministic Safety Controller (14 Invariants)](#-deterministic-safety-controller-14-invariants)
+- [🛡️ Persistent Multi-Horizon Circuit Breaker](#️-persistent-multi-horizon-circuit-breaker)
+- [🗄️ Dual-Store Authoritative Event Journal](#️-dual-store-authoritative-event-journal)
+- [🚀 Quickstart & Setup](#-quickstart--setup)
+- [📄 License](#-license)
+
+---
+
 ## 🏛️ System Architecture
 
 <p align="center">
@@ -34,24 +59,24 @@ The system coordinates trade discovery, mathematical validation, and execution a
 
 ```mermaid
 flowchart TD
-    subgraph L1["Layer 1: Market Intelligence & News Sentiment"]
-        DV["MarketDataValidator<br/>• Freshness check (<= 60s)<br/>• Gap & spike filtering"]
-        A1["Agent 1: Regime Analyst<br/>• 6-TF EMA stacks & ADX<br/>• Watchlist Breadth (% > EMA20)<br/>• ETH/BTC Relative Strength"]
-        A2["Agent 2: News & Sentiment Engine<br/>• Live RSS (CoinDesk/CoinTelegraph/Decrypt/Google)<br/>• Alternative.me Fear & Greed Index<br/>• Catalyst Tagging & Telegram Alerts"]
-        A3["Agent 3: Exposure Coach<br/>• Macro Posture (0-100)<br/>• Dynamic leverage caps<br/>• Cash Priority Gate"]
+    subgraph L1["Layer 1: Market Intelligence & Sentiment"]
+        DV["MarketDataValidator<br/>• Freshness check (≤ 60s)<br/>• Gap & spike filtering"]
+        A1["Agent 1: Regime Analyst<br/>• 4-TF (1H/15M/5M/1M) hierarchy<br/>• 9 canonical regimes & hysteresis<br/>• Watchlist breadth & confluence"]
+        A2["Agent 2: News & Sentiment Engine<br/>• Live RSS feeds & F&G Index<br/>• Catalyst tagging & polarity<br/>• Zero Telegram spam"]
+        A3["Agent 3: Exposure Coach<br/>• Macro Posture (0-100)<br/>• Dynamic leverage & risk caps<br/>• Cash Priority Gate"]
         DV --> A1 --> A2 --> A3
     end
 
     subgraph L2["Layer 2: Alpha Strategy & Probability"]
-        A4["Agent 4: Strategy Generator<br/>• 15m BSL/SSL Sweeps<br/>• Mandatory MSS body close<br/>• Structural invalidation stops<br/>• Planned R:R >= 2.20:1"]
-        A5["Agent 5: Time Machine Engine<br/>• 400+ bar walk-forward OOS<br/>• 70/30 In/Out of Sample split<br/>• Wilson 95% CI (Lower >= 45%)<br/>• Zero synthetic stats mandate"]
+        A4["Agent 4: Strategy Generator<br/>• SMC BSL/SSL sweeps & MSS close<br/>• 50% FVG CE retests & wick reject<br/>• Order flow (VP, CVD, OBI)<br/>• Planned R:R ≥ 2.20:1"]
+        A5["Agent 5: Time Machine Engine<br/>• Exact multi-TF strategy replay<br/>• 70/30 in/out-of-sample split<br/>• Wilson 95% CI (Lower ≥ 45%)<br/>• Zero synthetic data mandate"]
         A3 --> A4 --> A5
     end
 
     subgraph L3["Layer 3: Risk & Multi-Horizon Protection"]
-        A6["Agent 6: Risk Gatekeeper<br/>• Hard dollar cap: min(1%, $4.00)<br/>• Min lot NO_TRADE rejection<br/>• Delta MMR buffer (>= 3.0x SL)"]
+        A6["Agent 6: Risk Gatekeeper<br/>• Hard dollar cap min(1%, USD 4.00)<br/>• Dynamic ATR contract sizing<br/>• Delta MMR buffer (≥ 3.0x SL)"]
         CB["Circuit Breaker Engine<br/>• Daily (3%), Weekly (5%), Monthly (8%)<br/>• Consecutive loss cooldown (30m)<br/>• Fail-closed persistent state"]
-        A7["Agent 7: Telegram Gate<br/>• Caller ID whitelist auth<br/>• Parameter-bound nonces<br/>• Price drift cancel (> 0.40%)"]
+        A7["Agent 7: Telegram Gate<br/>• Caller ID whitelist auth<br/>• Parameter-bound nonces<br/>• Cancel on price drift > 0.40%"]
         A5 --> A6
         CB -.->|Drawdown Check| A6
         A6 --> A7
@@ -72,7 +97,7 @@ flowchart TD
     end
 
     subgraph L6["Layer 6: Continuous Learning & Rules"]
-        A10["Agent 10: Adaptive Learning Engine<br/>• Net friction postmortem scoring<br/>• 12 failure modes taxonomy<br/>• Walk-forward parameter testing<br/>• Controlled 4-stage parameter promotion"]
+        A10["Agent 10: Adaptive Learning Engine<br/>• Net friction postmortem scoring<br/>• 12 failure modes taxonomy<br/>• Walk-forward parameter testing<br/>• Controlled 4-stage promotion"]
         A11["Agent 11: Performance Coach<br/>• Cohort variance analysis<br/>• Versioned rules & rollback guard"]
         A9 --> A10 --> A11
         A10 -.->|Parameter bounds & pattern scores| A4
@@ -181,8 +206,8 @@ flowchart TD
   * **Hard Dollar Ceiling:** Capped at `min(Equity * max_risk_pct, $4.00)`. High conviction cannot inflate dollar risk.
   * **ATR Volatility Position Sizing:** Position contracts scale dynamically with ATR stop distance:
     $$\text{Contracts} = \left\lfloor \frac{\text{Calculated Dollar Risk}}{(\text{Contract Value} \times \text{ATR Stop Distance}) + \text{Friction}} \right\rfloor$$
+    Automatically scales down position size during high volatility and scales up during low volatility, locking dollar loss to the exact budget (`$2.00` – `$4.00` USD).
   * **SMC Fair Value Gap Audit Profile:** Tags authoritative `fvg_profile` (active retest state, CE tap confirmation, wick rejection status, and nearest FVG distance) into the approved trade specification for execution provenance and postmortem learning.
-    Automatically scales down position size during high volatility and scales up during low volatility, locking dollar loss to the exact budget ($2.00 - $4.00 USD).
   * **Order Flow Audit Profile & Hard Safety Gate:** Attaches `order_flow_profile` (Volume Profile POC/VAH/VAL, CVD trend/divergence, OBI ratio) to approved specs. Strictly vetoes buying if extreme ask dominance blocks the path (OBI $\le -0.50$) or shorting if extreme bid dominance blocks the path (OBI $\ge +0.50$).
   * **Pre-Trade ATR Volatility Sanity Gate:** Hard veto on setups with micro-stops (< 0.40x ATR) or loose stops (> 3.0x ATR).
   * **Minimum Lot Protection:** If the minimum contract risk exceeds the risk budget, returns `gate_decision: "NO_TRADE"` and `contracts: 0`.
@@ -241,8 +266,8 @@ flowchart TD
   * **Net Friction Accounting:** Incorporates actual exchange taker/maker fees, recorded slippage, and funding costs into all PnL and R-multiple calculations.
   * **12 Loss Failure Modes:** Granularly tags every losing trade with canonical failure taxonomies (`PREMATURE_STOP_OUT`, `SLIPPAGE_DEGRADATION`, `REGIME_MISMATCH`, `CHOP_WHIPSAW`, `VOLATILITY_EXPANSION`, `LIQUIDITY_RUN`, `SPREAD_EROSION`, `ADVERSE_FUNDING`, `EXECUTION_DELAY`, `TIMEOUT_STAGNATION`, `FALSE_BREAKOUT`, `UNSPECIFIED_FAILURE`).
   * **Walk-Forward Validation:** Validates all parameter updates across chronological splits (minimum 10 trades per split, max 25% performance degradation allowed) to prevent recency bias.
-  * **4-Stage Controlled Promotion Lifecycle:**
-    $$\text{EXPERIMENTAL} \longrightarrow \text{SHADOW} \longrightarrow \text{CANARY} \longrightarrow \text{LIVE\_APPROVED}$$
+  * **4-Stage Controlled Promotion Lifecycle:**  
+    `EXPERIMENTAL` ➔ `SHADOW` ➔ `CANARY` ➔ `LIVE_APPROVED`
     * Requires statistical significance ($N \ge 30$, Profit Factor $\ge 1.30$, Win Rate $\ge 55\%$) and human confirmation before live application.
     * **Automated Rollback Guard:** Reverts active parameters to known-good baseline (`1.0.0-PROD`) if live rolling performance degrades by $> 20\%$.
 * **Output:** Versioned strategy parameter profiles and pattern score modifiers.
@@ -263,13 +288,13 @@ flowchart TD
 
 Comprehensive engineering documentation, mathematical specifications, empirical testing reports, and changelogs are available for the audited agents:
 
-| Specialized Agent | Technical Documentation | Testing Report (100% Pass) | Migration Changelog |
-|:---|:---|:---|:---|
-| **Agent 1: Regime Analyst** | [Architecture & Mathematical Specs](REGIME_ANALYST_DOCUMENTATION.md) | [16 Unit Tests Suite Report](REGIME_ANALYST_TESTING_REPORT.md) | [Audit & Upgrade Changelog](REGIME_ANALYST_CHANGELOG.md) |
-| **Agent 4: Strategy Generator** | [SMC & Order Flow Confluence](STRATEGY_AGENT_DOCUMENTATION.md) | [18 Unit Tests Suite Report](STRATEGY_AGENT_TESTING_REPORT.md) | [Audit & Upgrade Changelog](STRATEGY_AGENT_CHANGELOG.md) |
-| **Agent 5: Time Machine Engine** | [Historical Simulation & Wilson CI](TIME_MACHINE_DOCUMENTATION.md) | [12 Unit Tests Suite Report](TIME_MACHINE_TESTING_REPORT.md) | [Audit & Upgrade Changelog](TIME_MACHINE_CHANGELOG.md) |
-| **Agent 9: Portfolio Monitor** | [Real-Time Surveillance & Margin](PORTFOLIO_MONITOR_DOCUMENTATION.md) | [22 Unit Tests Suite Report](PORTFOLIO_MONITOR_TESTING_REPORT.md) | [Audit & Upgrade Changelog](PORTFOLIO_MONITOR_CHANGELOG.md) |
-| **Agent 10: Adaptive Learning** | [Postmortem & Parameter Lifecycle](ADAPTIVE_LEARNING_DOCUMENTATION.md) | [22 Unit Tests Suite Report](ADAPTIVE_LEARNING_TESTING_REPORT.md) | [Audit & Upgrade Changelog](ADAPTIVE_LEARNING_CHANGELOG.md) |
+| Specialized Agent | Technical Documentation | Testing Report (100% Pass) | Test Suite Implementation | Migration Changelog |
+|:---|:---|:---|:---|:---|
+| **Agent 1: Regime Analyst** | [Architecture & Mathematical Specs](REGIME_ANALYST_DOCUMENTATION.md) | [16 Unit Tests Suite Report](REGIME_ANALYST_TESTING_REPORT.md) | [`test_regime_analyst_upgrade.py`](tests/test_regime_analyst_upgrade.py) | [Audit & Upgrade Changelog](REGIME_ANALYST_CHANGELOG.md) |
+| **Agent 4: Strategy Generator** | [SMC & Order Flow Confluence](STRATEGY_AGENT_DOCUMENTATION.md) | [18 Unit Tests Suite Report](STRATEGY_AGENT_TESTING_REPORT.md) | [`test_strategy_agent_upgrade.py`](tests/test_strategy_agent_upgrade.py) | [Audit & Upgrade Changelog](STRATEGY_AGENT_CHANGELOG.md) |
+| **Agent 5: Time Machine Engine** | [Historical Simulation & Wilson CI](TIME_MACHINE_DOCUMENTATION.md) | [12 Unit Tests Suite Report](TIME_MACHINE_TESTING_REPORT.md) | [`test_time_machine_upgrade.py`](tests/test_time_machine_upgrade.py) | [Audit & Upgrade Changelog](TIME_MACHINE_CHANGELOG.md) |
+| **Agent 9: Portfolio Monitor** | [Real-Time Surveillance & Margin](PORTFOLIO_MONITOR_DOCUMENTATION.md) | [22 Unit Tests Suite Report](PORTFOLIO_MONITOR_TESTING_REPORT.md) | [`test_portfolio_monitor_upgrade.py`](tests/test_portfolio_monitor_upgrade.py) | [Audit & Upgrade Changelog](PORTFOLIO_MONITOR_CHANGELOG.md) |
+| **Agent 10: Adaptive Learning** | [Postmortem & Parameter Lifecycle](ADAPTIVE_LEARNING_DOCUMENTATION.md) | [22 Unit Tests Suite Report](ADAPTIVE_LEARNING_TESTING_REPORT.md) | [`test_adaptive_learning_upgrade.py`](tests/test_adaptive_learning_upgrade.py) | [Audit & Upgrade Changelog](ADAPTIVE_LEARNING_CHANGELOG.md) |
 
 ---
 
@@ -355,12 +380,33 @@ MIN_REWARD_TO_RISK=2.2               # Minimum 2.2:1 R:R
 ```
 
 ### 3. Run Test Suite
+
+Run the full 144-test institutional validation suite:
 ```bash
 python -m unittest discover tests
 ```
 *Expected Output: `Ran 144 tests in ~1.9s - OK (100% Passing)`*
 
+Or execute individual agent upgrade test suites:
+```bash
+python -m unittest tests.test_regime_analyst_upgrade      # 16 tests
+python -m unittest tests.test_strategy_agent_upgrade      # 18 tests
+python -m unittest tests.test_time_machine_upgrade        # 12 tests
+python -m unittest tests.test_portfolio_monitor_upgrade   # 22 tests
+python -m unittest tests.test_adaptive_learning_upgrade   # 22 tests
+```
+
 ### 4. CLI Commands & Bot Execution
+
+* **Test Delta Exchange Connectivity & Verify Credentials:**
+  ```bash
+  python main.py test
+  ```
+
+* **Launch Model Context Protocol (MCP) Server (Claude Desktop / Cursor / Antigravity):**
+  ```bash
+  python main.py mcp
+  ```
 
 * **Scrape Internet News & Post Sentiment Digest to Telegram:**
   ```bash

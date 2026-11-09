@@ -473,23 +473,39 @@ class MultiAgentTradingOrchestrator:
             if exec_res.get("success"):
                 logger.info(f"🎉 Order placed! Trade ID: {exec_res.get('trade_id')} | Order ID: #{exec_res.get('order_id')}")
                 trade_atr = trade.get("atr_profile", {}).get("atr_14") or trade.get("atr_14") or 0.0
-                self.trailing_stop_manager.register_initial_trade(
-                    symbol=trade["symbol"],
-                    side=trade["side"],
-                    entry_price=trade["entry_price"],
-                    initial_sl=trade["stop_loss_price"],
-                    initial_tp=trade["take_profit_price"],
-                    contracts=trade["contracts"],
-                    sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
-                    tp_order_id=exec_res.get("take_profit_order_id"),
-                    is_high_volatility=False,
-                    trade_id=exec_res.get("trade_id"),
-                    atr=trade_atr,
-                )
-                self.risk_gatekeeper.register_execution(trade["symbol"])
-                self.portfolio_monitor.journal_execution(exec_res, trade)
-                wallet_metrics = self.trailing_stop_manager.get_wallet_metrics()
-                self.telegram.notify_trade_execution(exec_res, trade, wallet=wallet_metrics)
+                try:
+                    self.trailing_stop_manager.register_initial_trade(
+                        symbol=trade["symbol"],
+                        side=trade["side"],
+                        entry_price=trade["entry_price"],
+                        initial_sl=trade["stop_loss_price"],
+                        initial_tp=trade["take_profit_price"],
+                        contracts=trade["contracts"],
+                        sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
+                        tp_order_id=exec_res.get("take_profit_order_id"),
+                        is_high_volatility=False,
+                        trade_id=exec_res.get("trade_id"),
+                        atr=trade_atr,
+                    )
+                except Exception as re_err:
+                    logger.error(f"TrailingStopManager register error: {re_err}")
+
+                try:
+                    self.risk_gatekeeper.register_execution(trade["symbol"])
+                except Exception as rg_err:
+                    logger.error(f"RiskGatekeeper register error: {rg_err}")
+
+                try:
+                    self.portfolio_monitor.journal_execution(exec_res, trade)
+                except Exception as pm_err:
+                    logger.error(f"PortfolioMonitor journal error: {pm_err}")
+
+                try:
+                    wallet_metrics = self.trailing_stop_manager.get_wallet_metrics()
+                    self.telegram.notify_trade_execution(exec_res, trade, wallet=wallet_metrics)
+                except Exception as tg_err:
+                    logger.error(f"Telegram notify error: {tg_err}")
+
                 return {
                     "status": "SUCCESS",
                     "trade_id": exec_res["trade_id"],
@@ -1200,23 +1216,45 @@ class MultiAgentTradingOrchestrator:
         )
 
         if exec_res.get("success"):
-            self.trailing_stop_manager.register_initial_trade(
-                symbol=decision["symbol"],
-                side=decision["side"],
-                entry_price=decision["entry_price"],
-                initial_sl=decision["stop_loss_price"],
-                initial_tp=decision["take_profit_price"],
-                contracts=decision["contracts"],
-                sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
-                tp_order_id=exec_res.get("take_profit_order_id"),
-                is_high_volatility=False,
-                trade_id=exec_res.get("trade_id"),
-                atr=atr,
-            )
-            self.risk_gatekeeper.register_execution(decision["symbol"])
-            self.portfolio_monitor.journal_execution(exec_res, decision)
-            wallet_metrics = self.trailing_stop_manager.get_wallet_metrics()
-            self.telegram.notify_trade_execution(exec_res, decision, wallet=wallet_metrics)
+            trade_atr = decision.get("atr_profile", {}).get("atr_14") or decision.get("atr_14") or 0.0
+            if trade_atr <= 0 and candidate:
+                trade_atr = candidate.get("atr_profile", {}).get("atr_14") or candidate.get("atr_14") or 0.0
+            if trade_atr <= 0:
+                trade_atr = cur_mark * 0.006
+
+            try:
+                self.trailing_stop_manager.register_initial_trade(
+                    symbol=decision["symbol"],
+                    side=decision["side"],
+                    entry_price=decision["entry_price"],
+                    initial_sl=decision["stop_loss_price"],
+                    initial_tp=decision["take_profit_price"],
+                    contracts=decision["contracts"],
+                    sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
+                    tp_order_id=exec_res.get("take_profit_order_id"),
+                    is_high_volatility=False,
+                    trade_id=exec_res.get("trade_id"),
+                    atr=trade_atr,
+                )
+            except Exception as re_err:
+                logger.error(f"TrailingStopManager register error: {re_err}")
+
+            try:
+                self.risk_gatekeeper.register_execution(decision["symbol"])
+            except Exception as rg_err:
+                logger.error(f"RiskGatekeeper register error: {rg_err}")
+
+            try:
+                self.portfolio_monitor.journal_execution(exec_res, decision)
+            except Exception as pm_err:
+                logger.error(f"PortfolioMonitor journal error: {pm_err}")
+
+            try:
+                wallet_metrics = self.trailing_stop_manager.get_wallet_metrics()
+                self.telegram.notify_trade_execution(exec_res, decision, wallet=wallet_metrics)
+            except Exception as tg_err:
+                logger.error(f"Telegram notify error: {tg_err}")
+
             return {
                 "status": "SUCCESS",
                 "trade_id": exec_res["trade_id"],

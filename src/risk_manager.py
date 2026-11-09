@@ -21,12 +21,12 @@ def ensure_state_dir():
 
 
 def _get_current_timestamps():
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     day_str = now.strftime("%Y-%m-%d")
     # ISO calendar week: YYYY-Www
     week_str = f"{now.isocalendar()[0]}-W{now.isocalendar()[1]:02d}"
     month_str = now.strftime("%Y-%m")
-    iso_now = now.isoformat() + "Z"
+    iso_now = now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     return day_str, week_str, month_str, iso_now
 
 

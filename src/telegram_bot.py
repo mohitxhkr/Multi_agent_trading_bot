@@ -365,7 +365,7 @@ class TelegramConfirmationBot:
                 from multiagent_team.news_sentiment_agent import NewsSentimentAgent
                 cached = NewsSentimentAgent().cached_report
                 if cached:
-                    sent_info = cached.dict() if hasattr(cached, "dict") else (cached.model_dump() if hasattr(cached, "model_dump") else {})
+                    sent_info = cached.model_dump() if hasattr(cached, "model_dump") else cached.dict()
             except Exception:
                 sent_info = {}
 

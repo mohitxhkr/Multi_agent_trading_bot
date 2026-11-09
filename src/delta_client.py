@@ -564,9 +564,12 @@ class DeltaExchangeClient:
 
         return self._request("PUT", "/v2/orders", payload=payload, authenticated=True)
 
-    def cancel_order(self, symbol: str, order_id: int) -> Dict[str, Any]:
-        """Cancel an open order by ID."""
-        pid = self.get_product_id(symbol)
+    def cancel_order(self, symbol: Any, order_id: int) -> Dict[str, Any]:
+        """Cancel an open order by ID. Accepts either symbol string or integer product_id."""
+        if isinstance(symbol, int):
+            pid = symbol
+        else:
+            pid = self.get_product_id(str(symbol))
         if not pid:
             return {"success": False, "error": f"Product not found for symbol {symbol}"}
 

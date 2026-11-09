@@ -2034,7 +2034,7 @@ def analyze_multi_timeframe(
     # High-Liquidity Institutional Killzones:
     # London Open: 07:00 - 10:00 UTC | New York Open: 12:00 - 17:00 UTC
     import datetime
-    utc_now = datetime.datetime.utcnow()
+    utc_now = datetime.datetime.now(datetime.timezone.utc)
     utc_hour = utc_now.hour
     is_killzone = (7 <= utc_hour <= 10) or (12 <= utc_hour <= 17)
     session_label = "London Open Killzone" if (7 <= utc_hour <= 10) else ("New York Open Killzone" if (12 <= utc_hour <= 17) else "Inter-Session")

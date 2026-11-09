@@ -84,6 +84,25 @@ class EmergencyController:
         self.halt_reason = ""
         self.halt_timestamp = 0.0
         self._persist_state()
+
+        # Re-synchronize and reset RiskManager circuit breaker
+        try:
+            from src.risk_manager import RiskManager
+            tot_equity = 1000.0
+            if hasattr(self, "client") and self.client:
+                wallet_res = self.client.get_wallet_balances()
+                if wallet_res.get("success"):
+                    for b in wallet_res.get("result", []):
+                        if b.get("asset_symbol") in ["USD", "USDT"]:
+                            tot_equity = float(b.get("balance", 1000.0))
+            RiskManager().manual_reset(
+                authorized_by=operator,
+                reason=f"Emergency halt released by {operator}",
+                current_equity=tot_equity
+            )
+        except Exception as re:
+            logger.debug(f"RiskManager reset on release skipped: {re}")
+
         logger.info(f"🟢 [EMERGENCY KILL SWITCH RELEASED] by {operator}. Previous halt: {prev_reason}")
         return {
             "status": "NORMAL_OPERATION",

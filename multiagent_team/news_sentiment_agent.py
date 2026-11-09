@@ -178,8 +178,10 @@ class NewsSentimentAgent:
         if os.path.exists(POSTED_NEWS_CACHE_FILE):
             try:
                 with open(POSTED_NEWS_CACHE_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return set(data.get("posted_ids", []))
+                    content = f.read().strip()
+                    if content:
+                        data = json.loads(content)
+                        return set(data.get("posted_ids", []))
             except Exception as e:
                 logger.warning(f"Failed to read posted news cache: {e}")
         return set()
@@ -199,8 +201,10 @@ class NewsSentimentAgent:
         if os.path.exists(SENTIMENT_STATE_FILE):
             try:
                 with open(SENTIMENT_STATE_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return MarketSentimentReport(**data)
+                    content = f.read().strip()
+                    if content:
+                        data = json.loads(content)
+                        return MarketSentimentReport(**data)
             except Exception as e:
                 logger.warning(f"Failed to parse cached sentiment state: {e}")
         return None
@@ -808,7 +812,9 @@ class NewsSentimentAgent:
         if os.path.exists(MORNING_NEWS_STATE_FILE):
             try:
                 with open(MORNING_NEWS_STATE_FILE, "r", encoding="utf-8") as f:
-                    state = json.load(f)
+                    content = f.read().strip()
+                    if content:
+                        state = json.loads(content)
             except Exception as e:
                 logger.warning(f"Could not load morning news state: {e}")
 

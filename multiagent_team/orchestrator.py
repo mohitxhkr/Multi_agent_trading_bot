@@ -735,7 +735,7 @@ class MultiAgentTradingOrchestrator:
                 decision["confluence"] = c.get("confluence", {})
                 decision["time_machine"] = c.get("time_machine", {})
                 if sentiment_report:
-                    decision["sentiment_report"] = sentiment_report.dict() if hasattr(sentiment_report, "dict") else (sentiment_report.model_dump() if hasattr(sentiment_report, "model_dump") else {})
+                    decision["sentiment_report"] = sentiment_report.model_dump() if hasattr(sentiment_report, "model_dump") else sentiment_report.dict()
                 approved_trades.append(decision)
             else:
                 print(f"   ❌ [REJECTED] {sym}: {decision.get('reason')}")

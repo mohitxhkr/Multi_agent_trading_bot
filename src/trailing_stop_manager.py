@@ -634,13 +634,22 @@ class TrailingStopManager:
 
             # Apply order modification on Delta Exchange if SL updated
             if new_sl and sl_order_id:
-                logger.info(f"Modifying SL order {sl_order_id} on Delta Exchange to ${new_sl}...")
-                edit_res = self.client.edit_order(
-                    order_id=int(sl_order_id),
-                    product_id=int(pid),
-                    stop_price=new_sl,
-                    limit_price=new_sl,
-                )
+                try:
+                    sl_oid_clean = str(sl_order_id).replace("bracket_sl_", "").strip()
+                    if sl_oid_clean.isdigit():
+                        logger.info(f"Modifying SL order {sl_oid_clean} on Delta Exchange to ${new_sl}...")
+                        edit_res = self.client.edit_order(
+                            order_id=int(sl_oid_clean),
+                            product_id=int(pid),
+                            stop_price=new_sl,
+                            limit_price=new_sl,
+                        )
+                    else:
+                        edit_res = {"success": False, "error": f"Non-numeric SL order ID: {sl_order_id}"}
+                except Exception as ee:
+                    logger.warning(f"Error editing SL order: {ee}")
+                    edit_res = {"success": False, "error": str(ee)}
+
                 if edit_res.get("success"):
                     pos_state["current_sl"] = new_sl
                     pos_state["stage"] = new_stage
@@ -648,14 +657,19 @@ class TrailingStopManager:
 
                     # Update TP if extended
                     if new_tp and tp_order_id:
-                        tp_edit_res = self.client.edit_order(
-                            order_id=int(tp_order_id),
-                            product_id=int(pid),
-                            stop_price=new_tp,
-                            limit_price=new_tp,
-                        )
-                        if tp_edit_res.get("success"):
-                            pos_state["current_tp"] = new_tp
+                        try:
+                            tp_oid_clean = str(tp_order_id).replace("bracket_tp_", "").strip()
+                            if tp_oid_clean.isdigit():
+                                tp_edit_res = self.client.edit_order(
+                                    order_id=int(tp_oid_clean),
+                                    product_id=int(pid),
+                                    stop_price=new_tp,
+                                    limit_price=new_tp,
+                                )
+                                if tp_edit_res.get("success"):
+                                    pos_state["current_tp"] = new_tp
+                        except Exception as tpe:
+                            logger.warning(f"Error editing TP order: {tpe}")
 
                     # Notify Telegram
                     if stage_narrative:

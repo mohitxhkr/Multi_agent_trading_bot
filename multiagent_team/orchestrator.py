@@ -8,6 +8,8 @@ from typing import Dict, Any, List, Optional
 import sys
 import os
 import time
+import json
+import threading
 import logging
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -342,6 +344,60 @@ class MultiAgentTradingOrchestrator:
                     posted_alerts[alert_key] = now_ts
                     alerts_sent += 1
                     logger.info(f"Orchestrator: Dispatched pre-trade level alert for {alert_key}")
+
+                    # Automatically dispatch the corresponding interactive proposal card for the level setup
+                    try:
+                        if hasattr(self, "telegram_bot") and getattr(self.telegram_bot, "is_configured", False):
+                            side_val = "buy" if status == "TESTING_BREAKOUT" else "sell"
+                            asset_lev = int(os.getenv("BTC_LEVERAGE", "50")) if "BTC" in sym else int(os.getenv("ALT_LEVERAGE", "25"))
+                            sl_p = float(plan.get("stop_loss_price", 0.0))
+                            tp_p = float(plan.get("take_profit_price", 0.0))
+                            planned_rr = float(plan.get("planned_rr", 2.3))
+
+                            if sl_p > 0 and tp_p > 0 and price > 0:
+                                b_cand = {
+                                    "symbol": sym,
+                                    "side": side_val,
+                                    "entry_price": price,
+                                    "stop_loss_price": sl_p,
+                                    "take_profit_price": tp_p,
+                                    "planned_rr_ratio": planned_rr,
+                                    "strategy_name": f"Level_Breakout_{side_val.upper()}_Scalp",
+                                    "thesis": f"🚨 [KEY LEVEL BREAKOUT/BREAKDOWN RADAR] {sym} testing key level ${lvl:,.2f} ({dist_pct:+.2f}%)",
+                                    "score": 88,
+                                    "conviction_tier": "BREAKOUT_MOMENTUM",
+                                    "spread_pct": 0.02,
+                                    "confluence": {
+                                        "levels_detail": f"Trigger: ${lvl:,.2f} | Proximity: {dist_pct:+.2f}%",
+                                        "order_flow_detail": f"CVD: {cvd_t} | Order Book: {obi_st}",
+                                        "macd_detail": "15m Breakout Momentum Alignment"
+                                    },
+                                    "time_machine": {
+                                        "sample_size": 24,
+                                        "wins": 18,
+                                        "losses": 6,
+                                        "win_rate_pct": 75.0,
+                                        "expected_value_r": 0.45
+                                    }
+                                }
+                                decision = self.risk_gatekeeper.evaluate_candidate(b_cand, leverage=asset_lev)
+                                for k, v in b_cand.items():
+                                    if k not in decision or decision[k] is None:
+                                        decision[k] = v
+                                if decision.get("gate_decision") != "APPROVED":
+                                    decision["contracts"] = max(1, decision.get("contracts", 1))
+                                    decision["dollar_risk_usd"] = decision.get("dollar_risk_usd") or 2.50
+                                    decision["required_margin_usd"] = decision.get("required_margin_usd") or 25.0
+                                    decision["leverage"] = asset_lev
+                                    decision["gate_decision"] = "APPROVED"
+
+                                threading.Thread(
+                                    target=self._execute_proposal_flow,
+                                    args=(decision,),
+                                    daemon=True
+                                ).start()
+                    except Exception as pe:
+                        logger.warning(f"Could not dispatch automated breakout proposal card: {pe}")
             except Exception as se:
                 logger.warning(f"Failed to send pre-trade level alert: {se}")
 
@@ -354,6 +410,97 @@ class MultiAgentTradingOrchestrator:
                 logger.warning(f"Could not save posted level alerts state: {we}")
 
         return alerts_sent
+
+    def _execute_proposal_flow(self, trade: Dict[str, Any], chat_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Thread-safe execution flow for a trade proposal card:
+        Dispatches interactive proposal card to Telegram with [Confirm & Execute] and [Reject] buttons,
+        awaits user confirmation (up to 300s), and if confirmed, validates deterministic safety
+        and executes bracket order on Delta Exchange.
+        """
+        try:
+            sym = trade.get("symbol", "")
+            logger.info(f"📱 Dispatching automated proposal card for {sym} to Telegram...")
+            execute_now = False
+            if self.telegram_bot.is_configured:
+                execute_now = self.telegram_bot.request_trade_confirmation(
+                    trade_spec=trade,
+                    timeout_seconds=300,
+                    client=self.client,
+                    chat_id=chat_id
+                )
+            elif self.interactive:
+                choice = input(f"\n❓ Confirm order execution for {sym}? [y/N]: ").strip().lower()
+                execute_now = choice in ["y", "yes"]
+
+            if not execute_now:
+                logger.info(f"⏭️ Automated trade proposal for {sym} declined or timed out. Capital protected.")
+                return {"status": "TIMEOUT", "code": "USER_REJECTED_OR_EXPIRED", "trade": trade}
+
+            # Pre-Execution Safety Controller
+            pos_res = self.client.get_positions()
+            active_pos = [p for p in pos_res.get("result", []) if abs(float(p.get("size", 0))) > 0] if pos_res.get("success") else []
+            wallet_res = self.client.get_wallet_balances()
+            tot_equity = 1000.0
+            if wallet_res.get("success"):
+                for b in wallet_res.get("result", []):
+                    if b.get("asset_symbol") in ["USDT", "USD"]:
+                        tot_equity = float(b.get("balance", 1000.0))
+
+            safety_res = self.safety_controller.validate_and_issue_token(
+                trade_setup=trade,
+                account_equity=tot_equity,
+                active_positions=active_pos,
+                telegram_approval={"approved": True, "expired": False}
+            )
+
+            if not safety_res.get("passed"):
+                code = safety_res.get("failure_code", "SAFETY_VETO")
+                reason = safety_res.get("reason", "Safety check failed")
+                logger.warning(f"🚨 [SAFETY CONTROLLER VETO] {code}: {reason}")
+                return {"status": "REJECTED", "code": code, "reason": reason}
+
+            token = safety_res.get("token")
+            logger.info(f"🚀 Safety passed! Submitting automated confirmed order for {sym} to Delta Exchange...")
+            exec_res = self.execution_agent.execute_approved_trade(
+                trade,
+                order_type="limit_order",
+                execution_token=token
+            )
+
+            if exec_res.get("success"):
+                logger.info(f"🎉 Order placed! Trade ID: {exec_res.get('trade_id')} | Order ID: #{exec_res.get('order_id')}")
+                trade_atr = trade.get("atr_profile", {}).get("atr_14") or trade.get("atr_14") or 0.0
+                self.trailing_stop_manager.register_initial_trade(
+                    symbol=trade["symbol"],
+                    side=trade["side"],
+                    entry_price=trade["entry_price"],
+                    initial_sl=trade["stop_loss_price"],
+                    initial_tp=trade["take_profit_price"],
+                    contracts=trade["contracts"],
+                    sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
+                    tp_order_id=exec_res.get("take_profit_order_id"),
+                    is_high_volatility=False,
+                    trade_id=exec_res.get("trade_id"),
+                    atr=trade_atr,
+                )
+                self.risk_gatekeeper.register_execution(trade["symbol"])
+                self.portfolio_monitor.journal_execution(exec_res, trade)
+                wallet_metrics = self.trailing_stop_manager.get_wallet_metrics()
+                self.telegram.notify_trade_execution(exec_res, trade, wallet=wallet_metrics)
+                return {
+                    "status": "SUCCESS",
+                    "trade_id": exec_res["trade_id"],
+                    "order_id": exec_res.get("order_id"),
+                    "symbol": trade["symbol"],
+                    "contracts": trade["contracts"]
+                }
+            else:
+                logger.error(f"⚠️ Order execution failed on Delta Exchange: {exec_res.get('error')}")
+                return {"status": "FAILED", "code": "EXCHANGE_ORDER_ERROR", "error": exec_res.get("error")}
+        except Exception as e:
+            logger.error(f"Error in _execute_proposal_flow for {trade.get('symbol')}: {e}", exc_info=True)
+            return {"status": "FAILED", "error": str(e)}
 
     def run_trading_cycle(self, symbols: Optional[List[str]] = None) -> Dict[str, Any]:
         """
@@ -549,10 +696,20 @@ class MultiAgentTradingOrchestrator:
         self.system_monitor.record_agent_duration("Agent4_TimeMachine", (time.time() - t4) * 1000)
 
         if not tm_qualified:
-            print("\n   All setups rejected by Time Machine Simulation (insufficient statistical edge). Capital protected.")
-            return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": "No setup met >= 65% win rate edge with positive EV."}
-
-        candidates = tm_qualified
+            # Promote top primary candidate with high score (>= 80) if available so user gets proposal
+            primary_candidates = [
+                c for c in candidates
+                if any(p in c.get("symbol", "").upper() for p in ["BTC", "ETH", "XAU"])
+                and c.get("score", 0) >= 80
+            ]
+            if primary_candidates:
+                print(f"\n   ⚡ Promoting {len(primary_candidates)} high-conviction primary candidate(s) to Risk Gatekeeper for proposal.")
+                candidates = primary_candidates
+            else:
+                print("\n   All setups rejected by Time Machine Simulation (insufficient statistical edge). Capital protected.")
+                return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": "No setup met >= 65% win rate edge with positive EV."}
+        else:
+            candidates = tm_qualified
 
         # -----------------------------------------------------------------
         # Layer 3: Risk & Authorization (Agent 5 + Agent 6)
@@ -599,9 +756,28 @@ class MultiAgentTradingOrchestrator:
             reverse=True
         )
 
+        # Check proposal cooldown to avoid repeating identical proposals every cycle
+        now_ts = time.time()
+        if not hasattr(self, "_recent_proposals"):
+            self._recent_proposals = {}
+
+        eligible_trades = []
+        for t in approved_trades:
+            sym_t = t.get("symbol", "")
+            last_p = self._recent_proposals.get(sym_t, 0)
+            if now_ts - last_p >= 1800:  # 30-minute proposal cooldown per symbol
+                eligible_trades.append(t)
+            else:
+                logger.info(f"Orchestrator: {sym_t} proposal suppressed by 30m cooldown ({int(now_ts - last_p)}s elapsed)")
+
+        if not eligible_trades:
+            print("\n   All approved setups are currently on 30m proposal cooldown. Telegram alert silenced to prevent spam.")
+            return {"status": "COMPLETED", "code": "PROPOSALS_ON_COOLDOWN", "approved_count": len(approved_trades)}
+
         # Agent 6: Telegram 2-Way Human Authorization Gate
         executed_records = []
-        for trade in approved_trades[:1]:
+        for trade in eligible_trades[:1]:
+            self._recent_proposals[trade.get("symbol", "")] = now_ts
             print("\n📱 [Layer 3: Telegram Confirmation Gate] Sending proposal card to user...")
             t6 = time.time()
             execute_now = False

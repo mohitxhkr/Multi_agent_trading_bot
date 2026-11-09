@@ -120,7 +120,19 @@ class AdaptiveLearningEngine:
         if os.path.exists(self.memory_path):
             try:
                 with open(self.memory_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    mem = json.load(f)
+                    if isinstance(mem, dict):
+                        if not isinstance(mem.get("loss_distribution"), dict):
+                            mem["loss_distribution"] = {cat: 0 for cat in LOSS_CATEGORIES}
+                        if not isinstance(mem.get("regime_performance"), dict):
+                            mem["regime_performance"] = {}
+                        if not isinstance(mem.get("scorecard"), dict):
+                            mem["scorecard"] = {}
+                        if not isinstance(mem.get("patterns"), dict):
+                            mem["patterns"] = {}
+                        if not isinstance(mem.get("recent_reflections"), list):
+                            mem["recent_reflections"] = []
+                        return mem
             except Exception as e:
                 logger.error(f"Error loading adaptive pattern memory: {e}")
 

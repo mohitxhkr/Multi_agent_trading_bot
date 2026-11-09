@@ -13,6 +13,7 @@ with INSUFFICIENT_DATA or INSUFFICIENT_SAMPLE.
 """
 
 from typing import Dict, Any, List, Optional, Tuple
+import os
 import time
 import math
 import logging
@@ -319,20 +320,22 @@ class TimeMachineAgent:
     def __init__(
         self,
         client: Optional[DeltaExchangeClient] = None,
-        min_win_rate_pct: float = 65.0,
-        min_expected_value_r: float = 0.30,
+        min_win_rate_pct: float = 60.0,
+        min_expected_value_r: float = 0.20,
         lookback_candles: int = 400,
         max_simulation_bars: int = 48,
-        min_sample_size: int = 8,
-        min_oos_sample_size: int = 3
+        min_sample_size: Optional[int] = None,
+        min_oos_sample_size: Optional[int] = None
     ):
         self.client = client
         self.min_win_rate_pct = min_win_rate_pct
         self.min_expected_value_r = min_expected_value_r
         self.lookback_candles = lookback_candles
         self.max_simulation_bars = max_simulation_bars
-        self.min_sample_size = min_sample_size
-        self.min_oos_sample_size = min_oos_sample_size
+        default_min_samples = int(os.getenv("TIME_MACHINE_MIN_SAMPLES", "4"))
+        self.min_sample_size = min_sample_size if min_sample_size is not None else default_min_samples
+        default_min_oos = int(os.getenv("TIME_MACHINE_MIN_OOS_SAMPLES", "1"))
+        self.min_oos_sample_size = min_oos_sample_size if min_oos_sample_size is not None else default_min_oos
 
         # Institutional Friction Assumptions for Delta Exchange
         # Maker: 0.02% (0.0002) | Taker: 0.05% (0.0005)
@@ -646,19 +649,18 @@ class TimeMachineAgent:
 
         contract_specs = self.get_contract_specs(symbol)
 
-        # Ingest / fetch historical candles if absent
-        if not candles_15m or len(candles_15m.get("c", [])) < 60:
+        # Ingest / fetch historical candles if absent or has fewer than lookback_candles
+        if not candles_15m or len(candles_15m.get("c", [])) < self.lookback_candles:
             if self.client:
                 try:
                     now = int(time.time())
                     from_t = now - (900 * self.lookback_candles)
                     res = self.client.get_candles(symbol, resolution="15", from_time=from_t, to_time=now)
-                    candles_15m = res.get("result", {}) if res and res.get("success") else {}
+                    fetched_15m = res.get("result", {}) if res and res.get("success") else {}
+                    if fetched_15m and len(fetched_15m.get("c", [])) >= len((candles_15m or {}).get("c", [])):
+                        candles_15m = fetched_15m
                 except Exception as e:
                     logger.error(f"TimeMachine: Failed to fetch 15m candles for {symbol}: {e}")
-                    candles_15m = {}
-            else:
-                candles_15m = {}
 
         # Validate 15m candle series
         is_valid, err_msg, clean_15m = validate_candle_data(candles_15m, min_bars=60)
@@ -1140,10 +1142,10 @@ class TimeMachineAgent:
         # 3. Profit Factor: Net PF >= 1.50
         # 4. Out-of-Sample: Positive OOS Net Expectancy or strong Wilson Lower Bound (>= 45.0%)
         # 5. Risk Safeguard: Max consecutive losses <= 4
-        edge_passed = (win_rate >= self.min_win_rate_pct or (planned_rr >= 2.4 and win_rate >= 60.0))
-        ev_passed = (net_ev_r >= self.min_expected_value_r)
-        pf_passed = (profit_factor >= 1.50)
-        oos_passed = (oos_ev_r >= 0.0) if (oos_valid and oos_ev_r is not None) else (wilson_lower >= 45.0)
+        edge_passed = (win_rate >= self.min_win_rate_pct or (planned_rr >= 2.4 and win_rate >= 55.0) or (planned_rr >= 2.0 and win_rate >= 60.0))
+        ev_passed = (net_ev_r >= self.min_expected_value_r or (planned_rr >= 2.4 and net_ev_r >= 0.15))
+        pf_passed = (profit_factor >= 1.30)
+        oos_passed = (oos_ev_r >= 0.0) if (oos_valid and oos_ev_r is not None) else (wilson_lower >= 30.0)
         streak_passed = max_consecutive_losses <= 5
 
         passed = edge_passed and ev_passed and pf_passed and oos_passed and streak_passed

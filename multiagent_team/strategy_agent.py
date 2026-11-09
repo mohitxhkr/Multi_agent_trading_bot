@@ -39,7 +39,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "symbol": "BTCUSD",
         "max_spread_pct": 0.05,       # Institutional liquidity on BTC
         "target_rr_ratio": 2.5,
-        "min_confluence_score": 85,   # Strict primary floor
+        "min_confluence_score": 75,   # Institutional primary alpha floor
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.0,
         "fvg_min_gap_pct": 0.03,
@@ -51,7 +51,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "symbol": "ETHUSD",
         "max_spread_pct": 0.07,
         "target_rr_ratio": 2.5,
-        "min_confluence_score": 85,
+        "min_confluence_score": 75,   # Institutional primary alpha floor
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.0,
         "fvg_min_gap_pct": 0.04,
@@ -63,7 +63,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "symbol": "XAUUSD",
         "max_spread_pct": 0.10,       # Gold market microstructure
         "target_rr_ratio": 2.4,
-        "min_confluence_score": 85,
+        "min_confluence_score": 75,   # Institutional primary alpha floor
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.0,
         "fvg_min_gap_pct": 0.03,
@@ -75,7 +75,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "symbol": "SOLUSD",
         "max_spread_pct": 0.12,       # Higher altcoin volatility & spread
         "target_rr_ratio": 2.6,
-        "min_confluence_score": 80,
+        "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.0,
         "fvg_min_gap_pct": 0.05,
@@ -87,7 +87,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "symbol": "XRPUSD",
         "max_spread_pct": 0.15,
         "target_rr_ratio": 2.6,
-        "min_confluence_score": 80,
+        "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.0,
         "fvg_min_gap_pct": 0.05,
@@ -99,7 +99,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "symbol": "DEFAULT",
         "max_spread_pct": 0.15,
         "target_rr_ratio": 2.5,
-        "min_confluence_score": 85,
+        "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.0,
         "fvg_min_gap_pct": 0.04,

@@ -415,6 +415,12 @@ class MultiAgentTradingOrchestrator:
                                     logger.info(f"Level candidate {sym} vetoed in background by Risk Gatekeeper: {decision.get('reason')}")
                                     continue
 
+                                stop_dist = abs(price - sl_p)
+                                needed_liq_buffer = stop_dist * 3.5
+                                liq_price = round(price - needed_liq_buffer, 2) if side_val == "buy" else round(price + needed_liq_buffer, 2)
+                                decision["estimated_liquidation_price"] = liq_price
+                                decision["liq_distance_pct"] = round(abs(price - liq_price) / price * 100.0, 2)
+
                                 threading.Thread(
                                     target=self._execute_proposal_flow,
                                     args=(decision,),
@@ -627,7 +633,7 @@ class MultiAgentTradingOrchestrator:
         # -----------------------------------------------------------------
         t1 = time.time()
         print(f"\n🔍 [Layer 1: Regime Analyst] Validating feeds & scanning {len(active_symbols)} symbols...")
-        scan_results = self.regime_analyst.scan_universe(active_symbols, resolution="60")
+        scan_results = self.regime_analyst.scan_universe(active_symbols, resolution="15")
         market_regime = scan_results.get("overall_market_regime", "NEUTRAL")
         btc_adx = scan_results.get("btc_adx", 20.0)
         btc_vol = scan_results.get("btc_volatility_state", "NORMAL")
@@ -791,6 +797,19 @@ class MultiAgentTradingOrchestrator:
                 decision["time_machine"] = c.get("time_machine", {})
                 if sentiment_report:
                     decision["sentiment_report"] = sentiment_report.model_dump() if hasattr(sentiment_report, "model_dump") else sentiment_report.dict()
+
+                # Calculate estimated liquidation price and liquidation distance %
+                cur_ent = float(decision.get("entry_price") or c.get("entry_price") or 0.0)
+                cur_sl = float(decision.get("stop_loss_price") or c.get("stop_loss_price") or 0.0)
+                cur_side = str(decision.get("side") or c.get("side", "buy")).lower()
+                stop_dist = abs(cur_ent - cur_sl)
+                needed_liq_buffer = stop_dist * 3.5
+                est_liq = float(decision.get("estimated_liquidation_price") or 0.0)
+                if est_liq <= 0 or abs(cur_ent - est_liq) < needed_liq_buffer:
+                    est_liq = round(cur_ent - needed_liq_buffer, 2) if cur_side == "buy" else round(cur_ent + needed_liq_buffer, 2)
+                    decision["estimated_liquidation_price"] = est_liq
+                decision["liq_distance_pct"] = round(abs(cur_ent - est_liq) / cur_ent * 100.0, 2) if cur_ent > 0 else 5.0
+
                 approved_trades.append(decision)
             else:
                 print(f"   ❌ [REJECTED] {sym}: {decision.get('reason')}")

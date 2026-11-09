@@ -154,6 +154,15 @@ class DeterministicSafetyController:
         # 8. Estimated liquidation price is outside the stop-loss buffer (>= 3.0x stop dist)
         # ---------------------------------------------------------------------
         liq_distance = float(trade_setup.get("liq_distance_pct", 0.0))
+        if liq_distance <= 0:
+            est_liq = float(trade_setup.get("estimated_liquidation_price", 0.0))
+            if est_liq > 0 and entry_price > 0:
+                liq_distance = abs(entry_price - est_liq) / entry_price * 100.0
+            elif leverage > 0:
+                # Delta isolated margin liquidation buffer is approximately 1.0 / leverage
+                liq_distance = (1.0 / float(leverage)) * 100.0
+                trade_setup["liq_distance_pct"] = round(liq_distance, 2)
+
         stop_dist_pct = (stop_dist / entry_price * 100.0) if entry_price > 0 else 1.0
         if stop_dist_pct > 0 and (liq_distance / stop_dist_pct) < 2.8:  # 3.0x with slight tolerance
             failures.append((

@@ -153,6 +153,17 @@ class MultiAgentTradingOrchestrator:
         lines.append("⚡ <i>Send /positions, /scan, or /pause anytime!</i>")
         return "\n".join(lines)
 
+    def check_and_dispatch_daily_morning_briefing(self, force: bool = False) -> bool:
+        """
+        Check if current time is within morning window (10:00 to 11:00 AM IST)
+        and dispatch the Daily Morning Crypto News Briefing if not already sent today.
+        """
+        try:
+            return self.news_sentiment.check_and_dispatch_morning_briefing(self.telegram, force=force)
+        except Exception as e:
+            logger.warning(f"Error checking daily morning briefing: {e}")
+            return False
+
     def run_trading_cycle(self, symbols: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Execute one complete multi-agent cycle through Layers 1 to 5.
@@ -160,6 +171,12 @@ class MultiAgentTradingOrchestrator:
         """
         cycle_start = time.time()
         self.system_monitor.increment_cycle()
+
+        # Check and dispatch Daily Morning Crypto Briefing between 10:00 and 11:00 AM IST
+        try:
+            self.check_and_dispatch_daily_morning_briefing()
+        except Exception as me:
+            logger.debug(f"Daily morning briefing check skipped: {me}")
 
         active_symbols = symbols or self.symbols
 

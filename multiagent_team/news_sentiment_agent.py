@@ -32,6 +32,7 @@ logger = logging.getLogger("news-sentiment-agent")
 STATE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state")
 SENTIMENT_STATE_FILE = os.path.join(STATE_DIR, "market_sentiment_state.json")
 POSTED_NEWS_CACHE_FILE = os.path.join(STATE_DIR, "posted_news_cache.json")
+MORNING_NEWS_STATE_FILE = os.path.join(STATE_DIR, "morning_news_state.json")
 
 
 # -----------------------------------------------------------------------------
@@ -634,4 +635,216 @@ class NewsSentimentAgent:
         )
 
         return bool(notifier.send_message(msg))
+
+    def format_daily_morning_briefing(self, report: Optional[MarketSentimentReport] = None) -> str:
+        """
+        Format an institutional Daily Morning Crypto News & Sentiment Card for Telegram.
+        Presents:
+          1. Today's Date & IST Time
+          2. Sentiment Regime & Fear & Greed Index meter
+          3. Top 2-3 most important crypto news headlines with synopsis, source, and links
+          4. Actionable morning trading posture & capital protection rules
+        """
+        import html
+        from datetime import datetime, timezone, timedelta
+
+        target_report = report if report is not None else (self.cached_report or self.generate_sentiment_report())
+
+        # Determine IST time (UTC + 5:30)
+        ist_zone = timezone(timedelta(hours=5, minutes=30))
+        now_ist = datetime.now(ist_zone)
+        date_str = now_ist.strftime("%A, %d %b %Y · %I:%M %p IST")
+
+        # Fear & Greed Bar Visualizer (10 segments)
+        fg_val = max(0, min(100, target_report.fear_greed_index))
+        filled_segments = max(1, min(10, round(fg_val / 10)))
+        empty_segments = 10 - filled_segments
+        if fg_val <= 30:
+            bar_color = "🔴"
+        elif fg_val <= 45:
+            bar_color = "🟠"
+        elif fg_val <= 55:
+            bar_color = "🟡"
+        elif fg_val <= 70:
+            bar_color = "🟢"
+        else:
+            bar_color = "🚀"
+        fg_bar = f"[{bar_color * filled_segments}{'⬜' * empty_segments}]"
+
+        # Composite Sentiment Stance
+        comp = target_report.composite_score
+        if comp >= 0.25:
+            bias_title = "🟢 BULLISH MOMENTUM"
+        elif comp > 0.05:
+            bias_title = "🟢 MILD BULLISH SKEW"
+        elif comp <= -0.25:
+            bias_title = "🔴 BEARISH CAUTION"
+        elif comp < -0.05:
+            bias_title = "🔴 MILD BEARISH SKEW"
+        else:
+            bias_title = "⚪ NEUTRAL / BALANCED"
+
+        # Select Top 2 to 3 Most Important News Catalysts
+        # Priority: Critical Market Movers > High Impact News > Highest Absolute Sentiment
+        selected_articles: List[NewsArticle] = []
+        seen_titles = set()
+
+        candidates_pool: List[NewsArticle] = []
+        if target_report.critical_market_movers:
+            candidates_pool.extend(target_report.critical_market_movers)
+        if target_report.top_high_impact_news:
+            candidates_pool.extend(target_report.top_high_impact_news)
+
+        for art in candidates_pool:
+            norm_t = art.title[:30].strip().lower()
+            if norm_t not in seen_titles:
+                seen_titles.add(norm_t)
+                selected_articles.append(art)
+                if len(selected_articles) == 3:
+                    break
+
+        # Fallback if fewer than 2
+        if len(selected_articles) < 2 and self.cached_report:
+            extra = sorted(
+                self.cached_report.top_high_impact_news or [],
+                key=lambda x: abs(x.sentiment_score),
+                reverse=True
+            )
+            for art in extra:
+                norm_t = art.title[:30].strip().lower()
+                if norm_t not in seen_titles:
+                    seen_titles.add(norm_t)
+                    selected_articles.append(art)
+                    if len(selected_articles) == 3:
+                        break
+
+        # Format Top 2-3 Articles
+        news_section_lines = []
+        for idx, art in enumerate(selected_articles[:3], 1):
+            if "BULLISH" in art.sentiment_label:
+                s_icon = "🟢"
+            elif "BEARISH" in art.sentiment_label:
+                s_icon = "🔴"
+            else:
+                s_icon = "⚪"
+
+            cat_tag = f"[{art.catalyst_category.replace('_', ' ')}]"
+            safe_title = html.escape(art.title)
+            safe_summary = html.escape(art.summary) if art.summary else "Key market catalyst impacting broader crypto liquidity."
+            safe_source = html.escape(art.source)
+            link_html = f"<a href=\"{art.link}\">Read Full Story</a>" if art.link else ""
+
+            card_item = (
+                f"{idx}. {s_icon} <b>{cat_tag} {safe_title}</b>\n"
+                f"   ↳ <i>{safe_summary}</i>\n"
+                f"   ↳ <b>Source:</b> {safe_source}" + (f" · {link_html}" if link_html else "")
+            )
+            news_section_lines.append(card_item)
+
+        if not news_section_lines:
+            news_section_lines.append("<i>• Normal market flow in the last 24 hours. No outlier volatility headlines.</i>")
+
+        news_text = "\n\n".join(news_section_lines)
+
+        # Format Guidance & Session Gameplan
+        posture_summary = target_report.trading_posture_recommendation.split(":")[0] if ":" in target_report.trading_posture_recommendation else target_report.trading_posture_recommendation
+
+        lines = [
+            "🌅 <b>[DAILY CRYPTO MORNING BRIEFING]</b>",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            f"📅 <b>Date:</b> <code>{date_str}</code>",
+            f"🌐 <b>Market Scope:</b> <b>Global Crypto &amp; Derivatives Flow</b>",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "📊 <b>TODAY'S MARKET SENTIMENT:</b>",
+            f"• <b>Fear &amp; Greed Index:</b> <b>{target_report.fear_greed_index}/100 ({target_report.fear_greed_classification})</b> {fg_bar}",
+            f"• <b>Composite Stance:</b> <b>{bias_title} ({target_report.composite_score:+.2f})</b>",
+            f"• <b>Sentiment Regime:</b> <code>{target_report.sentiment_regime}</code>",
+            f"• <b>Headlines Scanned:</b> <b>{target_report.total_articles_analyzed}</b> (🟢 {target_report.bullish_articles_count} | 🔴 {target_report.bearish_articles_count} | ⚪ {target_report.neutral_articles_count})",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "🔥 <b>TOP IMPORTANT CRYPTO NEWS:</b>",
+            "",
+            news_text,
+            "",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "🛡️ <b>MORNING SESSION GAMEPLAN:</b>",
+            f"• <b>Institutional Posture:</b> <b>{posture_summary}</b>",
+            f"• <b>Risk Sizing Multiplier:</b> <code>{target_report.leverage_risk_multiplier:.2f}x</code>",
+            "• <b>Asset Focus:</b> <b>BTC, ETH &amp; Gold (XAU)</b>",
+            "• <b>Discipline Rule:</b> Capital safety first. Only trade when historical win rate >= 65% and R:R >= 2.2:1.",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "⚡ <i>Automated Daily Morning Intelligence · Delta Multi-Agent Engine</i>"
+        ]
+
+        return "\n".join(lines)
+
+    def check_and_dispatch_morning_briefing(
+        self,
+        notifier: Any,
+        force: bool = False,
+        min_hour: int = 10,
+        max_hour: int = 11
+    ) -> bool:
+        """
+        Check if current time is within morning window (10:00 to 11:00 AM IST)
+        and dispatch the Daily Morning Crypto News Briefing if not already sent today.
+
+        Args:
+            notifier: TelegramNotifier or TelegramConfirmationBot instance
+            force: If True, bypass time and duplicate date checks (e.g. for testing or /news command)
+            min_hour: Start of morning window in IST (default 10)
+            max_hour: End of morning window in IST (default 11, meaning up to 10:59:59 AM)
+        """
+        if not notifier or not getattr(notifier, "enabled", True):
+            logger.debug("NewsSentimentAgent: TelegramNotifier disabled. Skipping morning briefing.")
+            return False
+
+        from datetime import datetime, timezone, timedelta
+        ist_zone = timezone(timedelta(hours=5, minutes=30))
+        now_ist = datetime.now(ist_zone)
+        today_date_str = now_ist.strftime("%Y-%m-%d")
+
+        # Load state to avoid duplicate dispatch on the same day
+        state = {}
+        if os.path.exists(MORNING_NEWS_STATE_FILE):
+            try:
+                with open(MORNING_NEWS_STATE_FILE, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+            except Exception as e:
+                logger.warning(f"Could not load morning news state: {e}")
+
+        last_sent_date = state.get("last_sent_date")
+
+        # Check window unless force
+        if not force:
+            if not (min_hour <= now_ist.hour < max_hour):
+                return False
+            if last_sent_date == today_date_str:
+                return False
+
+        logger.info(f"NewsSentimentAgent: Generating Daily Morning Crypto Briefing for {today_date_str} (IST {now_ist.strftime('%H:%M:%S')})...")
+        report = self.generate_sentiment_report()
+        briefing_html = self.format_daily_morning_briefing(report)
+
+        try:
+            success = notifier.send_message(briefing_html, parse_mode="HTML")
+            if success:
+                logger.info("NewsSentimentAgent: ✅ Daily Morning Crypto Briefing successfully dispatched to Telegram!")
+                state["last_sent_date"] = today_date_str
+                state["last_sent_time"] = now_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+                state["composite_score"] = report.composite_score
+                state["fear_greed_index"] = report.fear_greed_index
+                state["top_headlines"] = [a.title for a in (report.critical_market_movers or report.top_high_impact_news)[:3]]
+                try:
+                    with open(MORNING_NEWS_STATE_FILE, "w", encoding="utf-8") as f:
+                        json.dump(state, f, indent=2)
+                except Exception as we:
+                    logger.error(f"Failed to save morning news state: {we}")
+                return True
+            else:
+                logger.warning("NewsSentimentAgent: TelegramNotifier reported unsuccessful message delivery.")
+                return False
+        except Exception as e:
+            logger.error(f"NewsSentimentAgent: Exception dispatching morning briefing: {e}")
+            return False
+
 

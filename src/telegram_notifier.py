@@ -94,6 +94,10 @@ class TelegramNotifier:
             logger.error(f"Telegram network exception: {e}")
             return False
 
+    def send_daily_morning_briefing(self, briefing_text: str) -> bool:
+        """Send formatted Daily Morning Crypto News Briefing & Sentiment Card to Telegram."""
+        return self.send_message(briefing_text, parse_mode="HTML")
+
     def notify_perfect_trade_opportunity(self, trade_spec: Dict[str, Any]) -> bool:
         """
         Send instant notification when a high-probability trade opportunity is identified.

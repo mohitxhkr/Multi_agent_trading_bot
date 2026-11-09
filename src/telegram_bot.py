@@ -1064,12 +1064,23 @@ class TelegramConfirmationBot:
             except Exception as e:
                 self.send_message(f"⚠️ Error sending sample proposal: {e}")
 
+        elif cmd in ["/news", "/briefing", "/morning", "/sentiment"]:
+            try:
+                self.send_message("🗞️ <i>Generating today's Daily Crypto Morning Briefing &amp; Sentiment Card...</i>")
+                from multiagent_team.news_sentiment_agent import NewsSentimentAgent
+                agent = NewsSentimentAgent()
+                briefing_card = agent.format_daily_morning_briefing()
+                self.send_message(briefing_card)
+            except Exception as e:
+                self.send_message(f"⚠️ Error generating news briefing: {e}")
+
         elif cmd in ["/help", "/start"]:
             help_msg = (
                 "📖 <b>[DELTA BOT COMMAND CENTER]</b>\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "You can command your trading bot anytime directly in this chat:\n\n"
                 "• <code>/status</code> — View 24/7 cloud health, available equity &amp; open count\n"
+                "• <code>/news</code> — Daily Crypto Morning Briefing &amp; Sentiment Card (10-11 AM IST)\n"
                 "• <code>/posture</code> — View Market Posture, Breadth % &amp; Exposure Ceiling\n"
                 "• <code>/rules</code> — Inspect dynamic Next-Session Operating Rules\n"
                 "• <code>/trade</code> — Run scalp scan; suggest trade only if A+ setup exists\n"

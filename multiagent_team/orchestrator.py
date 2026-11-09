@@ -919,6 +919,7 @@ class MultiAgentTradingOrchestrator:
             return {"status": "SKIPPED", "code": "EMERGENCY_HALT_ACTIVE", "reason": halt_reason}
 
         candidate = None
+        direction_bias = "BOTH"
         # If no specific symbol was requested, scan ALL assets across the entire universe
         if not symbol or symbol.upper() in ["ALL", "AUTO", "ANY", "SCAN"]:
             target_symbols = self.symbols or ["BTCUSD", "ETHUSD", "XAUUSD", "SOLUSD", "XRPUSD", "DOGEUSD", "ADAUSD"]
@@ -926,14 +927,28 @@ class MultiAgentTradingOrchestrator:
             try:
                 scan_results = self.regime_analyst.scan_universe(target_symbols, resolution="15")
                 candidates = self.strategy_agent.find_best_candidates(scan_results)
+
+                # Determine macro posture & directional bias
+                direction_bias = "BOTH"
+                if hasattr(self, "exposure_coach"):
+                    try:
+                        posture_data = self.exposure_coach.evaluate_market_posture(scan_results)
+                        direction_bias = posture_data.get("direction_bias", "BOTH")
+                    except Exception:
+                        pass
+
                 if side:
                     candidates = [c for c in candidates if c.get("side") == side.lower()]
+                elif direction_bias == "SHORTS_ONLY":
+                    candidates = [c for c in candidates if c.get("side") == "sell"]
+                elif direction_bias == "LONGS_ONLY":
+                    candidates = [c for c in candidates if c.get("side") == "buy"]
 
                 if candidates:
                     candidate = candidates[0]
                     symbol = candidate["symbol"]
                     side = candidate["side"]
-                    logger.info(f"Orchestrator: Selected top market opportunity across all assets: {symbol} {side.upper()} (Score: {candidate.get('score')}/100)")
+                    logger.info(f"Orchestrator: Selected top market opportunity across all assets: {symbol} {side.upper()} (Score: {candidate.get('score')}/100 | Bias: {direction_bias})")
             except Exception as e:
                 logger.error(f"Error scanning universe for /trade: {e}")
 
@@ -1005,7 +1020,12 @@ class MultiAgentTradingOrchestrator:
                     pass
 
             if not side:
-                side = "buy" if cur_mark >= vwap else "sell"
+                if locals().get("direction_bias") == "SHORTS_ONLY":
+                    side = "sell"
+                elif locals().get("direction_bias") == "LONGS_ONLY":
+                    side = "buy"
+                else:
+                    side = "buy" if cur_mark >= vwap else "sell"
             side = side.lower()
 
             # Stop loss and Take profit (1:2.5 R:R)

@@ -650,12 +650,31 @@ class AdaptiveLearningEngine:
         self,
         candidate_params: Dict[str, Any],
         historical_trades: Optional[List[Dict[str, Any]]] = None,
-        windows: int = 3
+        windows: int = 3,
+        candles_15m: Optional[Dict[str, Any]] = None,
+        candles_1h: Optional[Dict[str, Any]] = None,
+        candles_5m: Optional[Dict[str, Any]] = None,
+        candles_1m: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Executes rolling walk-forward validation across chronological data splits.
         Detects overfitting by comparing in-sample (IS) vs out-of-sample (OOS) expectancy.
         """
+        # Validate & clamp parameter bounds first
+        _, clamped_params, bounds_violations = self.validate_parameter_bounds(candidate_params)
+
+        # If candles are provided, run quantitative candle backtest via TimeMachineAgent
+        if candles_15m and len(candles_15m.get("c", [])) >= 60:
+            from multiagent_team.time_machine_agent import TimeMachineAgent
+            tm = TimeMachineAgent(client=self.client)
+            return tm.evaluate_candidate_parameters(
+                candidate_params=clamped_params,
+                candles_15m=candles_15m,
+                candles_1h=candles_1h,
+                candles_5m=candles_5m,
+                candles_1m=candles_1m
+            )
+
         dataset = historical_trades if historical_trades is not None else self.verified_trades
         n = len(dataset)
         if n < 15:
@@ -663,11 +682,9 @@ class AdaptiveLearningEngine:
                 "passed": False,
                 "reason": f"INSUFFICIENT_SAMPLE: Walk-forward validation requires >= 15 completed trades (got {n}).",
                 "is_overfitting": False,
-                "oos_expectancy_r": 0.0
+                "oos_expectancy_r": 0.0,
+                "walk_forward_windows": []
             }
-
-        # Validate & clamp parameter bounds first
-        _, clamped_params, bounds_violations = self.validate_parameter_bounds(candidate_params)
 
         # 60% Train / In-Sample (IS), 40% Out-Of-Sample (OOS)
         split_idx = int(n * 0.60)
@@ -679,6 +696,30 @@ class AdaptiveLearningEngine:
 
         is_exp = is_perf["net_expectancy_r"]
         oos_exp = oos_perf["net_expectancy_r"]
+
+        # Multi-window rolling walk-forward analysis
+        num_windows = max(1, min(windows, n // 5))
+        window_size = n // num_windows
+        wf_windows = []
+        for w in range(num_windows):
+            w_start = w * (window_size // 2) if num_windows > 1 else 0
+            w_end = min(w_start + window_size, n) if num_windows > 1 else n
+            sub_trades = dataset[w_start:w_end]
+            if len(sub_trades) >= 5:
+                w_split = int(len(sub_trades) * 0.60)
+                w_is = sub_trades[:w_split]
+                w_oos = sub_trades[w_split:]
+                w_is_perf = self.compute_strategy_performance(w_is)
+                w_oos_perf = self.compute_strategy_performance(w_oos)
+                wf_windows.append({
+                    "window": w + 1,
+                    "trade_range": f"{w_start}-{w_end}",
+                    "is_count": len(w_is),
+                    "oos_count": len(w_oos),
+                    "is_net_ev_r": w_is_perf["net_expectancy_r"],
+                    "oos_net_ev_r": w_oos_perf["net_expectancy_r"],
+                    "oos_profit_factor": w_oos_perf["profit_factor"]
+                })
 
         # Overfitting Detection Rule:
         # If IS expectancy is high (>= 0.40R) but OOS collapses by > 40% or goes negative
@@ -699,6 +740,7 @@ class AdaptiveLearningEngine:
             "is_trades_count": len(is_trades),
             "oos_trades_count": len(oos_trades),
             "bounds_violations": bounds_violations,
+            "walk_forward_windows": wf_windows,
             "recommendation": "PROCEED_TO_EXPERIMENTAL" if passed else ("REJECT_OVERFIT" if is_overfitting else "REJECT_INSUFFICIENT_EDGE")
         }
 
@@ -750,21 +792,32 @@ class AdaptiveLearningEngine:
     ) -> Dict[str, Any]:
         """
         Controlled promotion workflow:
-        EXPERIMENTAL -> VALIDATED -> PAPER_APPROVED -> LIVE_APPROVED
+        BASELINE -> EXPERIMENTAL -> VALIDATED -> PAPER_APPROVED -> LIVE_APPROVED
         Strictly requires manual / authorized invocation.
         """
         if version_id not in self.config_store["versions"]:
             return {"success": False, "error": f"Version '{version_id}' not found."}
 
-        valid_stages = ["EXPERIMENTAL", "VALIDATED", "PAPER_APPROVED", "LIVE_APPROVED"]
+        valid_stages = ["BASELINE", "EXPERIMENTAL", "VALIDATED", "PAPER_APPROVED", "LIVE_APPROVED"]
         if target_stage not in valid_stages:
             return {"success": False, "error": f"Invalid stage '{target_stage}'. Must be one of {valid_stages}."}
 
         cfg = self.config_store["versions"][version_id]
 
-        # Cannot promote rejected candidates to LIVE
-        if cfg.get("stage") == "REJECTED" and target_stage == "LIVE_APPROVED":
-            return {"success": False, "error": "Cannot promote REJECTED candidate to LIVE_APPROVED."}
+        # Cannot promote rejected candidates
+        if cfg.get("stage") == "REJECTED":
+            return {"success": False, "error": "Cannot promote REJECTED candidate."}
+
+        # Validation evidence check for VALIDATED promotion
+        if target_stage == "VALIDATED":
+            val_res = cfg.get("validation_results", {})
+            if not val_res.get("passed", False):
+                return {"success": False, "error": "Cannot promote to VALIDATED: candidate failed statistical walk-forward validation."}
+
+        # LIVE_APPROVED requires authorized sign-off
+        if target_stage == "LIVE_APPROVED":
+            if not authorized_by or authorized_by.strip().upper() in ("SYSTEM", "AUTO", "UNKNOWN"):
+                return {"success": False, "error": "Cannot promote to LIVE_APPROVED without explicit human researcher authorization."}
 
         # Update stage
         cfg["stage"] = target_stage

@@ -143,29 +143,47 @@ def calculate_position_metrics(
     """
     Deterministically computes position notional value, unrealized PnL,
     and mark-to-liquidation distance for linear and inverse contracts.
+    Never replaces missing mark price with entry price or missing liquidation distance with safe 999.0%.
     """
     raw_size = float(position.get("size", 0))
     direction = "LONG" if raw_size > 0 else ("SHORT" if raw_size < 0 else "FLAT")
     contracts = abs(raw_size)
     entry_price = float(position.get("entry_price", 0.0) or 0.0)
-    mark_price = mark_price_override if (mark_price_override and mark_price_override > 0) else float(position.get("mark_price", 0.0) or entry_price)
-    liq_price = float(position.get("liquidation_price", 0.0) or 0.0)
+
+    # Missing data handling: never substitute entry price for mark price
+    if mark_price_override is not None and mark_price_override > 0:
+        mark_price = float(mark_price_override)
+    elif position.get("mark_price") is not None and float(position.get("mark_price")) > 0:
+        mark_price = float(position.get("mark_price"))
+    else:
+        mark_price = None
+
+    raw_liq = position.get("liquidation_price")
+    liq_price = float(raw_liq) if (raw_liq is not None and float(raw_liq) > 0) else None
     c_val = float(contract_spec.get("contract_value", 1.0))
     is_inverse = contract_spec.get("contract_type") == "inverse"
 
     # Notional Exposure & Base Quantity
-    if not is_inverse:
-        # Linear: contracts * contract_value = base coins (e.g. 10 * 0.001 = 0.01 BTC)
-        base_quantity = contracts * c_val
-        notional_usd = base_quantity * mark_price
+    if mark_price is not None:
+        if not is_inverse:
+            # Linear: contracts * contract_value = base coins (e.g. 10 * 0.001 = 0.01 BTC)
+            base_quantity = contracts * c_val
+            notional_usd = base_quantity * mark_price
+        else:
+            # Inverse: contracts * contract_value = USD notional (e.g. 100 * $1 = $100)
+            notional_usd = contracts * c_val
+            base_quantity = (notional_usd / mark_price) if mark_price > 0 else 0.0
     else:
-        # Inverse: contracts * contract_value = USD notional (e.g. 100 * $1 = $100)
-        notional_usd = contracts * c_val
-        base_quantity = (notional_usd / mark_price) if mark_price > 0 else 0.0
+        if is_inverse:
+            notional_usd = contracts * c_val
+            base_quantity = 0.0
+        else:
+            base_quantity = contracts * c_val
+            notional_usd = 0.0
 
     # Unrealized PnL Calculation
     unrealized_pnl = 0.0
-    if entry_price > 0 and mark_price > 0 and contracts > 0:
+    if entry_price > 0 and mark_price is not None and mark_price > 0 and contracts > 0:
         if not is_inverse:
             if direction == "LONG":
                 unrealized_pnl = (mark_price - entry_price) * contracts * c_val
@@ -184,12 +202,16 @@ def calculate_position_metrics(
     realized_pnl = float(position.get("realized_pnl", 0.0) or 0.0)
 
     # True Liquidation Distance: Measured from CURRENT MARK PRICE to LIQUIDATION PRICE!
-    liq_distance_pct = 999.0
-    if mark_price > 0 and liq_price > 0:
+    # Missing liquidation price returns None; never defaults to safe 999.0%
+    if mark_price is not None and mark_price > 0 and liq_price is not None and liq_price > 0:
         if direction == "LONG":
             liq_distance_pct = max(0.0, (mark_price - liq_price) / mark_price * 100.0)
         elif direction == "SHORT":
             liq_distance_pct = max(0.0, (liq_price - mark_price) / mark_price * 100.0)
+        else:
+            liq_distance_pct = None
+    else:
+        liq_distance_pct = None
 
     return {
         "direction": direction,
@@ -197,9 +219,9 @@ def calculate_position_metrics(
         "base_quantity": round(base_quantity, 6),
         "notional_usd": round(notional_usd, 2),
         "entry_price": round(entry_price, 4),
-        "mark_price": round(mark_price, 4),
-        "liquidation_price": round(liq_price, 4),
-        "liquidation_distance_pct": round(liq_distance_pct, 2),
+        "mark_price": round(mark_price, 4) if mark_price is not None else None,
+        "liquidation_price": round(liq_price, 4) if liq_price is not None else None,
+        "liquidation_distance_pct": round(liq_distance_pct, 2) if liq_distance_pct is not None else None,
         "unrealized_pnl": round(unrealized_pnl, 4),
         "realized_pnl": round(realized_pnl, 4),
         "contract_type": contract_spec.get("contract_type", "linear"),
@@ -320,7 +342,13 @@ class PortfolioMonitorAgent:
 
                 # Liquidation Distance Checks
                 liq_dist = metrics["liquidation_distance_pct"]
-                if liq_dist <= self.config["liq_distance_critical_pct"]:
+                if liq_dist is None:
+                    if metrics["contracts"] > 0:
+                        sev = "WARNING"
+                        msg = f"UNKNOWN: {sym} liquidation price is missing from exchange position record!"
+                        liquidation_warnings.append({"symbol": sym, "severity": "UNKNOWN", "distance_pct": None, "message": msg})
+                        risk_events.append({"event_type": "MISSING_LIQUIDATION_PRICE", "severity": sev, "symbol": sym, "message": msg})
+                elif liq_dist <= self.config["liq_distance_critical_pct"]:
                     sev = "CRITICAL"
                     msg = f"CRITICAL: {sym} is only {liq_dist:.2f}% from liquidation (${metrics['liquidation_price']:.2f})!"
                     liquidation_warnings.append({"symbol": sym, "severity": sev, "distance_pct": liq_dist, "message": msg})
@@ -935,10 +963,12 @@ class PortfolioMonitorAgent:
         ]
 
         for p in pos_info.get("positions", []):
+            mark_p_str = f"${p['current_mark_price']:.2f}" if p.get('current_mark_price') is not None else "UNKNOWN"
+            liq_d_str = f"{p['liquidation_distance_pct']:.1f}%" if p.get('liquidation_distance_pct') is not None else "UNKNOWN"
             content.append(
                 f"| {p['symbol']} | {p['side']} | {p['size']} | "
-                f"${p['entry_price']:.2f} | ${p.get('current_mark_price', p['entry_price']):.2f} | "
-                f"{p['liquidation_distance_pct']:.1f}% | ${p['unrealized_pnl_usd']:.2f} | "
+                f"${p['entry_price']:.2f} | {mark_p_str} | "
+                f"{liq_d_str} | ${p['unrealized_pnl_usd']:.2f} | "
                 f"{p['leverage']}x | {'YES' if pos_info.get('protective_order_status', {}).get('all_protected') else 'CHECK'} |"
             )
 

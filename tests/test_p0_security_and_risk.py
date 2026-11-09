@@ -286,6 +286,29 @@ class TestPriorityZeroRiskAndSecurity(unittest.TestCase):
         # Attempt to reuse the nonce
         self.assertTrue(nonce in bot._processed_nonces)
 
+    def test_telegram_fails_closed_when_unconfigured(self):
+        """Unconfigured Telegram confirmation bot must fail closed: deny trades without network calls."""
+        with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "", "TELEGRAM_CHAT_ID": ""}):
+            with patch("src.config.system_config.telegram_bot_token", ""):
+                with patch("src.config.system_config.telegram_chat_id", ""):
+                    bot = TelegramConfirmationBot(bot_token="", chat_id="", authorized_users=[])
+                    self.assertFalse(bot.is_configured)
+
+                    # Confirmation request must immediately return False
+                    sample_spec = {
+                        "symbol": "BTCUSD",
+                        "side": "buy",
+                        "entry_price": 70000.0,
+                        "stop_loss_price": 69000.0,
+                        "take_profit_price": 73000.0
+                    }
+                    approved = bot.request_trade_confirmation(sample_spec, timeout_seconds=1)
+                    self.assertFalse(approved)
+
+                    # Send message must return None
+                    msg_id = bot.send_message("Test message")
+                    self.assertIsNone(msg_id)
+
     # -------------------------------------------------------------------------
     # 5. Execution Idempotency & Reconciliation
     # -------------------------------------------------------------------------

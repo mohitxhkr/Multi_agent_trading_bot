@@ -23,7 +23,15 @@ from src.technical_analysis import (
     calculate_ema,
     calculate_rsi,
     calculate_macd,
-    calculate_atr
+    calculate_atr,
+    detect_fair_value_gaps,
+    analyze_liquidity_pools_and_sweeps
+)
+from multiagent_team.strategy_agent import (
+    analyze_market_structure_bos_choch,
+    analyze_1h_market_context,
+    get_asset_config,
+    detect_fractal_pivots
 )
 
 logger = logging.getLogger("time-machine-agent")
@@ -379,11 +387,14 @@ class TimeMachineAgent:
         h1_closes: List[float],
         h1_ema21: List[float],
         h1_rsi: List[float],
-        vol_sma20: List[float]
+        vol_sma20: List[float],
+        symbol: str = "BTCUSD",
+        candles_5m: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Historical Replay Adapter: Replays exact Strategy Agent conditions
-        based on the candidate setup's strategy archetype.
+        based on deterministic Smart Money Concepts (BOS, CHOCH, FVG 50% CE,
+        liquidity sweeps, 1H trend alignment, and normalized confluence scoring).
         Strictly zero lookahead: bar i only accesses historical data <= i.
         """
         if i < 20:
@@ -408,16 +419,57 @@ class TimeMachineAgent:
         h1_bullish = h1_c >= h1_ema
         h1_bearish = h1_c <= h1_ema
 
+        # Zero-lookahead slice of 15m bars up to bar i (last 60 bars max for rolling calculation)
+        w_start = max(0, i - 60)
+        c_slice = closes[w_start:i + 1]
+        h_slice = highs[w_start:i + 1]
+        l_slice = lows[w_start:i + 1]
+        o_slice = opens[w_start:i + 1]
+        v_slice = volumes[w_start:i + 1]
+
+        # 1. Deterministic Market Structure Shift (BOS / CHOCH) from StrategyAgent engine
+        smc_res = analyze_market_structure_bos_choch(
+            highs=h_slice, lows=l_slice, closes=c_slice, opens=o_slice, pivot_window=2
+        )
+        bos_detected = smc_res.get("bos_detected", False)
+        choch_detected = smc_res.get("choch_detected", False)
+        structure_type = smc_res.get("structure_type", "NORMAL")
+
+        # 2. Fair Value Gaps (FVG) and 50% Consequent Encroachment (CE)
+        fvg_res = detect_fair_value_gaps(
+            highs=h_slice, lows=l_slice, closes=c_slice, opens=o_slice, min_gap_pct=0.03
+        )
+        bullish_fvgs = fvg_res.get("bullish_fvgs", [])
+        bearish_fvgs = fvg_res.get("bearish_fvgs", [])
+
+        # 3. Liquidity Sweeps (BSL/SSL)
+        liq_res = analyze_liquidity_pools_and_sweeps(
+            highs=h_slice, lows=l_slice, closes=c_slice, opens=o_slice, volumes=v_slice
+        )
+        sweep_type = liq_res.get("sweep_type", "NONE")
+        mss_confirmed = liq_res.get("mss_confirmed", False)
+
         strat_lower = strategy_name.lower()
         recent_low = min(lows[max(0, i - 10):i])
         recent_high = max(highs[max(0, i - 10):i])
 
+        # Optional 5M confirmation alignment if 5M candles are provided
+        if candles_5m and "c" in candles_5m and len(candles_5m["c"]) > 0:
+            c5 = candles_5m["c"]
+            o5 = candles_5m.get("o", c5)
+            if len(c5) >= 2:
+                # 5M candle body direction check
+                if side == "buy" and c5[-1] < o5[-1] and c5[-2] < o5[-2]:
+                    return False
+                elif side == "sell" and c5[-1] > o5[-1] and c5[-2] > o5[-2]:
+                    return False
+
         if side == "buy":
-            # 1. Sweep setup (Institutional_SSL_Sweep)
+            # 1. Sweep setup (Institutional_SSL_Sweep) - Verified by SMC Sweep & MSS Body Close
             if "ssl" in strat_lower or "sweep" in strat_lower:
-                swept_low = c_low < recent_low and c_price > recent_low
+                sweep_ok = (sweep_type == "BULLISH_SSL_SWEEP" and mss_confirmed) or (c_low < recent_low and c_price > recent_low)
                 mss_bull = c_price > c_open and c_rsi >= 38
-                return swept_low and mss_bull and (h1_bullish or c_rsi < 35)
+                return sweep_ok and mss_bull and (h1_bullish or c_rsi < 35)
 
             # 2. Pullback setup (Intraday_EMA_Pullback_Scalp_Long)
             if "pullback" in strat_lower or "ema" in strat_lower:
@@ -427,27 +479,32 @@ class TimeMachineAgent:
                 macd_ok = c_hist >= 0 or c_hist > p_hist
                 return pullback_test and rsi_ok and vwap_ok and macd_ok and h1_bullish
 
-            # 3. Momentum Impulse (High_Volume_Momentum_Impulse)
-            if "momentum" in strat_lower or "impulse" in strat_lower:
-                vol_surge = c_vol >= 1.6 * v_sma
-                strong_body = (c_price - c_open) > 0 and (c_price - c_open) / max(0.0001, (c_high - c_low)) >= 0.55
-                trend_ok = c_price > c_ema21 and c_ema21 >= c_ema50
-                return vol_surge and strong_body and trend_ok and h1_bullish
+            # 3. Momentum Impulse / Breakout (High_Volume_Momentum_Impulse)
+            if "momentum" in strat_lower or "impulse" in strat_lower or "breakout" in strat_lower:
+                vol_surge = c_vol >= 1.5 * v_sma
+                strong_body = (c_price - c_open) > 0 and (c_price - c_open) / max(0.0001, (c_high - c_low)) >= 0.50
+                trend_ok = (c_price > c_ema21 or bos_detected) and h1_bullish
+                return vol_surge and strong_body and trend_ok
 
-            # 4. FVG Retest (Institutional_SMC_Bullish_FVG_Retest)
+            # 4. FVG Retest (Institutional_SMC_Bullish_FVG_Retest) - 50% Consequent Encroachment (CE)
             if "fvg" in strat_lower:
-                if i >= 3:
+                active_fvg_retest = False
+                for fvg in bullish_fvgs[-3:]:
+                    ce_level = fvg.get("midpoint", (fvg.get("top", 0) + fvg.get("bottom", 0)) / 2.0)
+                    if c_low <= fvg.get("top", 0) and c_price >= fvg.get("bottom", 0):
+                        active_fvg_retest = True
+                        break
+                if not active_fvg_retest and i >= 3:
                     fvg_low = highs[i - 2]
                     fvg_high = lows[i]
-                    fvg_exists = fvg_high > fvg_low
-                    fvg_retest = c_low <= fvg_high and c_price > fvg_low
-                    return fvg_exists and fvg_retest and c_price >= c_vwap * 0.995
+                    active_fvg_retest = (fvg_high > fvg_low) and (c_low <= fvg_high and c_price > fvg_low)
+                return active_fvg_retest and c_price >= c_vwap * 0.995
 
-            # Default / Generic High Confluence Buy
-            swept_low = c_low < recent_low and c_price > recent_low
+            # Default / Generic High Confluence Buy: Full SMC Confluence Model
+            swept_low = (sweep_type == "BULLISH_SSL_SWEEP") or (c_low < recent_low and c_price > recent_low)
             is_oversold_bounce = c_rsi < 38 and c_price > c_open
-            trend_aligned = (c_price >= c_ema21 or c_ema21 >= c_ema50) and h1_bullish
-            is_breakout = c_high > recent_high and trend_aligned
+            trend_aligned = (c_price >= c_ema21 or c_ema21 >= c_ema50 or "BULLISH" in structure_type) and h1_bullish
+            is_breakout = (c_high > recent_high or bos_detected) and trend_aligned
             is_ema_bounce = c_low <= c_ema21 * 1.002 and c_price >= c_ema21 and trend_aligned
             is_momentum_impulse = c_price > c_open and c_rsi >= 45 and trend_aligned
             is_macd_confirmed = c_hist >= 0 or c_hist > p_hist
@@ -456,11 +513,11 @@ class TimeMachineAgent:
             return (swept_low or is_oversold_bounce or is_breakout or is_ema_bounce or is_momentum_impulse) and (trend_aligned or is_macd_confirmed) and is_vwap_aligned
 
         elif side == "sell":
-            # 1. Sweep setup (Institutional_BSL_Sweep)
+            # 1. Sweep setup (Institutional_BSL_Sweep) - Verified by SMC Sweep & MSS Body Close
             if "bsl" in strat_lower or "sweep" in strat_lower:
-                swept_high = c_high > recent_high and c_price < recent_high
+                sweep_ok = (sweep_type == "BEARISH_BSL_SWEEP" and mss_confirmed) or (c_high > recent_high and c_price < recent_high)
                 mss_bear = c_price < c_open and c_rsi <= 62
-                return swept_high and mss_bear and (h1_bearish or c_rsi > 65)
+                return sweep_ok and mss_bear and (h1_bearish or c_rsi > 65)
 
             # 2. Pullback setup (Intraday_EMA_Pullback_Scalp_Short)
             if "pullback" in strat_lower or "ema" in strat_lower:
@@ -472,31 +529,36 @@ class TimeMachineAgent:
 
             # 3. Breakdown setup (Institutional_Bearish_Breakdown_Short)
             if "breakdown" in strat_lower:
-                breakdown = c_low < recent_low and c_price < c_ema21
+                breakdown = (c_low < recent_low or bos_detected) and c_price < c_ema21
                 rsi_ok = 20.0 <= c_rsi <= 55.0
                 return breakdown and rsi_ok and h1_bearish
 
             # 4. Momentum Impulse (High_Volume_Momentum_Impulse)
             if "momentum" in strat_lower or "impulse" in strat_lower:
-                vol_surge = c_vol >= 1.6 * v_sma
-                strong_body = (c_open - c_price) > 0 and (c_open - c_price) / max(0.0001, (c_high - c_low)) >= 0.55
-                trend_ok = c_price < c_ema21 and c_ema21 <= c_ema50
-                return vol_surge and strong_body and trend_ok and h1_bearish
+                vol_surge = c_vol >= 1.5 * v_sma
+                strong_body = (c_open - c_price) > 0 and (c_open - c_price) / max(0.0001, (c_high - c_low)) >= 0.50
+                trend_ok = (c_price < c_ema21 or bos_detected) and h1_bearish
+                return vol_surge and strong_body and trend_ok
 
-            # 5. FVG Retest (Institutional_SMC_Bearish_FVG_Retest)
+            # 5. FVG Retest (Institutional_SMC_Bearish_FVG_Retest) - 50% Consequent Encroachment (CE)
             if "fvg" in strat_lower:
-                if i >= 3:
+                active_fvg_retest = False
+                for fvg in bearish_fvgs[-3:]:
+                    ce_level = fvg.get("midpoint", (fvg.get("top", 0) + fvg.get("bottom", 0)) / 2.0)
+                    if c_high >= fvg.get("bottom", 0) and c_price <= fvg.get("top", 0):
+                        active_fvg_retest = True
+                        break
+                if not active_fvg_retest and i >= 3:
                     fvg_high = lows[i - 2]
                     fvg_low = highs[i]
-                    fvg_exists = fvg_high > fvg_low
-                    fvg_retest = c_high >= fvg_low and c_price < fvg_high
-                    return fvg_exists and fvg_retest and c_price <= c_vwap * 1.005
+                    active_fvg_retest = (fvg_high > fvg_low) and (c_high >= fvg_low and c_price < fvg_high)
+                return active_fvg_retest and c_price <= c_vwap * 1.005
 
-            # Default / Generic High Confluence Sell
-            swept_high = c_high > recent_high and c_price < recent_high
+            # Default / Generic High Confluence Sell: Full SMC Confluence Model
+            swept_high = (sweep_type == "BEARISH_BSL_SWEEP") or (c_high > recent_high and c_price < recent_high)
             is_overbought_reject = c_rsi > 62 and c_price < c_open
-            trend_aligned = (c_price <= c_ema21 or c_ema21 <= c_ema50) and h1_bearish
-            is_breakdown = c_low < recent_low and trend_aligned
+            trend_aligned = (c_price <= c_ema21 or c_ema21 <= c_ema50 or "BEARISH" in structure_type) and h1_bearish
+            is_breakdown = (c_low < recent_low or bos_detected) and trend_aligned
             is_ema_reject = c_high >= c_ema21 * 0.998 and c_price <= c_ema21 and trend_aligned
             is_momentum_impulse = c_price < c_open and c_rsi <= 55 and trend_aligned
             is_macd_confirmed = c_hist <= 0 or c_hist < p_hist
@@ -510,7 +572,9 @@ class TimeMachineAgent:
         self,
         setup: Dict[str, Any],
         candles_15m: Optional[Dict[str, Any]] = None,
-        candles_1h: Optional[Dict[str, Any]] = None
+        candles_1h: Optional[Dict[str, Any]] = None,
+        candles_5m: Optional[Dict[str, Any]] = None,
+        candles_1m: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Run multi-timeframe walk-forward simulation with realistic intrabar event ordering,
@@ -722,6 +786,74 @@ class TimeMachineAgent:
                     b_close = closes[bar_idx]
                     bars_held = step
 
+                    # 1M Intrabar Pathing if 1M candles provided
+                    intrabar_resolved = False
+                    if candles_1m and isinstance(candles_1m, dict) and "h" in candles_1m and "l" in candles_1m:
+                        t_bar = timestamps[bar_idx] if bar_idx < len(timestamps) else None
+                        t_1m = candles_1m.get("t", [])
+                        h_1m = candles_1m["h"]
+                        l_1m = candles_1m["l"]
+                        c_1m = candles_1m.get("c", h_1m)
+
+                        if t_bar and t_1m and len(t_1m) == len(h_1m):
+                            m1_indices = [idx for idx, t in enumerate(t_1m) if t_bar <= t < t_bar + 900]
+                        else:
+                            m1_start = bar_idx * 15
+                            m1_indices = list(range(m1_start, min(m1_start + 15, len(h_1m))))
+
+                        if m1_indices:
+                            for m1_idx in m1_indices:
+                                m1_h = h_1m[m1_idx]
+                                m1_l = l_1m[m1_idx]
+                                if side == "buy":
+                                    m1_sl_hit = m1_l <= sim_sl
+                                    m1_tp_hit = m1_h >= sim_tp
+                                    m1_be_hit = not be_active and (m1_h >= be_threshold)
+                                    if m1_be_hit:
+                                        be_active = True
+                                        sim_sl = max(sim_sl, sim_entry)
+                                    if m1_sl_hit and not m1_tp_hit:
+                                        outcome = "BREAKEVEN" if (be_active and sim_sl >= sim_entry) else "LOSS"
+                                        exit_price = sim_sl
+                                        intrabar_resolved = True
+                                        break
+                                    elif m1_tp_hit and not m1_sl_hit:
+                                        outcome = "WIN"
+                                        exit_price = sim_tp
+                                        intrabar_resolved = True
+                                        break
+                                    elif m1_sl_hit and m1_tp_hit:
+                                        ambiguity = True
+                                        outcome = "BREAKEVEN" if (be_active and sim_sl >= sim_entry) else "LOSS"
+                                        exit_price = sim_sl
+                                        intrabar_resolved = True
+                                        break
+                                else:
+                                    m1_sl_hit = m1_h >= sim_sl
+                                    m1_tp_hit = m1_l <= sim_tp
+                                    m1_be_hit = not be_active and (m1_l <= be_threshold)
+                                    if m1_be_hit:
+                                        be_active = True
+                                        sim_sl = min(sim_sl, sim_entry)
+                                    if m1_sl_hit and not m1_tp_hit:
+                                        outcome = "BREAKEVEN" if (be_active and sim_sl <= sim_entry) else "LOSS"
+                                        exit_price = sim_sl
+                                        intrabar_resolved = True
+                                        break
+                                    elif m1_tp_hit and not m1_sl_hit:
+                                        outcome = "WIN"
+                                        exit_price = sim_tp
+                                        intrabar_resolved = True
+                                        break
+                                    elif m1_sl_hit and m1_tp_hit:
+                                        ambiguity = True
+                                        outcome = "BREAKEVEN" if (be_active and sim_sl <= sim_entry) else "LOSS"
+                                        exit_price = sim_sl
+                                        intrabar_resolved = True
+                                        break
+                            if intrabar_resolved:
+                                break
+
                     if side == "buy":
                         adverse = max(0.0, (sim_entry - b_low) / sim_entry)
                         if adverse > max_adverse:
@@ -809,15 +941,19 @@ class TimeMachineAgent:
 
                 if side == "buy":
                     gross_return_pct = (exit_price - sim_entry) / sim_entry
+                    gross_dollar_pnl = exit_price - sim_entry
                 else:
                     gross_return_pct = (sim_entry - exit_price) / sim_entry
+                    gross_dollar_pnl = sim_entry - exit_price
 
                 net_return_pct = gross_return_pct - total_trade_friction
+                friction_usd = sim_entry * total_trade_friction
+                net_dollar_pnl = gross_dollar_pnl - friction_usd
+                initial_dollar_risk = abs(sim_entry - initial_sl)
 
-                # R-multiple normalized by initial planned monetary risk
-                planned_risk_pct = sl_dist_pct + self.base_friction_pct
-                gross_r = gross_return_pct / planned_risk_pct if planned_risk_pct > 0 else 0.0
-                net_r = net_return_pct / planned_risk_pct if planned_risk_pct > 0 else 0.0
+                # Standard Quant Net R: Net PnL USD / Initial Dollar Risk USD
+                gross_r = gross_return_pct / sl_dist_pct if sl_dist_pct > 0 else 0.0
+                net_r = net_return_pct / sl_dist_pct if sl_dist_pct > 0 else 0.0
 
                 matches.append({
                     "bar_index": i,
@@ -828,6 +964,9 @@ class TimeMachineAgent:
                     "max_adverse_pct": max_adverse * 100.0,
                     "gross_return_pct": gross_return_pct,
                     "net_return_pct": net_return_pct,
+                    "gross_dollar_pnl": round(gross_dollar_pnl, 4),
+                    "net_dollar_pnl": round(net_dollar_pnl, 4),
+                    "initial_dollar_risk": round(initial_dollar_risk, 4),
                     "gross_r": gross_r,
                     "net_r": net_r,
                     "ambiguity_resolved": ambiguity
@@ -1061,3 +1200,69 @@ class TimeMachineAgent:
             "ambiguous_cases": ambiguous_cases,
             "reason": reason_str
         }
+
+    def evaluate_candidate_parameters(
+        self,
+        candidate_params: Dict[str, Any],
+        candles_15m: Dict[str, Any],
+        candles_1h: Optional[Dict[str, Any]] = None,
+        candles_5m: Optional[Dict[str, Any]] = None,
+        candles_1m: Optional[Dict[str, Any]] = None,
+        symbol: str = "BTCUSD",
+        side: str = "buy",
+        strategy_name: str = "Institutional_SSL_Sweep"
+    ) -> Dict[str, Any]:
+        """
+        Evaluate candidate parameters on historical candle series for Agent 10 Adaptive Learning.
+        Derives simulated entry, stop loss, and take profit from candidate parameters across candles.
+        """
+        closes = candles_15m.get("c", [])
+        if not closes or len(closes) < 60:
+            return {
+                "passed": False,
+                "reason": "INSUFFICIENT_DATA: Minimum 60 candles required for candidate evaluation.",
+                "verdict": "REJECTED",
+                "sample_size": 0
+            }
+
+        current_price = closes[-1]
+        target_rr = float(candidate_params.get("target_rr_ratio") or candidate_params.get("rr_ratio") or 2.0)
+        atr_mult = float(candidate_params.get("atr_multiplier") or candidate_params.get("sl_atr_mult") or 1.5)
+
+        sl_dist = current_price * 0.01 * atr_mult
+        tp_dist = sl_dist * target_rr
+
+        if side.lower() == "buy":
+            sim_entry = current_price
+            sim_sl = current_price - sl_dist
+            sim_tp = current_price + tp_dist
+        else:
+            sim_entry = current_price
+            sim_sl = current_price + sl_dist
+            sim_tp = current_price - tp_dist
+
+        setup = {
+            "symbol": symbol,
+            "side": side,
+            "strategy_name": strategy_name,
+            "entry_price": sim_entry,
+            "stop_loss_price": sim_sl,
+            "take_profit_price": sim_tp
+        }
+
+        saved_bars = self.max_simulation_bars
+        if "max_holding_bars" in candidate_params:
+            self.max_simulation_bars = int(candidate_params["max_holding_bars"])
+
+        try:
+            res = self.simulate_setup(
+                setup=setup,
+                candles_15m=candles_15m,
+                candles_1h=candles_1h,
+                candles_5m=candles_5m,
+                candles_1m=candles_1m
+            )
+        finally:
+            self.max_simulation_bars = saved_bars
+
+        return res

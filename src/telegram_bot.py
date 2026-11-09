@@ -38,12 +38,6 @@ class TelegramConfirmationBot:
         actual_token = bot_token or token
         self.bot_token = (actual_token or config.telegram_bot_token or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
         self.chat_id = (chat_id or config.telegram_chat_id or os.getenv("TELEGRAM_CHAT_ID") or "").strip()
-        self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
-        self.last_update_id = 0
-        self._confirmed_trade_ids = set()
-        self._processed_nonces = set()
-        self.max_price_drift_pct = config.max_price_drift_pct
-        self.audit_log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "telegram_approvals_audit.json")
 
         # Construct set of authorized Telegram User IDs
         self.authorized_user_ids = set()
@@ -52,10 +46,21 @@ class TelegramConfirmationBot:
             for u in users_list:
                 if str(u).lstrip('-').isdigit():
                     self.authorized_user_ids.add(int(u))
+            # If chat_id not explicitly given, use first authorized chat ID
+            if not self.chat_id and len(users_list) > 0:
+                self.chat_id = str(users_list[0]).strip()
+
         if config.authorized_user_ids:
             self.authorized_user_ids.update(config.authorized_user_ids)
         if self.chat_id and self.chat_id.lstrip('-').isdigit():
             self.authorized_user_ids.add(int(self.chat_id))
+
+        self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
+        self.last_update_id = 0
+        self._confirmed_trade_ids = set()
+        self._processed_nonces = set()
+        self.max_price_drift_pct = config.max_price_drift_pct
+        self.audit_log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "telegram_approvals_audit.json")
 
         self._sync_update_offset()
 

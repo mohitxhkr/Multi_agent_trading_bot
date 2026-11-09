@@ -94,6 +94,48 @@ class TelegramNotifier:
             logger.error(f"Telegram network exception: {e}")
             return False
 
+    def send_photo(
+        self,
+        photo_path_or_bytes: Any,
+        caption: Optional[str] = None,
+        parse_mode: str = "HTML"
+    ) -> bool:
+        """
+        Send candlestick chart photo to Telegram with optional HTML caption.
+        Accepts file path (str) or binary buffer/bytes.
+        """
+        if not self.enabled:
+            logger.debug("TelegramNotifier: Disabled. Skipping send_photo.")
+            return False
+
+        try:
+            url = f"{self.base_url}/sendPhoto"
+            data = {"chat_id": self.chat_id}
+            if caption:
+                # Telegram caption maximum length is 1024 characters
+                data["caption"] = caption[:1020]
+                data["parse_mode"] = parse_mode
+
+            if isinstance(photo_path_or_bytes, (bytes, bytearray)):
+                files = {"photo": ("candlestick_chart.png", photo_path_or_bytes, "image/png")}
+                res = requests.post(url, data=data, files=files, timeout=25)
+            elif isinstance(photo_path_or_bytes, str) and os.path.exists(photo_path_or_bytes):
+                with open(photo_path_or_bytes, "rb") as f:
+                    files = {"photo": (os.path.basename(photo_path_or_bytes), f, "image/png")}
+                    res = requests.post(url, data=data, files=files, timeout=25)
+            else:
+                logger.error(f"TelegramNotifier: Invalid photo target '{photo_path_or_bytes}'")
+                return False
+
+            data_res = res.json()
+            if data_res.get("ok"):
+                return True
+            logger.warning(f"Telegram sendPhoto failed: {data_res.get('description')}")
+            return False
+        except Exception as e:
+            logger.error(f"Telegram sendPhoto network exception: {e}")
+            return False
+
     def send_daily_morning_briefing(self, briefing_text: str) -> bool:
         """Send formatted Daily Morning Crypto News Briefing & Sentiment Card to Telegram."""
         return self.send_message(briefing_text, parse_mode="HTML")

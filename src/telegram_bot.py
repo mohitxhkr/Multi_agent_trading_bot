@@ -165,6 +165,46 @@ class TelegramConfirmationBot:
             logger.error(f"Telegram network error: {e}")
             return None
 
+    def send_photo(
+        self,
+        photo_path_or_bytes: Any,
+        caption: Optional[str] = None
+    ) -> Optional[int]:
+        """
+        Send candlestick chart photo to Telegram with optional HTML caption.
+        Accepts file path (str) or binary buffer/bytes.
+        """
+        if not self.is_configured:
+            logger.warning("Telegram not configured. Cannot send photo.")
+            return None
+
+        try:
+            url = f"{self.base_url}/sendPhoto"
+            data: Dict[str, Any] = {"chat_id": self.chat_id}
+            if caption:
+                data["caption"] = caption[:1020]
+                data["parse_mode"] = "HTML"
+
+            if isinstance(photo_path_or_bytes, (bytes, bytearray)):
+                files = {"photo": ("candlestick_chart.png", photo_path_or_bytes, "image/png")}
+                res = requests.post(url, data=data, files=files, timeout=25)
+            elif isinstance(photo_path_or_bytes, str) and os.path.exists(photo_path_or_bytes):
+                with open(photo_path_or_bytes, "rb") as f:
+                    files = {"photo": (os.path.basename(photo_path_or_bytes), f, "image/png")}
+                    res = requests.post(url, data=data, files=files, timeout=25)
+            else:
+                logger.error(f"TelegramConfirmationBot: Invalid photo path: {photo_path_or_bytes}")
+                return None
+
+            data_res = res.json()
+            if data_res.get("ok"):
+                return data_res["result"]["message_id"]
+            logger.warning(f"Telegram sendPhoto failed: {data_res.get('description')}")
+            return None
+        except Exception as e:
+            logger.error(f"Telegram sendPhoto network exception: {e}")
+            return None
+
     def edit_message_text(self, message_id: int, text: str, reply_markup: Optional[Dict[str, Any]] = None) -> bool:
         """Edit an existing Telegram message."""
         if not self.is_configured:
@@ -1079,8 +1119,53 @@ class TelegramConfirmationBot:
                 self.send_message("⚡ <i>Calculating critical breakout &amp; breakdown levels across all assets... Please wait.</i>")
                 msg = orchestrator.format_market_levels_telegram()
                 self.send_message(msg)
+
+                # Generate and dispatch live candlestick chart with levels overlay for BTCUSD
+                try:
+                    from src.candlestick_chart import generate_candlestick_chart
+                    btc_analysis = orchestrator.regime_analyst.analyze_symbol("BTCUSD", resolution="15")
+                    candles = btc_analysis.get("_raw_candles_15m") or btc_analysis.get("_raw_candles_1h")
+                    if candles:
+                        kl = btc_analysis.get("key_levels_analysis", {})
+                        chart_path = generate_candlestick_chart(candles, "BTCUSD", key_levels=kl, timeframe_label="15m")
+                        cap = (
+                            f"📊 <b>[BTCUSD LIVE 15m CANDLESTICK CHART]</b>\n"
+                            f"• <b>Mark:</b> <code>${kl.get('current_price', 0):,.2f}</code> | "
+                            f"Breakout: <code>${kl.get('breakout_level', 0):,.2f}</code> | "
+                            f"Breakdown: <code>${kl.get('breakdown_level', 0):,.2f}</code>"
+                        )
+                        self.send_photo(chart_path, caption=cap)
+                except Exception as c_err:
+                    logger.debug(f"Chart attachment in /levels skipped: {c_err}")
             except Exception as e:
                 self.send_message(f"⚠️ Error calculating market levels: {e}")
+
+        elif cmd in ["/chart", "/candlestick", "/graph"]:
+            parts = full_text.split()
+            target_sym = parts[1].upper() if len(parts) > 1 else "BTCUSD"
+            if not target_sym.endswith("USD") and not target_sym.endswith("USDT"):
+                target_sym = f"{target_sym}USD"
+
+            try:
+                self.send_message(f"📊 <i>Generating live 15m candlestick chart for {target_sym}...</i>")
+                from src.candlestick_chart import generate_candlestick_chart
+                analysis = orchestrator.regime_analyst.analyze_symbol(target_sym, resolution="15")
+                candles = analysis.get("_raw_candles_15m") or analysis.get("_raw_candles_1h")
+                if not candles or len(candles.get("c", [])) < 5:
+                    self.send_message(f"⚠️ Could not fetch sufficient candlestick history for {target_sym}.")
+                else:
+                    kl = analysis.get("key_levels_analysis", {})
+                    chart_path = generate_candlestick_chart(candles, target_sym, key_levels=kl, timeframe_label="15m")
+                    cap = (
+                        f"📊 <b>[{target_sym} LIVE CANDLESTICK CHART · 15m]</b>\n"
+                        f"• <b>Mark Price:</b> <code>${kl.get('current_price', 0):,.2f}</code>\n"
+                        f"• <b>Breakout Ceiling:</b> <code>${kl.get('breakout_level', 0):,.2f}</code> (+{kl.get('distance_to_breakout_pct', 0):.2f}%)\n"
+                        f"• <b>Breakdown Floor:</b> <code>${kl.get('breakdown_level', 0):,.2f}</code> (-{kl.get('distance_to_breakdown_pct', 0):.2f}%)\n"
+                        f"• <b>Status:</b> <b>{kl.get('status_label', 'SCANNING')}</b>"
+                    )
+                    self.send_photo(chart_path, caption=cap)
+            except Exception as ce:
+                self.send_message(f"⚠️ Error generating candlestick chart: {ce}")
 
         elif cmd in ["/help", "/start"]:
             help_msg = (
@@ -1088,7 +1173,8 @@ class TelegramConfirmationBot:
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "You can command your trading bot anytime directly in this chat:\n\n"
                 "• <code>/status</code> — View 24/7 cloud health, available equity &amp; open count\n"
-                "• <code>/levels</code> — Breakout &amp; Breakdown Key Levels with Pre-Trade Plans\n"
+                "• <code>/chart &lt;symbol&gt;</code> — Live Candlestick Chart with Breakout/Breakdown Levels\n"
+                "• <code>/levels</code> — Breakout &amp; Breakdown Key Levels with Pre-Trade Plans &amp; Chart\n"
                 "• <code>/news</code> — Daily Crypto Morning Briefing &amp; Sentiment Card (10-11 AM IST)\n"
                 "• <code>/posture</code> — View Market Posture, Breadth % &amp; Exposure Ceiling\n"
                 "• <code>/rules</code> — Inspect dynamic Next-Session Operating Rules\n"

@@ -73,6 +73,32 @@ def main():
         else:
             print("⚠️ Failed to dispatch message to Telegram. Check credentials or network.")
 
+        # Also dispatch Live Candlestick Charts for monitored symbols
+        print("\n📊 Generating and dispatching live candlestick charts...")
+        from src.candlestick_chart import generate_candlestick_chart
+        for sym in symbols[:2]:  # Send charts for top core symbols (e.g. BTC, ETH/XAU)
+            try:
+                analysis = orchestrator.regime_analyst.analyze_symbol(sym, resolution="15")
+                candles = analysis.get("_raw_candles_15m") or analysis.get("_raw_candles_1h")
+                if candles and len(candles.get("c", [])) >= 5:
+                    kl = analysis.get("key_levels_analysis", {})
+                    chart_path = generate_candlestick_chart(candles, sym, key_levels=kl, timeframe_label="15m")
+                    cap = (
+                        f"📊 <b>[{sym} LIVE 15m CANDLESTICK CHART]</b>\n"
+                        f"• <b>Mark:</b> <code>${kl.get('current_price', 0):,.2f}</code>\n"
+                        f"• <b>Breakout Ceiling:</b> <code>${kl.get('breakout_level', 0):,.2f}</code> (+{kl.get('distance_to_breakout_pct', 0):.2f}%)\n"
+                        f"• <b>Breakdown Floor:</b> <code>${kl.get('breakdown_level', 0):,.2f}</code> (-{kl.get('distance_to_breakdown_pct', 0):.2f}%)\n"
+                        f"• <b>Status:</b> <b>{kl.get('status_label', 'SCANNING')}</b>"
+                    )
+                    photo_sent = telegram.send_photo(chart_path, caption=cap)
+                    if photo_sent:
+                        print(f"✅ Successfully dispatched live candlestick chart for {sym} to Telegram!")
+                    else:
+                        print(f"⚠️ Could not dispatch chart for {sym}.")
+            except Exception as ce:
+                print(f"⚠️ Error charting {sym}: {ce}")
+
 
 if __name__ == "__main__":
     main()
+

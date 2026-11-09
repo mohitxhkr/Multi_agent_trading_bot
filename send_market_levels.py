@@ -86,8 +86,8 @@ def main():
                     cap = (
                         f"📊 <b>[{sym} LIVE 15m CANDLESTICK CHART]</b>\n"
                         f"• <b>Mark:</b> <code>${kl.get('current_price', 0):,.2f}</code>\n"
-                        f"• <b>Breakout Ceiling:</b> <code>${kl.get('breakout_level', 0):,.2f}</code> (+{kl.get('distance_to_breakout_pct', 0):.2f}%)\n"
-                        f"• <b>Breakdown Floor:</b> <code>${kl.get('breakdown_level', 0):,.2f}</code> (-{kl.get('distance_to_breakdown_pct', 0):.2f}%)\n"
+                        f"• <b>Breakout (LONG / UP):</b> <code>${kl.get('breakout_level', 0):,.2f}</code> (+{kl.get('distance_to_breakout_pct', 0):.2f}%)\n"
+                        f"• <b>Breakdown (SHORT / DOWN):</b> <code>${kl.get('breakdown_level', 0):,.2f}</code> (-{kl.get('distance_to_breakdown_pct', 0):.2f}%)\n"
                         f"• <b>Status:</b> <b>{kl.get('status_label', 'SCANNING')}</b>"
                     )
                     photo_sent = telegram.send_photo(chart_path, caption=cap)

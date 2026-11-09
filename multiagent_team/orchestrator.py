@@ -339,7 +339,34 @@ class MultiAgentTradingOrchestrator:
             )
 
             try:
-                sent = self.telegram.send_message(msg)
+                sent = False
+                # Attach live candlestick chart with clear UP/DOWN for LONG/SHORT indication
+                try:
+                    from src.candlestick_chart import generate_candlestick_chart
+                    analysis = self.regime_analyst.analyze_symbol(sym, resolution="15")
+                    candles = analysis.get("_raw_candles_15m") or analysis.get("_raw_candles_1h")
+                    if not candles or len(candles.get("c", [])) < 5:
+                        c_res = self.client.get_candles(sym, resolution="15")
+                        if c_res and isinstance(c_res, dict) and c_res.get("result"):
+                            c_list = c_res["result"]
+                            if isinstance(c_list, list) and len(c_list) >= 5:
+                                candles = {
+                                    "o": [float(x.get("open", 0)) for x in c_list],
+                                    "h": [float(x.get("high", 0)) for x in c_list],
+                                    "l": [float(x.get("low", 0)) for x in c_list],
+                                    "c": [float(x.get("close", 0)) for x in c_list],
+                                    "v": [float(x.get("volume", 0)) for x in c_list],
+                                    "t": [int(x.get("time", 0)) for x in c_list],
+                                }
+                    if candles and len(candles.get("c", [])) >= 5:
+                        chart_path = generate_candlestick_chart(candles, sym, key_levels=kla, timeframe_label="15m")
+                        if hasattr(self.telegram, "send_photo"):
+                            sent = self.telegram.send_photo(chart_path, caption=msg)
+                except Exception as ce:
+                    logger.debug(f"Could not attach candlestick chart to pre-trade radar alert: {ce}")
+
+                if not sent:
+                    sent = self.telegram.send_message(msg)
                 if sent:
                     posted_alerts[alert_key] = now_ts
                     alerts_sent += 1

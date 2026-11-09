@@ -96,12 +96,18 @@ def generate_candlestick_chart(
     ema21 = calculate_ema_series(c_s, min(21, bars_count))
     ema50 = calculate_ema_series(c_s, min(50, bars_count))
 
-    # Extract Key Levels
+    # Extract Key Levels & Pre-Trade Action Plans
     kl = key_levels or {}
     breakout_level = float(kl.get("breakout_level") or 0.0)
     breakdown_level = float(kl.get("breakdown_level") or 0.0)
     vwap_price = float(kl.get("vwap_price") or 0.0)
     status_label = kl.get("status_label", "MARKET SCAN")
+    bo_plan = kl.get("bullish_breakout_plan", {})
+    bd_plan = kl.get("bearish_breakdown_plan", {})
+    bullish_tp = float(bo_plan.get("take_profit_price") or 0.0)
+    bullish_sl = float(bo_plan.get("stop_loss_price") or 0.0)
+    bearish_tp = float(bd_plan.get("take_profit_price") or 0.0)
+    bearish_sl = float(bd_plan.get("stop_loss_price") or 0.0)
 
     # Dark Theme Palette
     BG_COLOR = "#0F141C"        # Deep charcoal slate
@@ -171,27 +177,70 @@ def generate_candlestick_chart(
             zorder=6
         )
 
-    # Plot Breakout Level
+    # Determine Directional Bias Badge (LONG / UP vs SHORT / DOWN)
+    prox_status = kl.get("proximity_status", "")
+    if "BREAKOUT" in str(status_label).upper() or prox_status == "TESTING_BREAKOUT":
+        bias_text = "[PRE-TRADE INDICATION: UP]  ▲  GO LONG (BREAKOUT IMMINENT)"
+        bias_bg = "#00C853"
+        bias_fg = "#FFFFFF"
+    elif "BREAKDOWN" in str(status_label).upper() or prox_status == "TESTING_BREAKDOWN":
+        bias_text = "[PRE-TRADE INDICATION: DOWN]  ▼  GO SHORT (BREAKDOWN IMMINENT)"
+        bias_bg = "#D50000"
+        bias_fg = "#FFFFFF"
+    else:
+        bias_text = "[PRE-TRADE RADAR]  ▲ LONG ABOVE BREAKOUT  |  ▼ SHORT BELOW BREAKDOWN"
+        bias_bg = "#1E293B"
+        bias_fg = "#94A3B8"
+
+    ax_price.text(
+        0.5, 0.94, f"  {bias_text}  ",
+        transform=ax_price.transAxes,
+        color=bias_fg, fontsize=9.0, fontweight="bold", ha="center", va="top",
+        bbox=dict(boxstyle="round,pad=0.35", facecolor=bias_bg, edgecolor="none", alpha=0.95),
+        zorder=8
+    )
+
+    # Plot Breakout Level (LONG / UP Trigger)
     if breakout_level > 0:
         dist_bo = ((breakout_level - current_price) / current_price) * 100.0
         ax_price.axhline(breakout_level, color=BREAKOUT_COLOR, linestyle="--", linewidth=1.8, alpha=0.9, zorder=5)
         ax_price.text(
-            1.0, breakout_level, f" ▲ BREAKOUT LEVEL: ${breakout_level:,.2f} (+{dist_bo:.2f}%) ",
+            1.0, breakout_level, f" ▲ BREAKOUT LEVEL: ${breakout_level:,.2f} (+{dist_bo:.2f}%) ➔ GO LONG (UP) ",
             color="#FFFFFF", fontsize=9, fontweight="bold", verticalalignment="bottom",
-            bbox=dict(boxstyle="round,pad=0.3", facecolor=BREAKOUT_COLOR, edgecolor="none", alpha=0.9),
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="#00A844", edgecolor=BREAKOUT_COLOR, linewidth=1.2, alpha=0.95),
             zorder=6
         )
 
-    # Plot Breakdown Level
+        # Plot Bullish Take-Profit (Target) if available
+        if bullish_tp > 0:
+            ax_price.axhline(bullish_tp, color="#00E676", linestyle=":", linewidth=1.2, alpha=0.75, zorder=4)
+            ax_price.text(
+                bars_count - 1.2, bullish_tp, f" [TP] LONG TARGET ${bullish_tp:,.2f} ",
+                color="#00E676", fontsize=8, fontweight="bold", verticalalignment="center",
+                bbox=dict(boxstyle="square,pad=0.2", facecolor=PANEL_COLOR, edgecolor="#00E676", alpha=0.85),
+                zorder=6
+            )
+
+    # Plot Breakdown Level (SHORT / DOWN Trigger)
     if breakdown_level > 0:
         dist_bd = ((current_price - breakdown_level) / current_price) * 100.0
         ax_price.axhline(breakdown_level, color=BREAKDOWN_COLOR, linestyle="--", linewidth=1.8, alpha=0.9, zorder=5)
         ax_price.text(
-            1.0, breakdown_level, f" ▼ BREAKDOWN LEVEL: ${breakdown_level:,.2f} (-{dist_bd:.2f}%) ",
+            1.0, breakdown_level, f" ▼ BREAKDOWN LEVEL: ${breakdown_level:,.2f} (-{dist_bd:.2f}%) ➔ GO SHORT (DOWN) ",
             color="#FFFFFF", fontsize=9, fontweight="bold", verticalalignment="top",
-            bbox=dict(boxstyle="round,pad=0.3", facecolor=BREAKDOWN_COLOR, edgecolor="none", alpha=0.9),
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="#C62828", edgecolor=BREAKDOWN_COLOR, linewidth=1.2, alpha=0.95),
             zorder=6
         )
+
+        # Plot Bearish Take-Profit (Target) if available
+        if bearish_tp > 0:
+            ax_price.axhline(bearish_tp, color="#FF1744", linestyle=":", linewidth=1.2, alpha=0.75, zorder=4)
+            ax_price.text(
+                bars_count - 1.2, bearish_tp, f" [TP] SHORT TARGET ${bearish_tp:,.2f} ",
+                color="#FF1744", fontsize=8, fontweight="bold", verticalalignment="center",
+                bbox=dict(boxstyle="square,pad=0.2", facecolor=PANEL_COLOR, edgecolor="#FF1744", alpha=0.85),
+                zorder=6
+            )
 
     # Plot Current Mark Price Line
     ax_price.axhline(current_price, color=MARK_COLOR, linestyle="-", linewidth=1.2, alpha=0.75, zorder=4)
@@ -209,9 +258,32 @@ def generate_candlestick_chart(
         y_max = max(y_max, breakout_level * 1.002)
     if breakdown_level > 0:
         y_min = min(y_min, breakdown_level * 0.998)
-    padding = (y_max - y_min) * 0.08
+    if bullish_tp > 0:
+        y_max = max(y_max, bullish_tp * 1.002)
+    if bearish_tp > 0:
+        y_min = min(y_min, bearish_tp * 0.998)
+    padding = (y_max - y_min) * 0.10
     ax_price.set_ylim(y_min - padding, y_max + padding)
-    ax_price.set_xlim(-1, bars_count + 6)  # Extra right space for level labels
+    ax_price.set_xlim(-1, bars_count + 8)  # Extra right space for level labels & arrows
+
+    # Directional Arrows on the Right Side
+    arrow_x = bars_count + 3.5
+    if breakout_level > 0:
+        ax_price.annotate(
+            "▲ UP\n(LONG)",
+            xy=(arrow_x, breakout_level),
+            xytext=(arrow_x, min(y_max - padding * 0.2, breakout_level + (y_max - y_min) * 0.14)),
+            arrowprops=dict(facecolor="#00E676", edgecolor="#00E676", width=2.5, headwidth=8, headlength=7, shrink=0.08),
+            color="#00E676", fontsize=8.5, fontweight="bold", ha="center", va="bottom", zorder=7
+        )
+    if breakdown_level > 0:
+        ax_price.annotate(
+            "▼ DOWN\n(SHORT)",
+            xy=(arrow_x, breakdown_level),
+            xytext=(arrow_x, max(y_min + padding * 0.2, breakdown_level - (y_max - y_min) * 0.14)),
+            arrowprops=dict(facecolor="#FF1744", edgecolor="#FF1744", width=2.5, headwidth=8, headlength=7, shrink=0.08),
+            color="#FF1744", fontsize=8.5, fontweight="bold", ha="center", va="top", zorder=7
+        )
 
     # Grid & Spines
     for ax in [ax_price, ax_vol]:

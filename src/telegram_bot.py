@@ -1509,9 +1509,9 @@ class TelegramConfirmationBot:
                         chart_path = generate_candlestick_chart(candles, "BTCUSD", key_levels=kl, timeframe_label="15m")
                         cap = (
                             f"📊 <b>[BTCUSD LIVE 15m CANDLESTICK CHART]</b>\n"
-                            f"• <b>Mark:</b> <code>${kl.get('current_price', 0):,.2f}</code> | "
-                            f"Breakout: <code>${kl.get('breakout_level', 0):,.2f}</code> | "
-                            f"Breakdown: <code>${kl.get('breakdown_level', 0):,.2f}</code>"
+                            f"• <b>Mark:</b> <code>${kl.get('current_price', 0):,.2f}</code>\n"
+                            f"• <b>Breakout (LONG / UP):</b> <code>${kl.get('breakout_level', 0):,.2f}</code>\n"
+                            f"• <b>Breakdown (SHORT / DOWN):</b> <code>${kl.get('breakdown_level', 0):,.2f}</code>"
                         )
                         reply_photo(chart_path, caption=cap)
                 except Exception as c_err:
@@ -1581,7 +1581,10 @@ class TelegramConfirmationBot:
                         "breakdown_level": bd_level,
                         "distance_to_breakout_pct": dist_bo,
                         "distance_to_breakdown_pct": dist_bd,
-                        "status_label": st_label
+                        "status_label": st_label,
+                        "proximity_status": kl.get("proximity_status", ""),
+                        "bullish_breakout_plan": kl.get("bullish_breakout_plan", {}),
+                        "bearish_breakdown_plan": kl.get("bearish_breakdown_plan", {})
                     }
 
                     chart_path = generate_candlestick_chart(candles, target_sym, key_levels=chart_kl, timeframe_label="15m")
@@ -1590,8 +1593,8 @@ class TelegramConfirmationBot:
                     cap = (
                         f"📊 <b>[{target_sym} LIVE CANDLESTICK CHART · 15m]</b>\n"
                         f"• <b>Mark Price:</b> <code>${cur_price:,.2f}</code>\n"
-                        f"• <b>Breakout Ceiling:</b> <code>${bo_level:,.2f}</code> (+{dist_bo:.2f}%)\n"
-                        f"• <b>Breakdown Floor:</b> <code>${bd_level:,.2f}</code> (-{dist_bd:.2f}%)\n"
+                        f"• <b>Breakout (LONG / UP):</b> <code>${bo_level:,.2f}</code> (+{dist_bo:.2f}%)\n"
+                        f"• <b>Breakdown (SHORT / DOWN):</b> <code>${bd_level:,.2f}</code> (-{dist_bd:.2f}%)\n"
                         f"• <b>Status:</b> <b>{st_label_escaped}</b>"
                     )
                     sent = reply_photo(chart_path, caption=cap)

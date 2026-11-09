@@ -123,9 +123,9 @@ class SystemConfig(BaseModel):
         description="Time limit for manual Telegram trade confirmation"
     )
     max_price_drift_pct: float = Field(
-        default=0.40,
+        default=1.00,
         ge=0.10,
-        le=2.0,
+        le=3.0,
         description="Max permitted price drift between proposal and execution approval"
     )
     data_freshness_max_seconds: int = Field(

@@ -934,6 +934,15 @@ class MultiAgentTradingOrchestrator:
         except Exception as pe:
             logger.debug(f"Could not check active positions for collision: {pe}")
 
+        # Check portfolio concurrency limit before proposing trade
+        from src.config import system_config
+        if len(active_pos_symbols) >= system_config.max_portfolio_concurrency:
+            return {
+                "status": "REJECTED",
+                "code": "PORTFOLIO_CONCURRENCY_LIMIT",
+                "reason": f"Maximum concurrent positions reached ({len(active_pos_symbols)}/{system_config.max_portfolio_concurrency} active: {', '.join(active_pos_symbols)}). Use /close <symbol> to close a position first."
+            }
+
         # If a specific symbol was requested and already has an active position, notify user
         if symbol and symbol.upper() not in ["ALL", "AUTO", "ANY", "SCAN"]:
             clean_sym = symbol.upper()
@@ -1178,6 +1187,8 @@ class MultiAgentTradingOrchestrator:
         if not safety_res.get("passed"):
             code = safety_res.get("failure_code", "SAFETY_VETO")
             reason = safety_res.get("reason", "Safety check failed")
+            if self.telegram_bot and self.telegram_bot.is_configured:
+                self.telegram_bot.send_message(f"🛑 <b>Execution Blocked by Safety Controller:</b>\nReason: <code>{reason}</code> (Code: <code>{code}</code>)\nCapital protected.", chat_id=chat_id)
             return {"status": "REJECTED", "code": code, "reason": reason}
 
         # 7. Order Execution on Delta Exchange
@@ -1214,10 +1225,13 @@ class MultiAgentTradingOrchestrator:
                 "contracts": decision["contracts"]
             }
         else:
+            err_msg = exec_res.get("error")
+            if self.telegram_bot and self.telegram_bot.is_configured:
+                self.telegram_bot.send_message(f"⚠️ <b>Order Execution Failed on Delta Exchange:</b>\n<code>{err_msg}</code>", chat_id=chat_id)
             return {
                 "status": "FAILED",
                 "code": "EXCHANGE_ORDER_ERROR",
-                "error": exec_res.get("error")
+                "error": err_msg
             }
 
     def run_continuous_loop(self, interval_seconds: int = 300):

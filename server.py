@@ -167,7 +167,7 @@ def run_scanner_loop():
         "• <b>Trailing Stop Loss:</b> 🛡️ <b>ACTIVE (10s Loop)</b>\n"
         "  <i>(1:1 -> Breakeven, 1:2 -> Lock +1R & trail to 1:3, 1:5)</i>\n"
         "• <b>Interactive Commands Active:</b>\n"
-        "  Type <code>/chart</code>, <code>/levels</code>, <code>/news</code>, <code>/scan</code>, <code>/status</code>, <code>/positions</code> anytime!\n"
+        "  Type <code>/trade</code>, <code>/radar</code>, <code>/chart</code>, <code>/levels</code>, <code>/news</code>, <code>/scan</code>, <code>/status</code>, <code>/positions</code> anytime!\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "⚡ <i>Actively scanning charts 24/7. Capital is protected.</i>"
     )

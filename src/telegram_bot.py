@@ -1061,7 +1061,7 @@ class TelegramConfirmationBot:
             except Exception as e:
                 reply(f"⚠️ Error fetching positions: {e}")
 
-        elif cmd in ["/trade", "/findtrade", "/find_trade"]:
+        elif cmd in ["/trade", "/proposal", "/propose", "/scalp", "/findtrade", "/find_trade"]:
             parts = full_text.strip().split()
             target_sym = None
             requested_side = None
@@ -1121,65 +1121,7 @@ class TelegramConfirmationBot:
                     )
                     return
 
-            # 2. Fetch live mark prices for BTC, ETH, XAU
-            btc_mark = 0.0
-            eth_mark = 0.0
-            xau_mark = 0.0
-            try:
-                for s_chk in ["BTCUSD", "ETHUSD", "XAUUSD"]:
-                    t_obj = client.get_ticker(s_chk)
-                    if t_obj and t_obj.get("success"):
-                        p = float(t_obj.get("result", {}).get("mark_price", 0.0) or 0.0)
-                        if s_chk == "BTCUSD": btc_mark = p
-                        elif s_chk == "ETHUSD": eth_mark = p
-                        elif s_chk == "XAUUSD": xau_mark = p
-            except Exception:
-                pass
-
-            # 3. Market Posture
-            regime = "NEUTRAL"
-            try:
-                if hasattr(orchestrator, "exposure_coach"):
-                    posture_data = orchestrator.exposure_coach.evaluate_market_posture(orchestrator.client)
-                    regime = posture_data.get("posture", "NEUTRAL")
-                elif hasattr(orchestrator, "regime_analyst"):
-                    ra = orchestrator.regime_analyst.analyze_symbol(target_sym, resolution="15")
-                    regime = ra.get("regime", "NEUTRAL")
-            except Exception:
-                pass
-
-            # 4. First: Dispatch the Pre-Trade Scalp Radar
-            trade_markup = {
-                "inline_keyboard": [
-                    [
-                        {"text": "⚡ Switch to BTC Scalp", "callback_data": "propose_scalp_BTCUSD"},
-                        {"text": "⚡ Switch to ETH Scalp", "callback_data": "propose_scalp_ETHUSD"},
-                    ],
-                    [
-                        {"text": "⚡ Switch to XAU Scalp", "callback_data": "propose_scalp_XAUUSD"},
-                        {"text": "📋 View Sample Card", "callback_data": "sample_proposal_view"},
-                    ]
-                ]
-            }
-
-            dir_txt = f" · Bias: {requested_side.upper()}" if requested_side else ""
-            radar_msg = (
-                "🛡️ <b>[ON-DEMAND SCALP RADAR &amp; OPPORTUNITY SCAN]</b>\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• <b>Target Scalp Symbol:</b> <code>{target_sym}</code>{dir_txt}\n"
-                f"• <b>Market Posture:</b> <code>{regime}</code>\n"
-                "• <b>Capital Protection:</b> 100% Isolated Margin | Fixed $2–$4 Risk | 1:2.5 Min R:R\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "📊 <b>Live Market Prices:</b>\n"
-                f"• <b>BTCUSD:</b> <code>${btc_mark:,.2f}</code>\n"
-                f"• <b>ETHUSD:</b> <code>${eth_mark:,.2f}</code>\n"
-                f"• <b>XAUUSD:</b> <code>${xau_mark:,.2f}</code>\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🎯 <i>Generating live institutional trade proposal card for {target_sym} below...</i>"
-            )
-            reply(radar_msg, reply_markup=trade_markup)
-
-            # 5. Second: Immediately dispatch the actual live trade proposal card with interactive buttons
+            # Directly dispatch the actual live interactive trade proposal card with confirmation buttons
             try:
                 if hasattr(orchestrator, "propose_on_demand_trade"):
                     res = orchestrator.propose_on_demand_trade(symbol=target_sym, side=requested_side, chat_id=target_chat)
@@ -1197,6 +1139,88 @@ class TelegramConfirmationBot:
                     reply("⚠️ Orchestrator does not support on-demand scalp generator.")
             except Exception as te:
                 reply(f"⚠️ Error proposing scalp trade on {target_sym}: {te}")
+
+        elif cmd in ["/radar", "/preradar", "/scalpradar", "/pretrade"]:
+            parts = full_text.strip().split()
+            target_sym = "BTCUSD"
+            if len(parts) > 1:
+                raw_sym = parts[1].upper()
+                if raw_sym in ["BTC", "BITCOIN"]: target_sym = "BTCUSD"
+                elif raw_sym in ["ETH", "ETHEREUM"]: target_sym = "ETHUSD"
+                elif raw_sym in ["GOLD", "XAU", "PAXG"]: target_sym = "XAUUSD"
+                elif raw_sym in ["SOL", "SOLANA"]: target_sym = "SOLUSD"
+                elif raw_sym in ["XRP", "RIPPLE"]: target_sym = "XRPUSD"
+                elif not raw_sym.endswith("USD"): target_sym = f"{raw_sym}USD"
+                else: target_sym = raw_sym
+
+            # Emergency Halt Check
+            if hasattr(orchestrator, "emergency_controller"):
+                is_halted, halt_reason = orchestrator.emergency_controller.is_halted()
+                if is_halted:
+                    reply(
+                        "🛑 <b>[BOT CURRENTLY PAUSED]</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "• <b>Status:</b> Trading is paused via Emergency Controller.\n"
+                        f"• <b>Reason:</b> {halt_reason or 'Manual pause active.'}\n"
+                        "• <i>Send <code>/resume</code> to re-enable automated trading.</i>"
+                    )
+                    return
+
+            # Fetch live mark prices for BTC, ETH, XAU
+            btc_mark = 0.0
+            eth_mark = 0.0
+            xau_mark = 0.0
+            try:
+                for s_chk in ["BTCUSD", "ETHUSD", "XAUUSD"]:
+                    t_obj = client.get_ticker(s_chk)
+                    if t_obj and t_obj.get("success"):
+                        p = float(t_obj.get("result", {}).get("mark_price", 0.0) or 0.0)
+                        if s_chk == "BTCUSD": btc_mark = p
+                        elif s_chk == "ETHUSD": eth_mark = p
+                        elif s_chk == "XAUUSD": xau_mark = p
+            except Exception:
+                pass
+
+            # Market Posture
+            regime = "NEUTRAL"
+            try:
+                if hasattr(orchestrator, "exposure_coach"):
+                    posture_data = orchestrator.exposure_coach.evaluate_market_posture(orchestrator.client)
+                    regime = posture_data.get("posture", "NEUTRAL")
+                elif hasattr(orchestrator, "regime_analyst"):
+                    ra = orchestrator.regime_analyst.analyze_symbol(target_sym, resolution="15")
+                    regime = ra.get("regime", "NEUTRAL")
+            except Exception:
+                pass
+
+            radar_markup = {
+                "inline_keyboard": [
+                    [
+                        {"text": "🎯 Propose BTC Scalp", "callback_data": "propose_scalp_BTCUSD"},
+                        {"text": "🎯 Propose ETH Scalp", "callback_data": "propose_scalp_ETHUSD"},
+                    ],
+                    [
+                        {"text": "🎯 Propose XAU Scalp", "callback_data": "propose_scalp_XAUUSD"},
+                        {"text": "📋 View Sample Card", "callback_data": "sample_proposal_view"},
+                    ]
+                ]
+            }
+
+            radar_msg = (
+                "🛡️ <b>[PRE-TRADE SCALP RADAR &amp; OPPORTUNITY SCAN]</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"• <b>Active Focus Asset:</b> <code>{target_sym}</code>\n"
+                f"• <b>Market Posture:</b> <code>{regime}</code>\n"
+                "• <b>Capital Protection:</b> 100% Isolated Margin | Fixed $2–$4 Risk | 1:2.5 Min R:R\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "📊 <b>Live Market Prices:</b>\n"
+                f"• <b>BTCUSD:</b> <code>${btc_mark:,.2f}</code>\n"
+                f"• <b>ETHUSD:</b> <code>${eth_mark:,.2f}</code>\n"
+                f"• <b>XAUUSD:</b> <code>${xau_mark:,.2f}</code>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "⚡ <i>Tap below to instantly generate a trade proposal card, or type <code>/trade &lt;symbol&gt;</code> directly!</i>"
+            )
+            reply(radar_msg, reply_markup=radar_markup)
 
         elif cmd in ["/orders", "/orderbook", "/pending"]:
             try:
@@ -1573,7 +1597,8 @@ class TelegramConfirmationBot:
                 "• <code>/news</code> — Daily Crypto Morning Briefing &amp; Sentiment Card (10-11 AM IST)\n"
                 "• <code>/posture</code> — View Market Posture, Breadth % &amp; Exposure Ceiling\n"
                 "• <code>/rules</code> — Inspect dynamic Next-Session Operating Rules\n"
-                "• <code>/trade [symbol] [side]</code> — On-demand scalp scan &amp; proposal generator (e.g. /trade, /trade BTC, /trade BUY ETH)\n"
+                "• <code>/trade [symbol] [side]</code> — Generate live interactive Trade Proposal Card with [Confirm] / [Reject] buttons\n"
+                "• <code>/radar [symbol]</code> — View Pre-Trade Scalp Radar, market posture, prices &amp; quick-switch buttons\n"
                 "• <code>/scan</code> — Trigger on-demand 5-timeframe scan of BTC, ETH &amp; XAU\n"
                 "• <code>/sample</code> — Send interactive sample trade card with live buttons\n"
                 "• <code>/positions</code> — View currently active positions &amp; PnL\n"

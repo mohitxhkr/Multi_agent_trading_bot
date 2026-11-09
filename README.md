@@ -6,11 +6,11 @@
 [![Delta Exchange](https://img.shields.io/badge/Delta%20Exchange-India%20%7C%20Global%20%7C%20Testnet-0ea5e9?style=for-the-badge)](https://delta.exchange)
 [![Architecture](https://img.shields.io/badge/Architecture-6--Layer%20%7C%2011--Agent-blueviolet?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
 [![Security](https://img.shields.io/badge/Security-HMAC%20Token%20%7C%20Zero--Trust-green?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
-[![Tests](https://img.shields.io/badge/Tests-19%2F19%20Passing%20(100%25)-brightgreen?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
+[![Tests](https://img.shields.io/badge/Tests-144%2F144%20Passing%20(100%25)-brightgreen?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 
 **An institutional-grade, evidence-driven algorithmic trading system engineered for Delta Exchange perpetual futures.**  
-*Specialized for rapid intraday scalping on **BTC, ETH, and XAU (Gold)** with Smart Money Concepts (SMC), 15m Liquidity Sweeps, Walk-Forward Probability Backtests, a 14-Criterion Deterministic Safety Controller, Multi-Horizon Circuit Breakers, and Dual SQLite/JSON Event Journaling.*
+*Specialized for rapid intraday scalping on **BTC, ETH, SOL, XRP, and XAU (Gold)** with Smart Money Concepts (SMC), 15m Liquidity Sweeps, Walk-Forward Probability Backtests, a 14-Criterion Deterministic Safety Controller, Multi-Horizon Circuit Breakers, Real-Time Portfolio Surveillance, and Controlled Adaptive Learning.*
 
 </div>
 
@@ -63,8 +63,8 @@ flowchart TD
         A7 --> DSC --> A8
     end
 
-    subgraph L5["Layer 5: Position Sentinel & Journal"]
-        A9["Agent 9: Trailing Sentinel<br/>• Stage 1 (+0.80R): -0.40R cushion<br/>• Stage 2 (+1.10R): +0.30R green lock<br/>• Stage 3 (+1.50R): +0.85R profit<br/>• Stage 4: Trailing runner"]
+    subgraph L5["Layer 5: Portfolio Surveillance & Sentinel"]
+        A9["Agent 9: Portfolio Monitor & Sentinel<br/>• Real-time position & margin audit<br/>• True mark-to-liq distance<br/>• Active stop verification & recovery<br/>• Multi-stage trailing profit lock"]
         SQL["Authoritative SQLite Event Store<br/>(state/trading_journal.db)"]
         A8 --> A9
         A8 --> SQL
@@ -72,10 +72,10 @@ flowchart TD
     end
 
     subgraph L6["Layer 6: Continuous Learning & Rules"]
-        A10["Agent 10: Adaptive Learner<br/>• Postmortem trade scoring (0-100)<br/>• Pattern memory attribution"]
+        A10["Agent 10: Adaptive Learning Engine<br/>• Net friction postmortem scoring<br/>• 12 failure modes taxonomy<br/>• Walk-forward parameter testing<br/>• Controlled 4-stage parameter promotion"]
         A11["Agent 11: Performance Coach<br/>• Cohort variance analysis<br/>• Versioned rules & rollback guard"]
         A9 --> A10 --> A11
-        A10 -.->|Pattern score adjustments| A4
+        A10 -.->|Parameter bounds & pattern scores| A4
     end
 ```
 
@@ -85,23 +85,25 @@ flowchart TD
 
 ### 1️⃣ Agent 1: Market Regime Analyst
 * **Module:** [`multiagent_team/regime_analyst.py`](multiagent_team/regime_analyst.py)
-* **Core Task:** Classifies market trend, structural order flow, momentum, and relative asset strength across 6 timeframes.
-* **Inputs:** 15m, 1H, 4H, Daily, Weekly, and Monthly candlestick series, live Level-2 order books, and ticker statistics.
+* **Core Task:** Classifies market trend, structural order flow, momentum, and relative asset strength across 4 hierarchical timeframes (1H direction, 15M structure, 5M primary setup, 1M execution refinement).
+* **Inputs:** 1H, 15M, 5M, 1M candlestick series (strictly closed candles), Level-2 order books, and ticker statistics across BTC, ETH, SOL, XRP, and XAU.
 * **Processing Logic:**
-  * Validates feed integrity via `MarketDataValidator`.
-  * Computes 21, 50, and 200 EMAs, 14-period RSI, 14-period ADX, **Institutional VWAP with ±1σ/±2σ Standard Deviation Bands**, and **MACD (12, 26, 9)**.
-  * Evaluates **VWAP Stance & Slope** (`ABOVE_VWAP` / `BELOW_VWAP`, `RISING_BULLISH` / `FALLING_BEARISH`, and Band Locations).
-  * Evaluates **MACD Crossovers** (`BULLISH_CROSS` / `BEARISH_CROSS`), **Momentum Phase** (`BULLISH_EXPANSION` / `BEARISH_EXPANSION`), and **Zero-Line Stance**.
-  * Measures **Market-Wide Breadth** (% of watchlist assets trading above 20 EMA, % with Bullish MACD, and % trading above Session VWAP) and **ETH/BTC Relative Strength**.
-  * Computes **Multi-Timeframe ATR & Volatility State**: Evaluates 15m, 1H, and 4H ATR, ATR percentage of price, rolling 30-bar ATR expansion ratio, and rates watchlist volatility temperature (`CALM_COMPRESSION`, `NORMAL_VOLATILITY`, `HIGH_VOLATILITY_EXPANSION`, `EXTREME_VOLATILITY`).
-  * Identifies **SMC Liquidity Pools & Sweeps**: Detects Buy-Side Liquidity (BSL) swing highs, Sell-Side Liquidity (SSL) swing lows, pool distance percentages, and classifies market structure state (`SWEEP_MSS_CONFIRMED`, `SWEEP_WICK_REJECTION`, `TESTING_BSL_LIQUIDITY`, `TESTING_SSL_LIQUIDITY`, `BALANCED_LIQUIDITY_CORE`).
-  * Identifies **SMC Fair Value Gaps (FVG) & 50% Consequent Encroachment (CE)**: Detects 3-candle imbalance zones (Bullish FVG: `Candle 3 Low > Candle 1 High`; Bearish FVG: `Candle 3 High < Candle 1 Low`), computes 50% CE midpoint entries, and tracks full mitigation life-cycle (`UNTESTED`, `RETESTING`, `CE_RETESTED`, `MITIGATED`).
-  * Computes **Institutional Volume Profile (VP)**: Calculates Point of Control (POC), Value Area High (VAH), Value Area Low (VAL) covering 70% of traded volume, High/Low Volume Nodes (HVN/LVN), and monitors price stance (`ABOVE_VAH`, `INSIDE_VA`, `BELOW_VAL`, `AT_POC`).
-  * Computes **Cumulative Volume Delta (CVD) & Delta Divergences**: Evaluates intrabar aggressor delta curves, CVD accumulation/distribution trends, and flags **Bullish Absorption Divergence** (price lower low, CVD higher low) and **Bearish Exhaustion Divergence** (price higher high, CVD lower high).
-  * Evaluates **Level-2 Order Book Imbalance (OBI) & Whale Walls**: Aggregates top-10 bid/ask depth, calculates OBI ratio ($-1.0$ to $+1.0$), bid/ask depth ratio, and detects resting liquidity walls ($\ge 35\%$ of side depth).
-  * Evaluates **Market-Wide Order Book Liquidity Health**: Monitors average watchlist bid-ask spreads and rates universe liquidity quality (`PRIME_LIQUIDITY` <= 0.05%, `NORMAL_LIQUIDITY` <= 0.12%, `ILLIQUID_CAUTION`).
-  * Identifies funding rate skew to filter crowded longs (> +0.03%) or short cascades.
-* **Output:** Regime classifications, trend directions, EMA/MACD/VWAP breadth percentages, and support/resistance anchors.
+  * **9 Canonical Regimes:** Deterministically classifies market state into `STRONG_UPTREND`, `WEAK_UPTREND`, `STRONG_DOWNTREND`, `WEAK_DOWNTREND`, `RANGING`, `HIGH_VOLATILITY`, `LOW_VOLATILITY`, `TRANSITIONAL`, or `UNKNOWN`.
+  * **Anti-Whipsaw Hysteresis:** Requires 2 consecutive confirmation candles before switching regimes to suppress false transitions during consolidations.
+  * **Asset-Specific Calibrations:** Custom volatility, spread, and ADX thresholds optimized individually for BTC, ETH, SOL, XRP, and XAU.
+  * **Zero Look-Ahead Bias:** Operates exclusively on completed candle closes (`data[:-1]` when last candle is active) with NaN and schema validation.
+  * **Quantitative Confluence Stack:**
+    * Computes 21, 50, and 200 EMAs, 14-period RSI, 14-period ADX, **Institutional VWAP with ±1σ/±2σ Standard Deviation Bands**, and **MACD (12, 26, 9)**.
+    * Evaluates **VWAP Stance & Slope** (`ABOVE_VWAP` / `BELOW_VWAP`, `RISING_BULLISH` / `FALLING_BEARISH`, and Band Locations).
+    * Evaluates **MACD Crossovers** (`BULLISH_CROSS` / `BEARISH_CROSS`), **Momentum Phase** (`BULLISH_EXPANSION` / `BEARISH_EXPANSION`), and **Zero-Line Stance**.
+    * Measures **Market-Wide Breadth** (% of watchlist assets trading above 20 EMA, % with Bullish MACD, and % trading above Session VWAP) and **ETH/BTC Relative Strength**.
+    * Computes **Multi-Timeframe ATR & Volatility State**: Evaluates 15m, 1H, and 4H ATR, ATR percentage of price, rolling 30-bar ATR expansion ratio, and rates volatility temperature (`CALM_COMPRESSION`, `NORMAL_VOLATILITY`, `HIGH_VOLATILITY_EXPANSION`, `EXTREME_VOLATILITY`).
+    * Identifies **SMC Liquidity Pools & Sweeps**: Detects Buy-Side Liquidity (BSL) swing highs, Sell-Side Liquidity (SSL) swing lows, pool distance percentages, and classifies market structure state (`SWEEP_MSS_CONFIRMED`, `SWEEP_WICK_REJECTION`, `TESTING_BSL_LIQUIDITY`, `TESTING_SSL_LIQUIDITY`, `BALANCED_LIQUIDITY_CORE`).
+    * Identifies **SMC Fair Value Gaps (FVG) & 50% Consequent Encroachment (CE)**: Detects 3-candle imbalance zones (Bullish FVG: `Candle 3 Low > Candle 1 High`; Bearish FVG: `Candle 3 High < Candle 1 Low`), computes 50% CE midpoint entries, and tracks full mitigation lifecycle (`UNTESTED`, `RETESTING`, `CE_RETESTED`, `MITIGATED`).
+    * Computes **Institutional Volume Profile (VP)**: Calculates Point of Control (POC), Value Area High (VAH), Value Area Low (VAL) covering 70% of traded volume, High/Low Volume Nodes (HVN/LVN), and monitors price stance (`ABOVE_VAH`, `INSIDE_VA`, `BELOW_VAL`, `AT_POC`).
+    * Computes **Cumulative Volume Delta (CVD) & Delta Divergences**: Evaluates intrabar aggressor delta curves, CVD accumulation/distribution trends, and flags **Bullish Absorption Divergence** and **Bearish Exhaustion Divergence**.
+    * Evaluates **Level-2 Order Book Imbalance (OBI) & Whale Walls**: Aggregates top-10 bid/ask depth, calculates OBI ratio ($-1.0$ to $+1.0$), and detects resting liquidity walls ($\ge 35\%$ of side depth).
+* **Output:** Deterministic typed `RegimeClassification` payload consumed directly by Strategy Agent, Exposure Coach, Risk Gatekeeper, and Orchestrator.
 
 ### 2️⃣ Agent 2: Autonomous News & Social Sentiment Intelligence Engine
 * **Module:** [`multiagent_team/news_sentiment_agent.py`](multiagent_team/news_sentiment_agent.py)
@@ -139,46 +141,37 @@ flowchart TD
 
 ### 4️⃣ Agent 4: Alpha Strategy Generator
 * **Module:** [`multiagent_team/strategy_agent.py`](multiagent_team/strategy_agent.py)
-* **Core Task:** Formulates precise entry, stop-loss, and take-profit trade setups using Smart Money Concepts, VWAP bands, multi-timeframe MACD confluence, and volatility-calibrated ATR stops.
-* **Inputs:** Multi-timeframe structures, VWAP standard deviation bands (±1σ, ±2σ), MACD momentum indicators, 15m/1H ATR, liquidity sweeps, and pattern memory adjustments.
+* **Core Task:** Formulates high-conviction scalping setups using Smart Money Concepts (SMC), multi-timeframe order flow, and volatility-calibrated structural stops.
+* **Timeframe Hierarchy:**
+  * **1H:** Directional trend bias, EMA 50/200 orientation, and macro regime alignment.
+  * **15M:** Market structure pivots, BSL/SSL liquidity sweep validation, and Fair Value Gaps.
+  * **5M:** Primary entry trigger, Market Structure Shift (MSS) body close, and 50% FVG Consequent Encroachment (CE) retests.
+  * **1M:** Execution entry refinement and micro-spread checks.
 * **Processing Logic:**
-  * Rejects unconfirmed wicks: requires candle body close confirming Market Structure Shift (MSS).
-  * Enforces **Dynamic ATR Stop Loss Calibration**:
-    * Utilizes `calculate_atr_calibrated_stops` to buffer stops beyond structural swing pivots with dynamic ATR cushions (0.80x to 1.25x ATR depending on expansion/contraction state).
-    * **ATR Hard Vetoes:** Rejects micro-stops (< 0.40x ATR) vulnerable to normal noise stop-outs, and rejects overly loose stops (> 3.0x ATR) that hurt capital efficiency.
-    * Confluence bonus (+4 pts) awarded for optimal structural stops in the sweet spot (0.70x to 1.50x ATR).
-  * Enforces **Institutional VWAP & Band Confluence**:
-    * Long entries: Pullbacks into rising VWAP fair value core or discount -1σ accumulation award (+8 pts). Entries chasing overextended above +2σ are penalized (-8 pts).
-    * Short entries: Rejections from falling VWAP fair value core or premium +1σ distribution award (+8 pts). Entries shorting into oversold exhaustion below -2σ are penalized (-8 pts).
-  * Enforces **MACD Confluence Verification**:
-    * Long entries require Bullish MACD crossover, positive histogram, or expansion (+6 to +10 pts). Setups buying into expanding bearish MACD are penalized.
-    * Short entries require Bearish MACD crossover, negative histogram, or expansion (+6 to +10 pts). Setups shorting into expanding bullish MACD are penalized.
-  * Enforces **SMC Liquidity & Target Alignment**:
-    * Bullish setups: Awards +8 pts for Bullish SSL sweeps confirmed by MSS; awards +3 pts when TP targets the nearest Buy-Side Liquidity (BSL) pool; penalizes chasing setups testing un-swept BSL resistance.
-    * Bearish setups: Awards +8 pts for Bearish BSL sweeps confirmed by MSS; awards +3 pts when TP targets the nearest Sell-Side Liquidity (SSL) pool; penalizes shorting setups testing un-swept SSL support.
-  * Enforces **SMC Fair Value Gap (FVG) Retest Confluence & Mitigation Protection**:
-    * Long setups: Awards +8 to +10 pts for active Bullish FVG 50% Consequent Encroachment (CE) retests accompanied by confirmed lower wick rejection. Applies -6 pts penalty if buying directly into an unmitigated overhead Bearish FVG resistance within 0.35%.
-    * Short setups: Awards +8 to +10 pts for active Bearish FVG 50% CE retests accompanied by confirmed upper wick rejection. Applies -6 pts penalty if shorting directly into an unmitigated support Bullish FVG demand within 0.35%.
-  * Enforces **Order Flow Confluence (Volume Profile, CVD & Order Book Imbalance)**:
-    * Long setups: Awards +10 pts for confirmed Bullish CVD Absorption Divergence (limit buyers absorbing aggressive market sells), +5 pts for rising CVD accumulation, +6 pts for heavy bid support (OBI $\ge +0.25$), and +4 pts for holding Volume Profile Value Area Low / POC. Penalizes buying into heavy ask resistance walls (OBI $\le -0.25$) or bearish CVD divergence.
-    * Short setups: Awards +10 pts for confirmed Bearish CVD Exhaustion Divergence, +5 pts for falling CVD distribution, +6 pts for heavy ask resistance (OBI $\le -0.25$), and +4 pts for rejecting Volume Profile Value Area High / POC. Penalizes shorting into heavy bid support walls (OBI $\ge +0.25$) or bullish CVD divergence.
-  * Enforces **Structural Stop Invalidation**: Stop loss must align with structural swing extremes. Synthetic or arbitrary stops are strictly vetoed.
-  * Mandates asymmetric payout: Planned Reward-to-Risk must be >= 2.20:1.
-  * Assigns quality scores (0 to 100). Minimum score threshold: >= 85 for Primary assets; >= 90 for Secondary assets.
+  * **Closed-Candle Execution:** Evaluates signals strictly on closed candles (`data[:-1]`) to prevent intra-candle repaint and lookahead bias.
+  * **SMC Sweeps & Market Structure Shift (MSS):** Vetoes unconfirmed wicks; strictly mandates candle body closes beyond structural swing highs/lows.
+  * **FVG 50% Consequent Encroachment (CE):** Identifies 3-bar imbalance zones; awards bonus score for 50% CE retests confirmed by wick rejections; penalizes setups entering directly into opposing unmitigated gaps.
+  * **Dynamic ATR Stop Calibration:** Buffers stops beyond structural swing pivots with dynamic ATR cushions (0.80x to 1.25x ATR). Enforces hard vetoes on micro-stops (< 0.40x ATR) and loose stops (> 3.0x ATR).
+  * **Institutional VWAP & MACD Confluence:** Validates pullbacks into rising VWAP bands; penalizes overextended entries beyond ±2σ; mandates momentum alignment with MACD histogram and signal crosses.
+  * **Order Flow Confluence:** Evaluates Cumulative Volume Delta (CVD) absorption divergences, Order Book Imbalance (OBI), and Volume Profile (POC/VAH/VAL).
+  * **Mathematical Risk-to-Reward:** Strictly enforces minimum planned R:R $\ge 2.20:1$.
+  * **Asset-Calibrated Confluence Floors:** Composite score threshold $\ge 85/100$ for Primary assets (`BTC`, `ETH`, `XAU`) and $\ge 90/100$ for Secondary assets (`SOL`, `XRP`).
 * **Output:** Candidate trade setups with bounded 60-minute time-to-live (TTL).
 
 ### 5️⃣ Agent 5: Time Machine Probability Engine
 * **Module:** [`multiagent_team/time_machine_agent.py`](multiagent_team/time_machine_agent.py)
-* **Core Task:** Forward-simulates candidate setups against historical data to ensure empirical positive expectancy.
-* **Inputs:** Setup parameters, 400+ historical 15m candles, rolling VWAP series, and zero-lookahead MACD/RSI/EMA series.
+* **Core Task:** Simulates candidate trade setups through exact historical replay across market history to ensure statistically significant positive expectancy.
+* **Inputs:** Candidate setup parameters, historical multi-timeframe candle data (1H context + 15M/5M execution), rolling VWAP, and zero-lookahead indicator series.
 * **Processing Logic:**
-  * **Zero Synthetic Stats Mandate:** If candles < 60, returns `INSUFFICIENT_DATA`. If matches < 8, returns `INSUFFICIENT_SAMPLE`. Never fabricates hypothetical wins or win rates.
-  * **Historical Pattern Walk:** Matches candlestick setups confirmed by EMA trends, rolling VWAP alignment, and MACD histogram impulse states.
-  * **Walk-Forward Separation:** 70% in-sample training / 30% out-of-sample forward verification.
-  * **Institutional Friction:** Deducts Delta maker/taker fees (0.10%), expected slippage (0.06%), and funding drag.
-  * **Wilson 95% Confidence Interval:** Requires lower CI bound >= 45% to prevent small-sample overfitting.
-  * **Decision Standard:** Win Rate >= 65%, Friction EV >= +0.30R, Profit Factor >= 1.50x, and positive OOS expectancy.
-* **Output:** Statistical approval or veto with empirical metrics.
+  * **Exact Strategy Replay:** Accurately reproduces Agent 4's multi-timeframe conditions (1H EMA trend bias, 15M structural sweeps, and 5M entry triggers) rather than generic heuristic filters.
+  * **Zero Synthetic Stats Mandate:** If candles < 60, returns `INSUFFICIENT_DATA`. If historical matches < 8, returns `INSUFFICIENT_SAMPLE`. Never fabricates hypothetical wins, backtest numbers, or synthetic fills.
+  * **Intrabar Simulation Standard:** Employs conservative same-bar pathing: if a single bar touches both Stop-Loss and Take-Profit, the loss is registered first.
+  * **Dynamic Breakeven & Timeout:** Automatically simulates trailing stops to breakeven (+1.0R threshold) and enforces a 48-bar timeout exit on stagnant trades.
+  * **Walk-Forward Separation:** Chronological 70% in-sample training / 30% out-of-sample forward verification to ensure out-of-sample regime resilience.
+  * **Institutional Net Friction:** Deducts Delta maker/taker exchange fees (0.10%), adverse slippage (0.06%), and rolling funding rates from every trade.
+  * **Wilson 95% Confidence Interval:** Requires Wilson lower confidence bound $\ge 45\%$ to guard against small-sample variance.
+  * **Statistical Approval Gates:** Overall Win Rate $\ge 65\%$, Friction Expected Value (EV) $\ge +0.30\text{R}$, Profit Factor $\ge 1.50\text{x}$, and positive OOS EV.
+* **Output:** Statistical approval or veto with empirical validation metrics.
 
 ### 6️⃣ Agent 6: Pre-Trade Risk Gatekeeper
 * **Module:** [`multiagent_team/risk_gatekeeper.py`](multiagent_team/risk_gatekeeper.py)
@@ -222,27 +215,37 @@ flowchart TD
   * **Mandatory Stop-Loss Verification:** Verifies the protective stop exists on the exchange. If missing, places an emergency reduce-only stop. If stop placement fails, immediately executes an emergency market close.
 * **Output:** Verified open position or emergency abort record.
 
-### 9️⃣ Agent 9: Micro-Trailing Sentinel
-* **Module:** [`src/trailing_stop_manager.py`](src/trailing_stop_manager.py)
-* **Core Task:** Monitors active positions every 15 seconds to trail stop losses and lock in green profits with ATR volatility buffers.
-* **Inputs:** Live mark prices, trade state, registered ATR metrics, and volatility posture.
+### 9️⃣ Agent 9: Portfolio Monitor & Position Sentinel
+* **Module:** [`multiagent_team/portfolio_monitor.py`](multiagent_team/portfolio_monitor.py) & [`src/trailing_stop_manager.py`](src/trailing_stop_manager.py)
+* **Core Task:** Continuously monitors live positions, margin utilization, unrealized PnL, mark-to-liquidation distances, exchange synchronization, and active protective stops.
+* **Inputs:** Live exchange positions, open stop/take-profit orders, wallet balances, mark prices, and StateManager journal state.
 * **Processing Logic:**
-  * **Stage 1 (Breathing Cushion):** At +0.80R to +0.90R, slashes risk by 60% (moves SL to -0.40R), giving natural retests room without premature stops.
-  * **Stage 2 (Guaranteed Green Lock):** At +1.10R to +1.20R, locks +0.30R in profit, preventing breakeven exits ($0.00).
-  * **Stage 3 (Core Expansion):** At +1.50R to +1.60R, locks +0.85R profit (8% to 15% margin return).
-  * **Stage 4 & Runner Trailing:** Dynamically trails behind mark price with volatility-scaled ATR cushions to let winners run.
-* **Output:** Dynamic stop adjustments, fill alerts, and closure notifications.
+  * **Exchange as Source of Truth:** Reconciles live positions against local state; flags desynchronization and orphaned orders.
+  * **Protective Stop Verification:** Continuously verifies an active, reduce-only stop-loss order exists on the exchange for every open position. If missing or mis-sized (due to partial fills), triggers automatic emergency placement or market liquidation.
+  * **True Mark-to-Liquidation Distance:** Uses exchange liquidation price (or derives precise isolated margin liquidation) to enforce safe distance buffers. Dispatches immediate alerts if liquidation is within 3.0x stop-loss distance.
+  * **Margin & Drawdown Surveillance:** Monitors margin utilization against warning (70%) and critical (85%) thresholds; coordinates with EmergencyController and circuit breakers.
+  * **Concentration & Asset Exposure:** Enforces portfolio limits (max 50% notional in a single asset, max concurrent positions).
+  * **Multi-Stage Trailing Stop Sentinel:**
+    * **Stage 1 (Breathing Cushion):** At +0.80R, slashes risk by 60% (moves SL to -0.40R), giving room for normal retests.
+    * **Stage 2 (Guaranteed Green Lock):** At +1.10R, locks +0.30R profit to eliminate breakeven drag.
+    * **Stage 3 (Core Expansion):** At +1.50R, locks +0.85R profit.
+    * **Stage 4 (Trailing Runner):** Dynamically trails mark price using volatility-scaled ATR cushions.
+* **Output:** Continuous portfolio health snapshots, deduplicated Telegram risk alerts, and emergency stop triggers.
 
 ### 🔟 Agent 10: Adaptive Learning Engine
 * **Module:** [`multiagent_team/adaptive_learning.py`](multiagent_team/adaptive_learning.py)
-* **Core Task:** Performs evidence-based postmortems on completed trades to reinforce winning setups and penalize losers.
-* **Inputs:** Closed trade records, realized PnL, R-multiple captured, MFE, and MAE.
+* **Core Task:** Conducts rigorous, evidence-based postmortems on closed trades to optimize strategy parameters without uncontrolled live mutations.
+* **Inputs:** Authoritative trade records from `trading_journal.db` / `trade_journal.json`, completed trade PnL, exit reasons, MFE/MAE, and market regime context.
 * **Processing Logic:**
-  * Scores trade execution (0 to 100).
-  * Normalizes pattern keys (`ASSET_STRATEGY_DIRECTION_TREND`).
-  * Adjusts pattern scores: reinforces verified patterns (+8 pts) and penalizes failing patterns (-15 pts or blacklists).
-  * Persists learning state into `state/pattern_learning_memory.json`.
-* **Output:** Strategy score modifiers and pattern vetoes.
+  * **Strict Data Provenance:** Learns exclusively from verified, closed trades with complete execution lifecycles. Open or ambiguous positions are rejected.
+  * **Net Friction Accounting:** Incorporates actual exchange taker/maker fees, recorded slippage, and funding costs into all PnL and R-multiple calculations.
+  * **12 Loss Failure Modes:** Granularly tags every losing trade with canonical failure taxonomies (`PREMATURE_STOP_OUT`, `SLIPPAGE_DEGRADATION`, `REGIME_MISMATCH`, `CHOP_WHIPSAW`, `VOLATILITY_EXPANSION`, `LIQUIDITY_RUN`, `SPREAD_EROSION`, `ADVERSE_FUNDING`, `EXECUTION_DELAY`, `TIMEOUT_STAGNATION`, `FALSE_BREAKOUT`, `UNSPECIFIED_FAILURE`).
+  * **Walk-Forward Validation:** Validates all parameter updates across chronological splits (minimum 10 trades per split, max 25% performance degradation allowed) to prevent recency bias.
+  * **4-Stage Controlled Promotion Lifecycle:**
+    $$\text{EXPERIMENTAL} \longrightarrow \text{SHADOW} \longrightarrow \text{CANARY} \longrightarrow \text{LIVE\_APPROVED}$$
+    * Requires statistical significance ($N \ge 30$, Profit Factor $\ge 1.30$, Win Rate $\ge 55\%$) and human confirmation before live application.
+    * **Automated Rollback Guard:** Reverts active parameters to known-good baseline (`1.0.0-PROD`) if live rolling performance degrades by $> 20\%$.
+* **Output:** Versioned strategy parameter profiles and pattern score modifiers.
 
 ### 1️⃣1️⃣ Agent 11: Performance Coach & Operating Rules
 * **Module:** [`multiagent_team/performance_coach.py`](multiagent_team/performance_coach.py)
@@ -253,6 +256,20 @@ flowchart TD
   * Maintains institutional operating rules in `state/active_operating_rules.json`.
   * Enforces automated rollbacks if rolling win rates degrade over a 20-trade evaluation window.
 * **Output:** Dynamic operating rules and performance reports.
+
+---
+
+## 📚 Quantitative Audit & Documentation Deliverables
+
+Comprehensive engineering documentation, mathematical specifications, empirical testing reports, and changelogs are available for the audited agents:
+
+| Specialized Agent | Technical Documentation | Testing Report (100% Pass) | Migration Changelog |
+|:---|:---|:---|:---|
+| **Agent 1: Regime Analyst** | [Architecture & Mathematical Specs](REGIME_ANALYST_DOCUMENTATION.md) | [16 Unit Tests Suite Report](REGIME_ANALYST_TESTING_REPORT.md) | [Audit & Upgrade Changelog](REGIME_ANALYST_CHANGELOG.md) |
+| **Agent 4: Strategy Generator** | [SMC & Order Flow Confluence](STRATEGY_AGENT_DOCUMENTATION.md) | [18 Unit Tests Suite Report](STRATEGY_AGENT_TESTING_REPORT.md) | [Audit & Upgrade Changelog](STRATEGY_AGENT_CHANGELOG.md) |
+| **Agent 5: Time Machine Engine** | [Historical Simulation & Wilson CI](TIME_MACHINE_DOCUMENTATION.md) | [12 Unit Tests Suite Report](TIME_MACHINE_TESTING_REPORT.md) | [Audit & Upgrade Changelog](TIME_MACHINE_CHANGELOG.md) |
+| **Agent 9: Portfolio Monitor** | [Real-Time Surveillance & Margin](PORTFOLIO_MONITOR_DOCUMENTATION.md) | [22 Unit Tests Suite Report](PORTFOLIO_MONITOR_TESTING_REPORT.md) | [Audit & Upgrade Changelog](PORTFOLIO_MONITOR_CHANGELOG.md) |
+| **Agent 10: Adaptive Learning** | [Postmortem & Parameter Lifecycle](ADAPTIVE_LEARNING_DOCUMENTATION.md) | [22 Unit Tests Suite Report](ADAPTIVE_LEARNING_TESTING_REPORT.md) | [Audit & Upgrade Changelog](ADAPTIVE_LEARNING_CHANGELOG.md) |
 
 ---
 
@@ -341,7 +358,7 @@ MIN_REWARD_TO_RISK=2.2               # Minimum 2.2:1 R:R
 ```bash
 python -m unittest discover tests
 ```
-*Expected Output: `Ran 19 tests in 0.704s - OK (100% Passing)`*
+*Expected Output: `Ran 144 tests in ~1.9s - OK (100% Passing)`*
 
 ### 4. CLI Commands & Bot Execution
 

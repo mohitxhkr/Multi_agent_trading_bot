@@ -42,6 +42,7 @@ state/*.jsonl
 state/*.log
 state/*.db
 state/*.sqlite
+state/charts/
 reports/
 
 # Temporary files & logs

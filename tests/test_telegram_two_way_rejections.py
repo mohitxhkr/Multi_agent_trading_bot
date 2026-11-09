@@ -202,6 +202,45 @@ class TestTelegramTwoWayRejections(unittest.TestCase):
         self.bot._handle_command("/closeall", mock_orch, full_text="/closeall", chat_id="999999", is_admin=False)
         self.assertIn("SECURITY VETO", sent_messages[-1])
 
+    def test_guest_subscribe_and_unsubscribe(self):
+        """Verify guest user can subscribe and unsubscribe to automated notifications."""
+        sent_messages = []
+        self.bot.send_message = MagicMock(side_effect=lambda text, **kwargs: sent_messages.append(text))
+        mock_orch = MagicMock()
+
+        # 1. /subscribe
+        self.bot._handle_command("/subscribe", mock_orch, full_text="/subscribe", chat_id="888888", is_admin=False)
+        self.assertIn("SUBSCRIBED TO DELTA AI MARKET INTELLIGENCE", sent_messages[-1])
+        self.assertIn("Daily Morning Crypto Briefing", sent_messages[-1])
+
+        # 2. /unsubscribe
+        self.bot._handle_command("/unsubscribe", mock_orch, full_text="/unsubscribe", chat_id="888888", is_admin=False)
+        self.assertIn("NOTIFICATIONS PAUSED", sent_messages[-1])
+
+    def test_admin_subscriber_controls_and_broadcasting(self):
+        """Verify admin can view subscriber stats and broadcast, while guest is restricted."""
+        sent_messages = []
+        self.bot.send_message = MagicMock(side_effect=lambda text, **kwargs: sent_messages.append(text))
+        mock_orch = MagicMock()
+
+        # Guest blocked from /subscribers
+        self.bot._handle_command("/subscribers", mock_orch, full_text="/subscribers", chat_id="999999", is_admin=False)
+        self.assertIn("RESTRICTED", sent_messages[-1])
+
+        # Guest blocked from /broadcast_levels
+        self.bot._handle_command("/broadcast_levels", mock_orch, full_text="/broadcast_levels", chat_id="999999", is_admin=False)
+        self.assertIn("RESTRICTED", sent_messages[-1])
+
+        # Admin can view /subscribers
+        sent_messages.clear()
+        self.bot._handle_command("/subscribers", mock_orch, full_text="/subscribers", chat_id="123456789", is_admin=True)
+        self.assertTrue(any("DELTA AI SUBSCRIBER ANALYTICS" in m for m in sent_messages))
+
+        # Admin can broadcast levels
+        sent_messages.clear()
+        self.bot._handle_command("/broadcast_levels", mock_orch, full_text="/broadcast_levels", chat_id="123456789", is_admin=True)
+        self.assertTrue(any("broadcast complete" in m for m in sent_messages))
+
 
 if __name__ == "__main__":
     unittest.main()

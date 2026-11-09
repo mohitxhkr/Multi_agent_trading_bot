@@ -832,7 +832,10 @@ class NewsSentimentAgent:
         briefing_html = self.format_daily_morning_briefing(report)
 
         try:
-            success = notifier.send_message(briefing_html, parse_mode="HTML")
+            if hasattr(notifier, "broadcast_message"):
+                success = notifier.broadcast_message(briefing_html, parse_mode="HTML", topic="news") > 0
+            else:
+                success = notifier.send_message(briefing_html, parse_mode="HTML")
             if success:
                 logger.info("NewsSentimentAgent: ✅ Daily Morning Crypto Briefing successfully dispatched to Telegram!")
                 state["last_sent_date"] = today_date_str

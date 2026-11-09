@@ -66,6 +66,14 @@ class TelegramConfirmationBot:
         self.audit_log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "telegram_approvals_audit.json")
         self._poller_last_seen = 0.0
 
+        try:
+            from src.telegram_subscriber_manager import TelegramSubscriberManager
+            self.subscriber_manager = TelegramSubscriberManager()
+            if self.chat_id:
+                self.subscriber_manager.register_subscriber(self.chat_id, {"first_name": "Admin"}, role="admin")
+        except Exception:
+            self.subscriber_manager = None
+
         self._sync_update_offset()
 
     @property
@@ -263,6 +271,60 @@ class TelegramConfirmationBot:
         except Exception as e:
             logger.error(f"Telegram sendPhoto network exception: {e}")
             return None
+
+    def broadcast_message(
+        self,
+        text: str,
+        reply_markup: Optional[Dict[str, Any]] = None,
+        topic: Optional[str] = None
+    ) -> int:
+        """Broadcast message to primary admin and all active subscribers."""
+        if not self.is_configured:
+            return 0
+
+        target_ids = set()
+        if self.chat_id:
+            target_ids.add(str(self.chat_id))
+
+        if hasattr(self, "subscriber_manager") and self.subscriber_manager:
+            for sub in self.subscriber_manager.get_active_subscribers(topic=topic):
+                cid = str(sub.get("chat_id", "")).strip()
+                if cid:
+                    target_ids.add(cid)
+
+        successful_sends = 0
+        for cid in target_ids:
+            mid = self.send_message(text, reply_markup=reply_markup, chat_id=cid)
+            if mid:
+                successful_sends += 1
+        return successful_sends
+
+    def broadcast_photo(
+        self,
+        photo_path_or_bytes: Any,
+        caption: Optional[str] = None,
+        topic: Optional[str] = None
+    ) -> int:
+        """Broadcast photo to primary admin and all active subscribers."""
+        if not self.is_configured:
+            return 0
+
+        target_ids = set()
+        if self.chat_id:
+            target_ids.add(str(self.chat_id))
+
+        if hasattr(self, "subscriber_manager") and self.subscriber_manager:
+            for sub in self.subscriber_manager.get_active_subscribers(topic=topic):
+                cid = str(sub.get("chat_id", "")).strip()
+                if cid:
+                    target_ids.add(cid)
+
+        successful_sends = 0
+        for cid in target_ids:
+            mid = self.send_photo(photo_path_or_bytes, caption=caption, chat_id=cid)
+            if mid:
+                successful_sends += 1
+        return successful_sends
 
     def edit_message_text(
         self,
@@ -901,7 +963,19 @@ class TelegramConfirmationBot:
         if any(w in {"sample", "testproposal", "sampletrade"} for w in tokens):
             return "/sample", "/sample"
 
-        # 14. Help
+        # 14. Subscription commands
+        if any(w in {"subscribe", "sub", "notify", "alerts"} for w in tokens):
+            return "/subscribe", "/subscribe"
+        if any(w in {"unsubscribe", "unsub", "mute", "optout"} for w in tokens) or (tokens == ["stop"]):
+            return "/unsubscribe", "/unsubscribe"
+        if any(w in {"subscribers", "subs", "users"} for w in tokens):
+            return "/subscribers", "/subscribers"
+        if any(w in {"broadcast_levels", "broadcastlevels"} for w in tokens):
+            return "/broadcast_levels", "/broadcast_levels"
+        if any(w in {"broadcast_news", "broadcastnews"} for w in tokens):
+            return "/broadcast_news", "/broadcast_news"
+
+        # 15. Help
         if any(w in {"help", "commands", "menu", "start", "hi", "hello"} for w in tokens):
             return "/help", "/help"
 
@@ -1046,6 +1120,17 @@ class TelegramConfirmationBot:
 
             # Role-Based Access Control: Admin vs Public Guest
             is_authorized = self._is_user_authorized(from_user, chat_id=chat_id)
+
+            # Auto-register subscriber in background
+            if hasattr(self, "subscriber_manager") and self.subscriber_manager and chat_id:
+                try:
+                    self.subscriber_manager.register_subscriber(
+                        chat_id,
+                        user_info=from_user,
+                        role="admin" if is_authorized else "guest"
+                    )
+                except Exception as se:
+                    logger.debug(f"Subscriber auto-registration skipped: {se}")
 
             text = (msg.get("text") or "").strip()
             if not text:
@@ -1827,6 +1912,84 @@ class TelegramConfirmationBot:
             except Exception as ce:
                 reply(f"⚠️ Error generating candlestick chart: {ce}")
 
+        elif cmd in ["/subscribe", "/sub", "/notify", "/alerts"]:
+            if hasattr(self, "subscriber_manager") and self.subscriber_manager:
+                self.subscriber_manager.register_subscriber(target_chat, role="admin" if is_admin else "guest", active=True)
+            reply(
+                "🔔 <b>[SUBSCRIBED TO DELTA AI MARKET INTELLIGENCE]</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "You are registered for automated broadcasts:\n"
+                "• 🌅 <b>Daily Morning Crypto Briefing (10:00 AM IST)</b>\n"
+                "• ⚡ <b>Pre-Trade Key Levels &amp; Breakout Radar</b>\n"
+                "• 📊 <b>Live 15m Candlestick Breakout Charts</b>\n\n"
+                "💡 <i>You can query <code>/levels</code>, <code>/news</code>, or <code>/chart BTC</code> anytime. Send <code>/unsubscribe</code> to pause broadcasts.</i>"
+            )
+
+        elif cmd in ["/unsubscribe", "/unsub", "/mute", "/optout"]:
+            if hasattr(self, "subscriber_manager") and self.subscriber_manager:
+                self.subscriber_manager.unregister_subscriber(target_chat)
+            reply(
+                "🔕 <b>[NOTIFICATIONS PAUSED]</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "You have unsubscribed from automated market broadcasts.\n"
+                "You can still access <code>/levels</code>, <code>/news</code>, and <code>/chart</code> on demand anytime!\n\n"
+                "💡 <i>Send <code>/subscribe</code> to turn notifications back on.</i>"
+            )
+
+        elif cmd in ["/subscribers", "/subs", "/users"]:
+            if not is_admin:
+                reply("🔒 <b>[RESTRICTED]</b> Subscriber analytics are restricted to the bot administrator.")
+                return
+            if not hasattr(self, "subscriber_manager") or not self.subscriber_manager:
+                reply("⚠️ Subscriber manager unavailable.")
+                return
+            counts = self.subscriber_manager.count_summary()
+            subs = self.subscriber_manager.load_subscribers()
+            lines = [
+                "👥 <b>[DELTA AI SUBSCRIBER ANALYTICS]</b>",
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                f"• <b>Total Registered:</b> <b>{counts.get('total_registered', 0)}</b>",
+                f"• <b>Active Subscribers:</b> <b>{counts.get('active_total', 0)}</b>",
+                f"  ↳ Guests: <b>{counts.get('active_guests', 0)}</b> | Admins: <b>{counts.get('active_admins', 0)}</b>",
+                f"• <b>Inactive/Muted:</b> <b>{counts.get('inactive', 0)}</b>",
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                "📋 <b>Recent Active Subscribers:</b>"
+            ]
+            for s in list(subs.values())[:10]:
+                status_icon = "🟢" if s.get("active", True) else "⚪"
+                role_tag = "👑 Admin" if s.get("role") == "admin" else "👤 Guest"
+                uname = f"@{s.get('username')}" if s.get("username") else s.get("name", "User")
+                lines.append(f"{status_icon} <code>{s.get('chat_id')}</code> ({uname}) · {role_tag}")
+            reply("\n".join(lines))
+
+        elif cmd in ["/broadcast_levels", "/broadcastlevels"]:
+            if not is_admin:
+                reply("🔒 <b>[RESTRICTED]</b> Broadcasting is restricted to the administrator.")
+                return
+            reply("⚡ <i>Broadcasting Market Key Levels &amp; Breakout Radar to all active subscribers...</i>")
+            try:
+                if hasattr(orchestrator, "check_and_dispatch_daily_market_levels"):
+                    orchestrator.check_and_dispatch_daily_market_levels(force=True)
+                    reply("✅ <b>Key Levels broadcast complete!</b> Dispatched to all active subscribers.")
+                else:
+                    reply("⚠️ Orchestrator does not support daily market levels dispatch.")
+            except Exception as be:
+                reply(f"⚠️ Error broadcasting levels: {be}")
+
+        elif cmd in ["/broadcast_news", "/broadcastnews"]:
+            if not is_admin:
+                reply("🔒 <b>[RESTRICTED]</b> Broadcasting is restricted to the administrator.")
+                return
+            reply("🗞️ <i>Broadcasting Daily Morning Crypto Briefing to all active subscribers...</i>")
+            try:
+                if hasattr(orchestrator, "check_and_dispatch_daily_morning_briefing"):
+                    orchestrator.check_and_dispatch_daily_morning_briefing(force=True)
+                    reply("✅ <b>Morning News Briefing broadcast complete!</b> Dispatched to all active subscribers.")
+                else:
+                    reply("⚠️ Orchestrator does not support morning news dispatch.")
+            except Exception as be:
+                reply(f"⚠️ Error broadcasting news: {be}")
+
         elif cmd in ["/help", "/start"]:
             if is_admin:
                 help_msg = (
@@ -1842,6 +2005,9 @@ class TelegramConfirmationBot:
                     "• <code>/closeall</code> — Emergency flatten all active positions to cash USD\n"
                     "• <code>/orders</code> — Inspect pending limit &amp; bracket orders on Delta\n"
                     "• <code>/news</code> — Daily Crypto Morning Briefing &amp; sentiment index\n"
+                    "• <code>/subscribers</code> — View guest &amp; admin broadcast subscribers\n"
+                    "• <code>/broadcast_levels</code> — Force broadcast key levels to all subscribers\n"
+                    "• <code>/broadcast_news</code> — Force broadcast morning briefing to all subscribers\n"
                     "• <code>/scorecard</code> — Dynamic self-learning audit, win rate &amp; R:R tracking\n"
                     "• <code>/pause</code> / <code>/resume</code> — Pause or resume automated scanning\n"
                     "• <code>/sample</code> — Test interactive confirmation proposal card\n"
@@ -1858,6 +2024,8 @@ class TelegramConfirmationBot:
                     "• <code>/levels</code> — Breakout &amp; breakdown key price levels with pre-trade plans &amp; candlestick chart\n"
                     "• <code>/chart &lt;symbol&gt;</code> — Live 15m candlestick chart with levels overlay (e.g. <code>/chart BTC</code>, <code>/chart ETH</code>, <code>/chart XAU</code>)\n"
                     "• <code>/news</code> — Daily Crypto Morning Briefing, market sentiment &amp; Fear/Greed index\n"
+                    "• <code>/subscribe</code> — Receive automated morning briefings &amp; pre-trade radar alerts\n"
+                    "• <code>/unsubscribe</code> — Pause automated broadcast alerts\n"
                     "• <code>/sample</code> — View demonstration AI trade proposal card\n"
                     "• <code>/help</code> — Show this market intelligence guide\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"

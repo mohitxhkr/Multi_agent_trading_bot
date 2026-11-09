@@ -46,6 +46,14 @@ class TelegramNotifier:
         self.enabled = enabled and bool(self.bot_token and self.chat_id)
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
 
+        try:
+            from src.telegram_subscriber_manager import TelegramSubscriberManager
+            self.subscriber_manager = TelegramSubscriberManager()
+            if self.chat_id:
+                self.subscriber_manager.register_subscriber(self.chat_id, {"first_name": "Admin"}, role="admin")
+        except Exception:
+            self.subscriber_manager = None
+
         if not self.enabled:
             logger.info("TelegramNotifier: Disabled (TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured in environment).")
 
@@ -70,16 +78,17 @@ class TelegramNotifier:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
-        """Send formatted text message to the configured Telegram chat."""
-        if not self.enabled:
+    def send_message(self, text: str, parse_mode: str = "HTML", chat_id: Optional[str] = None) -> bool:
+        """Send formatted text message to the configured or specified Telegram chat."""
+        target_chat = chat_id or self.chat_id
+        if not self.enabled and not chat_id:
             logger.debug(f"TelegramNotifier (Simulated): {text[:80]}...")
             return False
 
         try:
             url = f"{self.base_url}/sendMessage"
             payload = {
-                "chat_id": self.chat_id,
+                "chat_id": target_chat,
                 "text": text,
                 "parse_mode": parse_mode,
                 "disable_web_page_preview": True
@@ -94,6 +103,116 @@ class TelegramNotifier:
             logger.error(f"Telegram network exception: {e}")
             return False
 
+    def broadcast_message(
+        self,
+        text: str,
+        parse_mode: str = "HTML",
+        topic: Optional[str] = None
+    ) -> int:
+        """
+        Broadcast formatted text message to primary admin and all active subscribers.
+        Returns the number of successful deliveries.
+        """
+        if not self.bot_token:
+            return 0
+
+        target_ids = set()
+        if self.chat_id:
+            target_ids.add(str(self.chat_id))
+
+        if self.subscriber_manager:
+            for sub in self.subscriber_manager.get_active_subscribers(topic=topic):
+                cid = str(sub.get("chat_id", "")).strip()
+                if cid:
+                    target_ids.add(cid)
+
+        successful_sends = 0
+        for cid in target_ids:
+            try:
+                url = f"{self.base_url}/sendMessage"
+                payload = {
+                    "chat_id": cid,
+                    "text": text,
+                    "parse_mode": parse_mode,
+                    "disable_web_page_preview": True
+                }
+                res = requests.post(url, json=payload, timeout=10)
+                data = res.json()
+                if data.get("ok"):
+                    successful_sends += 1
+                else:
+                    err_desc = str(data.get("description", ""))
+                    if "blocked" in err_desc.lower() or "chat not found" in err_desc.lower():
+                        if self.subscriber_manager:
+                            self.subscriber_manager.mark_subscriber_blocked(cid)
+            except Exception as e:
+                logger.warning(f"Telegram broadcast send to {cid} failed: {e}")
+
+        logger.info(f"TelegramNotifier: Broadcast message delivered to {successful_sends}/{len(target_ids)} subscribers.")
+        return successful_sends
+
+    def broadcast_photo(
+        self,
+        photo_path_or_bytes: Any,
+        caption: Optional[str] = None,
+        parse_mode: str = "HTML",
+        topic: Optional[str] = None
+    ) -> int:
+        """
+        Broadcast chart photo to primary admin and all active subscribers.
+        Returns the number of successful deliveries.
+        """
+        if not self.bot_token:
+            return 0
+
+        target_ids = set()
+        if self.chat_id:
+            target_ids.add(str(self.chat_id))
+
+        if self.subscriber_manager:
+            for sub in self.subscriber_manager.get_active_subscribers(topic=topic):
+                cid = str(sub.get("chat_id", "")).strip()
+                if cid:
+                    target_ids.add(cid)
+
+        img_bytes = None
+        if isinstance(photo_path_or_bytes, (bytes, bytearray)):
+            img_bytes = photo_path_or_bytes
+        elif isinstance(photo_path_or_bytes, str) and os.path.exists(photo_path_or_bytes):
+            try:
+                with open(photo_path_or_bytes, "rb") as f:
+                    img_bytes = f.read()
+            except Exception as e:
+                logger.error(f"Failed to read image for photo broadcast: {e}")
+                return 0
+
+        if not img_bytes:
+            return 0
+
+        successful_sends = 0
+        for cid in target_ids:
+            try:
+                url = f"{self.base_url}/sendPhoto"
+                data = {"chat_id": cid}
+                if caption:
+                    data["caption"] = caption[:1020]
+                    data["parse_mode"] = parse_mode
+                files = {"photo": ("candlestick_chart.png", img_bytes, "image/png")}
+                res = requests.post(url, data=data, files=files, timeout=25)
+                data_res = res.json()
+                if data_res.get("ok"):
+                    successful_sends += 1
+                else:
+                    err_desc = str(data_res.get("description", ""))
+                    if "blocked" in err_desc.lower() or "chat not found" in err_desc.lower():
+                        if self.subscriber_manager:
+                            self.subscriber_manager.mark_subscriber_blocked(cid)
+            except Exception as e:
+                logger.warning(f"Telegram broadcast photo to {cid} failed: {e}")
+
+        logger.info(f"TelegramNotifier: Broadcast photo delivered to {successful_sends}/{len(target_ids)} subscribers.")
+        return successful_sends
+
     def send_alert(self, text: str) -> bool:
         """Send an urgent alert message to Telegram."""
         return self.send_message(text, parse_mode="Markdown")
@@ -102,19 +221,21 @@ class TelegramNotifier:
         self,
         photo_path_or_bytes: Any,
         caption: Optional[str] = None,
-        parse_mode: str = "HTML"
+        parse_mode: str = "HTML",
+        chat_id: Optional[str] = None
     ) -> bool:
         """
         Send candlestick chart photo to Telegram with optional HTML caption.
         Accepts file path (str) or binary buffer/bytes.
         """
-        if not self.enabled:
+        target_chat = chat_id or self.chat_id
+        if not self.enabled and not chat_id:
             logger.debug("TelegramNotifier: Disabled. Skipping send_photo.")
             return False
 
         try:
             url = f"{self.base_url}/sendPhoto"
-            data = {"chat_id": self.chat_id}
+            data = {"chat_id": target_chat}
             if caption:
                 # Telegram caption maximum length is 1024 characters
                 data["caption"] = caption[:1020]

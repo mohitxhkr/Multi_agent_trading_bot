@@ -253,6 +253,100 @@ class MultiAgentTradingOrchestrator:
 
         return "\n".join(lines)
 
+    def check_and_dispatch_daily_market_levels(self, force: bool = False) -> bool:
+        """
+        Dispatch comprehensive Key Levels Breakout/Breakdown card and BTC 15m Candlestick Chart
+        to all active Telegram subscribers twice daily:
+          - Morning Session: 09:30 - 10:30 AM IST (Asian/European handover)
+          - Evening Session: 06:30 - 07:30 PM IST (US Market opening)
+        """
+        if not self.telegram or not getattr(self.telegram, "enabled", False):
+            return False
+
+        from datetime import datetime, timezone, timedelta
+        ist_zone = timezone(timedelta(hours=5, minutes=30))
+        now_ist = datetime.now(ist_zone)
+        today_date_str = now_ist.strftime("%Y-%m-%d")
+        current_hour = now_ist.hour
+        current_minute = now_ist.minute
+
+        session_key = None
+        if (current_hour == 9 and current_minute >= 30) or (current_hour == 10 and current_minute <= 30):
+            session_key = "morning"
+        elif (current_hour == 18 and current_minute >= 30) or (current_hour == 19 and current_minute <= 30):
+            session_key = "evening"
+
+        if not force and not session_key:
+            return False
+
+        dispatch_slot = f"{today_date_str}_{session_key or 'manual'}"
+        state_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "market_levels_dispatch_state.json")
+        state = {}
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    if content:
+                        state = json.loads(content)
+            except Exception as e:
+                logger.debug(f"Could not load market levels dispatch state: {e}")
+
+        if not force and state.get("last_dispatch_slot") == dispatch_slot:
+            return False
+
+        logger.info(f"Orchestrator: Broadcasting Daily Key Levels session card ({dispatch_slot})...")
+        try:
+            levels_card = self.format_market_levels_telegram()
+            if hasattr(self.telegram, "broadcast_message"):
+                self.telegram.broadcast_message(levels_card, parse_mode="HTML", topic="levels")
+            else:
+                self.telegram.send_message(levels_card, parse_mode="HTML")
+
+            # Also generate and broadcast BTC 15m Candlestick Chart
+            try:
+                from src.candlestick_chart import generate_candlestick_chart
+                analysis = self.regime_analyst.analyze_symbol("BTCUSD", resolution="15")
+                candles = analysis.get("_raw_candles_15m") or analysis.get("_raw_candles_1h")
+                if not candles or len(candles.get("c", [])) < 5:
+                    c_res = self.client.get_candles("BTCUSD", resolution="15")
+                    if c_res and isinstance(c_res, dict) and c_res.get("result"):
+                        c_list = c_res["result"]
+                        if isinstance(c_list, list) and len(c_list) >= 5:
+                            candles = {
+                                "o": [float(x.get("open", 0)) for x in c_list],
+                                "h": [float(x.get("high", 0)) for x in c_list],
+                                "l": [float(x.get("low", 0)) for x in c_list],
+                                "c": [float(x.get("close", 0)) for x in c_list],
+                                "v": [float(x.get("volume", 0)) for x in c_list],
+                                "t": [int(x.get("time", 0)) for x in c_list],
+                            }
+                if candles and len(candles.get("c", [])) >= 5:
+                    kl = analysis.get("key_levels_analysis", {})
+                    chart_path = generate_candlestick_chart(candles, "BTCUSD", key_levels=kl, timeframe_label="15m")
+                    cap = (
+                        f"📊 <b>[BTCUSD PRE-TRADE RADAR CHART]</b>\n"
+                        f"• <b>Mark:</b> <code>${kl.get('current_price', 0):,.2f}</code>\n"
+                        f"• <b>Breakout Trigger:</b> <code>${kl.get('breakout_level', 0):,.2f}</code> (+{kl.get('distance_to_breakout_pct', 0):.2f}%)\n"
+                        f"• <b>Breakdown Trigger:</b> <code>${kl.get('breakdown_level', 0):,.2f}</code> (-{kl.get('distance_to_breakdown_pct', 0):.2f}%)\n"
+                        f"⚡ <i>Send /chart BTC or /levels for live multi-asset maps!</i>"
+                    )
+                    if hasattr(self.telegram, "broadcast_photo"):
+                        self.telegram.broadcast_photo(chart_path, caption=cap, topic="levels")
+                    elif hasattr(self.telegram, "send_photo"):
+                        self.telegram.send_photo(chart_path, caption=cap)
+            except Exception as ce:
+                logger.debug(f"Could not broadcast chart for daily levels: {ce}")
+
+            state["last_dispatch_slot"] = dispatch_slot
+            state["last_dispatch_time"] = now_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+            os.makedirs(os.path.dirname(state_file), exist_ok=True)
+            with open(state_file, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to broadcast daily market levels: {e}")
+            return False
+
     def check_and_dispatch_level_breakout_alerts(self, symbols_data: Optional[Dict[str, Any]] = None) -> int:
         """
         Detect if any primary asset is within <= 0.35% of a critical breakout or breakdown level,
@@ -361,13 +455,18 @@ class MultiAgentTradingOrchestrator:
                                 }
                     if candles and len(candles.get("c", [])) >= 5:
                         chart_path = generate_candlestick_chart(candles, sym, key_levels=kla, timeframe_label="15m")
-                        if hasattr(self.telegram, "send_photo"):
+                        if hasattr(self.telegram, "broadcast_photo"):
+                            sent = self.telegram.broadcast_photo(chart_path, caption=msg, topic="levels") > 0
+                        elif hasattr(self.telegram, "send_photo"):
                             sent = self.telegram.send_photo(chart_path, caption=msg)
                 except Exception as ce:
                     logger.debug(f"Could not attach candlestick chart to pre-trade radar alert: {ce}")
 
                 if not sent:
-                    sent = self.telegram.send_message(msg)
+                    if hasattr(self.telegram, "broadcast_message"):
+                        sent = self.telegram.broadcast_message(msg, topic="levels") > 0
+                    else:
+                        sent = self.telegram.send_message(msg)
                 if sent:
                     posted_alerts[alert_key] = now_ts
                     alerts_sent += 1
@@ -590,6 +689,12 @@ class MultiAgentTradingOrchestrator:
             self.check_and_dispatch_daily_morning_briefing()
         except Exception as me:
             logger.debug(f"Daily morning briefing check skipped: {me}")
+
+        # Check and dispatch Daily Key Levels Breakout/Breakdown Radar (Morning & Evening sessions)
+        try:
+            self.check_and_dispatch_daily_market_levels()
+        except Exception as ke:
+            logger.debug(f"Daily key levels radar check skipped: {ke}")
 
         active_symbols = symbols or self.symbols
 

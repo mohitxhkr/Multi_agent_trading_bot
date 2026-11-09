@@ -6,7 +6,7 @@
 [![Delta Exchange](https://img.shields.io/badge/Delta%20Exchange-India%20%7C%20Global%20%7C%20Testnet-0ea5e9?style=for-the-badge)](https://delta.exchange)
 [![Architecture](https://img.shields.io/badge/Architecture-6--Layer%20%7C%2011--Agent-blueviolet?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
 [![Security](https://img.shields.io/badge/Security-HMAC%20Token%20%7C%20Zero--Trust-green?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
-[![Tests](https://img.shields.io/badge/Tests-144%2F144%20Passing%20(100%25)-brightgreen?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
+[![Tests](https://img.shields.io/badge/Tests-157%2F157%20Passing%20(100%25)-brightgreen?style=for-the-badge)](https://github.com/mohitxhkr/Multi_agent_trading_bot)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 
 **An institutional-grade, evidence-driven algorithmic trading system engineered for Delta Exchange perpetual futures.**  
@@ -32,6 +32,7 @@
   - [9. Portfolio Monitor & Sentinel](#9️⃣-agent-9-portfolio-monitor--position-sentinel)
   - [10. Adaptive Learning Engine](#-agent-10-adaptive-learning-engine)
   - [11. Performance Coach](#1️⃣1️⃣-agent-11-performance-coach--operating-rules)
+- [📁 Codebase Directory Structure](#-codebase-directory-structure)
 - [📚 Quantitative Audit & Documentation Deliverables](#-quantitative-audit--documentation-deliverables)
 - [🔒 Deterministic Safety Controller (14 Invariants)](#-deterministic-safety-controller-14-invariants)
 - [🛡️ Persistent Multi-Horizon Circuit Breaker](#️-persistent-multi-horizon-circuit-breaker)
@@ -44,7 +45,7 @@
 ## 🏛️ System Architecture
 
 <p align="center">
-  <img src="workflow_architecture_diagram.png" alt="Delta Exchange Multi-Agent Trading System Architecture" width="100%" />
+  <img src="docs/architecture/workflow_architecture_diagram.png" alt="Delta Exchange Multi-Agent Trading System Architecture" width="100%" />
 </p>
 
 ---
@@ -52,7 +53,7 @@
 ## 🔄 End-to-End System Workflow
 
 <p align="center">
-  <img src="end_to_end_workflow.png" alt="Delta Exchange End-to-End Multi-Agent Trading Workflow" width="100%" />
+  <img src="docs/architecture/end_to_end_workflow.png" alt="Delta Exchange End-to-End Multi-Agent Trading Workflow" width="100%" />
 </p>
 
 The system coordinates trade discovery, mathematical validation, and execution across **6 sequential layers** and **11 specialized agents**:
@@ -284,17 +285,122 @@ flowchart TD
 
 ---
 
+## 📁 Codebase Directory Structure
+
+The project follows a clean, professional modular architecture separating core infrastructure, autonomous agents, standalone CLI utilities, comprehensive test suites, and structured documentation:
+
+```text
+Multi_agent_trading_bot/
+├── docs/                               # 📚 Complete System Documentation & Audits
+│   ├── architecture/                   # System diagrams, specifications & technical PDFs
+│   │   ├── workflow_architecture_diagram.png
+│   │   ├── end_to_end_workflow.png
+│   │   ├── SYSTEM_DOCUMENTATION.md
+│   │   ├── Delta_Exchange_Comprehensive_MultiAgent_Architecture.pdf
+│   │   └── Delta_Exchange_MultiAgent_Trading_System_Documentation.pdf
+│   ├── agents/                         # In-depth agent specifications & prompt definitions
+│   │   ├── delta-team-prompts.md
+│   │   ├── REGIME_ANALYST_DOCUMENTATION.md
+│   │   ├── STRATEGY_AGENT_DOCUMENTATION.md
+│   │   ├── TIME_MACHINE_DOCUMENTATION.md
+│   │   ├── PORTFOLIO_MONITOR_DOCUMENTATION.md
+│   │   └── ADAPTIVE_LEARNING_DOCUMENTATION.md
+│   ├── guides/                         # Setup guides, beginner tutorials & deployment
+│   │   ├── SETUP_GUIDE.md
+│   │   ├── HOW_TO_USE_BEGINNER_GUIDE.md
+│   │   ├── CLOUD_DEPLOYMENT_FREE_TIER.md
+│   │   └── Delta_Trading_Beginners_Guide.pdf
+│   ├── reports/                        # Testing reports, safety audits & readiness verification
+│   │   ├── MASTER_SYSTEM_AUDIT.md
+│   │   ├── DEPLOYMENT_READINESS_REPORT.md
+│   │   ├── IMPROVEMENT_AUDIT.md
+│   │   ├── UPGRADE_REPORT.md
+│   │   └── MASTER_SYSTEM_TESTING_REPORT.md
+│   └── changelogs/                     # Historical changelogs and version release notes
+│       ├── MASTER_SYSTEM_CHANGELOG.md
+│       ├── ADAPTIVE_LEARNING_CHANGELOG.md
+│       ├── PORTFOLIO_MONITOR_CHANGELOG.md
+│       ├── REGIME_ANALYST_CHANGELOG.md
+│       ├── STRATEGY_AGENT_CHANGELOG.md
+│       └── TIME_MACHINE_CHANGELOG.md
+├── multiagent_team/                    # 🤖 11 Specialized Autonomous Trading Agents
+│   ├── orchestrator.py                 # Multi-agent master pipeline orchestrator
+│   ├── regime_analyst.py               # Agent 1: 4-TF market structure & 9 canonical regimes
+│   ├── news_sentiment_agent.py         # Agent 2: Live sentiment intelligence & F&G Index
+│   ├── exposure_coach.py               # Agent 3: Macro posture & dynamic risk modulation
+│   ├── strategy_agent.py               # Agent 4: Institutional SMC, liquidity sweep & FVG engine
+│   ├── time_machine.py                 # Agent 5: Walk-forward probability & Wilson CI backtest
+│   ├── risk_gatekeeper.py              # Agent 6: Risk sizing, lot boost, margin & liquidation safety
+│   ├── deterministic_safety_controller.py # Layer 4: 14 deterministic safety invariants & token issuance
+│   ├── execution_agent.py              # Agent 8: Precision order execution & scale-in pyramiding
+│   ├── portfolio_monitor.py            # Agent 9: 24/7 position sentinel, margin & desync surveillance
+│   ├── adaptive_learning.py            # Agent 10: Closed-loop learning & parameter lifecycle
+│   ├── performance_coach.py            # Agent 11: Trading cohort analytics & operating rules
+│   ├── data_validator.py               # Pre-flight tick, candle, & orderbook validation
+│   └── system_monitor.py               # Telemetry, execution latency & rejection recorder
+├── src/                                # ⚙️ Core Infrastructure & Shared Libraries
+│   ├── config.py                       # Pydantic system settings & env parser
+│   ├── delta_client.py                 # Delta Exchange REST/WebSocket client (India & Global)
+│   ├── telegram_bot.py                 # Interactive 2-way Telegram confirmation bot & command router
+│   ├── telegram_notifier.py            # Push notification dispatcher (fills, alerts, digests)
+│   ├── candlestick_chart.py            # Institutional dark-theme 15m candlestick chart generator
+│   ├── technical_analysis.py           # EMA, RSI, ATR, VWAP, ADX, MACD & order flow analytics
+│   ├── risk_manager.py                 # Multi-horizon circuit breakers (Daily/Weekly/Monthly)
+│   ├── trailing_stop_manager.py        # 10s background trailing stop manager & break-even shield
+│   ├── emergency_controller.py         # One-click emergency flatten & state freeze controller
+│   ├── journal.py                      # SQLite & JSON dual-store authoritative trade event journal
+│   ├── state_manager.py                # In-memory & disk state manager with atomic persistence
+│   └── delta_mcp_server.py             # Model Context Protocol (MCP) server for IDE integration
+├── scripts/                            # 🛠️ Standalone Utilities & Helper CLI Tools
+│   ├── send_market_levels.py           # Pre-trade breakout/breakdown level scanner & dispatcher
+│   ├── send_morning_news.py            # 10 AM IST crypto morning briefing dispatcher
+│   ├── run_247_scanner.py              # Standalone 24/7 background scanner runner
+│   ├── run_telegram_listener.py        # Standalone Telegram polling listener runner
+│   ├── test_delta_connection.py        # Quick Delta Exchange API credential verification tool
+│   └── run_mcp.py                      # Fast MCP server launch script
+├── tests/                              # 🧪 Comprehensive Unit & Integration Test Suite (157 Tests)
+│   ├── test_telegram_single_poller_and_trade.py # Single-poller synchronization & /trade test
+│   ├── test_lot_boost_and_scale_in.py  # Historical lot boost & scale-in pyramiding tests
+│   ├── test_p0_security_and_risk.py    # Zero-trust security & risk guardrail test suite
+│   ├── test_full_pipeline.py           # End-to-end multi-agent pipeline integration test
+│   ├── test_regime_analyst_upgrade.py  # Regime analyst multi-timeframe structure tests
+│   ├── test_strategy_agent_upgrade.py  # SMC liquidity sweep & FVG strategy tests
+│   ├── test_time_machine_upgrade.py    # Empirical walk-forward simulation tests
+│   ├── test_portfolio_monitor_upgrade.py # Real-time position sentinel & margin tests
+│   ├── test_adaptive_learning_upgrade.py # Postmortem learning & rollback tests
+│   ├── test_news_sentiment.py          # News ingestion & sentiment scoring tests
+│   ├── test_breakout_levels.py         # Breakout/breakdown key level calculation tests
+│   ├── test_macd_analysis.py           # MACD cross & momentum expansion tests
+│   ├── test_fvg_analysis.py            # Fair value gap detection & mitigation tests
+│   └── test_order_flow_analysis.py     # Volume profile & order book imbalance tests
+├── state/                              # 💾 Persistent Local State & Journals (.gitignored)
+│   ├── charts/                         # High-res generated candlestick chart PNGs
+│   ├── trading_journal.db              # SQLite authoritative event ledger
+│   └── *.json                          # Operational state, operating rules & circuit breakers
+├── main.py                             # 🚀 Unified CLI Tool (test, scan, trade, auto, mcp, digest)
+├── server.py                           # 🌐 Cloud Production Entrypoint (HTTP healthcheck & 24/7 scanner)
+├── requirements.txt                    # Project Python dependencies
+├── Dockerfile                          # Cloud container build manifest
+├── Procfile                            # Cloud process declaration (`web: python server.py`)
+├── render.yaml                         # Production Render infrastructure-as-code specification
+├── .gitignore                          # Git exclusion rules
+├── .env.example                        # Environment variable documentation template
+└── LICENSE                             # Open source MIT license
+```
+
+---
+
 ## 📚 Quantitative Audit & Documentation Deliverables
 
 Comprehensive engineering documentation, mathematical specifications, empirical testing reports, and changelogs are available for the audited agents:
 
 | Specialized Agent | Technical Documentation | Testing Report (100% Pass) | Test Suite Implementation | Migration Changelog |
 |:---|:---|:---|:---|:---|
-| **Agent 1: Regime Analyst** | [Architecture & Mathematical Specs](REGIME_ANALYST_DOCUMENTATION.md) | [16 Unit Tests Suite Report](REGIME_ANALYST_TESTING_REPORT.md) | [`test_regime_analyst_upgrade.py`](tests/test_regime_analyst_upgrade.py) | [Audit & Upgrade Changelog](REGIME_ANALYST_CHANGELOG.md) |
-| **Agent 4: Strategy Generator** | [SMC & Order Flow Confluence](STRATEGY_AGENT_DOCUMENTATION.md) | [18 Unit Tests Suite Report](STRATEGY_AGENT_TESTING_REPORT.md) | [`test_strategy_agent_upgrade.py`](tests/test_strategy_agent_upgrade.py) | [Audit & Upgrade Changelog](STRATEGY_AGENT_CHANGELOG.md) |
-| **Agent 5: Time Machine Engine** | [Historical Simulation & Wilson CI](TIME_MACHINE_DOCUMENTATION.md) | [12 Unit Tests Suite Report](TIME_MACHINE_TESTING_REPORT.md) | [`test_time_machine_upgrade.py`](tests/test_time_machine_upgrade.py) | [Audit & Upgrade Changelog](TIME_MACHINE_CHANGELOG.md) |
-| **Agent 9: Portfolio Monitor** | [Real-Time Surveillance & Margin](PORTFOLIO_MONITOR_DOCUMENTATION.md) | [22 Unit Tests Suite Report](PORTFOLIO_MONITOR_TESTING_REPORT.md) | [`test_portfolio_monitor_upgrade.py`](tests/test_portfolio_monitor_upgrade.py) | [Audit & Upgrade Changelog](PORTFOLIO_MONITOR_CHANGELOG.md) |
-| **Agent 10: Adaptive Learning** | [Postmortem & Parameter Lifecycle](ADAPTIVE_LEARNING_DOCUMENTATION.md) | [22 Unit Tests Suite Report](ADAPTIVE_LEARNING_TESTING_REPORT.md) | [`test_adaptive_learning_upgrade.py`](tests/test_adaptive_learning_upgrade.py) | [Audit & Upgrade Changelog](ADAPTIVE_LEARNING_CHANGELOG.md) |
+| **Agent 1: Regime Analyst** | [Architecture & Mathematical Specs](docs/agents/REGIME_ANALYST_DOCUMENTATION.md) | [16 Unit Tests Suite Report](docs/reports/REGIME_ANALYST_TESTING_REPORT.md) | [`test_regime_analyst_upgrade.py`](tests/test_regime_analyst_upgrade.py) | [Audit & Upgrade Changelog](docs/changelogs/REGIME_ANALYST_CHANGELOG.md) |
+| **Agent 4: Strategy Generator** | [SMC & Order Flow Confluence](docs/agents/STRATEGY_AGENT_DOCUMENTATION.md) | [18 Unit Tests Suite Report](docs/reports/STRATEGY_AGENT_TESTING_REPORT.md) | [`test_strategy_agent_upgrade.py`](tests/test_strategy_agent_upgrade.py) | [Audit & Upgrade Changelog](docs/changelogs/STRATEGY_AGENT_CHANGELOG.md) |
+| **Agent 5: Time Machine Engine** | [Historical Simulation & Wilson CI](docs/agents/TIME_MACHINE_DOCUMENTATION.md) | [12 Unit Tests Suite Report](docs/reports/TIME_MACHINE_TESTING_REPORT.md) | [`test_time_machine_upgrade.py`](tests/test_time_machine_upgrade.py) | [Audit & Upgrade Changelog](docs/changelogs/TIME_MACHINE_CHANGELOG.md) |
+| **Agent 9: Portfolio Monitor** | [Real-Time Surveillance & Margin](docs/agents/PORTFOLIO_MONITOR_DOCUMENTATION.md) | [22 Unit Tests Suite Report](docs/reports/PORTFOLIO_MONITOR_TESTING_REPORT.md) | [`test_portfolio_monitor_upgrade.py`](tests/test_portfolio_monitor_upgrade.py) | [Audit & Upgrade Changelog](docs/changelogs/PORTFOLIO_MONITOR_CHANGELOG.md) |
+| **Agent 10: Adaptive Learning** | [Postmortem & Parameter Lifecycle](docs/agents/ADAPTIVE_LEARNING_DOCUMENTATION.md) | [22 Unit Tests Suite Report](docs/reports/ADAPTIVE_LEARNING_TESTING_REPORT.md) | [`test_adaptive_learning_upgrade.py`](tests/test_adaptive_learning_upgrade.py) | [Audit & Upgrade Changelog](docs/changelogs/ADAPTIVE_LEARNING_CHANGELOG.md) |
 
 ---
 
@@ -381,11 +487,11 @@ MIN_REWARD_TO_RISK=2.2               # Minimum 2.2:1 R:R
 
 ### 3. Run Test Suite
 
-Run the full 144-test institutional validation suite:
+Run the full 157-test institutional validation suite:
 ```bash
 python -m unittest discover tests
 ```
-*Expected Output: `Ran 144 tests in ~1.9s - OK (100% Passing)`*
+*Expected Output: `Ran 157 tests in ~2.5s - OK (100% Passing)`*
 
 Or execute individual agent upgrade test suites:
 ```bash

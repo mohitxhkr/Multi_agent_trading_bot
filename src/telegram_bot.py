@@ -64,6 +64,7 @@ class TelegramConfirmationBot:
         self._active_trade_confirmations: Dict[str, Dict[str, Any]] = {}
         self.max_price_drift_pct = config.max_price_drift_pct
         self.audit_log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "telegram_approvals_audit.json")
+        self._poller_last_seen = 0.0
 
         self._sync_update_offset()
 
@@ -706,6 +707,14 @@ class TelegramConfirmationBot:
             ]
         }
 
+        # Send directional candlestick chart if available
+        chart_path = trade_spec.get("chart_path")
+        if chart_path and os.path.exists(chart_path):
+            try:
+                self.send_photo(chart_path, chat_id=target_chat)
+            except Exception as pe:
+                logger.debug(f"Failed to send proposal chart photo: {pe}")
+
         if target_chat and target_chat != self.chat_id:
             msg_id = self.send_message(proposal_text, reply_markup=reply_markup, chat_id=target_chat)
         else:
@@ -742,65 +751,22 @@ class TelegramConfirmationBot:
         try:
             start_time = time.time()
             while time.time() - start_time < timeout_seconds:
-                # 1. Check if event was set by process_incoming_commands
+                # 1. Check if event was set by process_incoming_commands callback handler
                 if conf_event.is_set():
                     return bool(result_holder.get("confirmed"))
 
-                # 2. Poll Telegram getUpdates directly
-                try:
-                    url = f"{self.base_url}/getUpdates"
-                    params = {"offset": self.last_update_id, "timeout": 2}
-                    updates = []
-                    if self._poll_lock.acquire(timeout=1.0):
-                        try:
-                            res = requests.get(url, params=params, timeout=5)
-                            data = res.json()
-                            if data.get("ok"):
-                                updates = data.get("result", [])
-                                if updates:
-                                    self.last_update_id = max(self.last_update_id, max(u["update_id"] for u in updates) + 1)
-                        finally:
-                            self._poll_lock.release()
-
-                    for update in updates:
-                        cb = update.get("callback_query")
-                        if cb:
-                            cb_data = cb.get("data", "")
-                            cb_id = cb.get("id")
-                            f_user = cb.get("from", {})
-                            c_chat_id = str(cb.get("message", {}).get("chat", {}).get("id", target_chat))
-                            if cb_data.startswith("confirm_") or cb_data.startswith("reject_"):
-                                self._process_trade_confirmation_callback(
-                                    cb_id=cb_id,
-                                    cb_data=cb_data,
-                                    user_info=f_user,
-                                    chat_id=c_chat_id
-                                )
-                                if conf_event.is_set():
-                                    return bool(result_holder.get("confirmed"))
-                            elif cb_data.startswith("propose_scalp_"):
-                                target_sym = cb_data.replace("propose_scalp_", "").strip()
-                                self.answer_callback(cb_id, f"🎯 Generating live {target_sym} scalp proposal...")
-                                orch = getattr(self, "_active_orchestrator", None)
-                                if orch and hasattr(orch, "propose_on_demand_trade"):
-                                    orch.propose_on_demand_trade(symbol=target_sym, chat_id=c_chat_id)
-                        else:
-                            # Handle incoming slash command during wait
-                            msg = update.get("message")
-                            if msg:
-                                text = (msg.get("text") or "").strip()
-                                if text.startswith("/"):
-                                    c_id = str(msg.get("chat", {}).get("id", ""))
-                                    f_user = msg.get("from", {})
-                                    if self._is_user_authorized(f_user, chat_id=c_id):
-                                        c_cmd = text.split()[0].lower().split("@")[0]
-                                        orch = getattr(self, "_active_orchestrator", None)
-                                        self._handle_command(c_cmd, orchestrator=orch, full_text=text, chat_id=c_id)
-                except Exception as e:
-                    logger.error(f"Error checking Telegram callbacks: {e}")
-
-                if conf_event.wait(timeout=1.0):
-                    return bool(result_holder.get("confirmed"))
+                # 2. Check if a dedicated listener thread is actively polling Telegram
+                poller_active = (time.time() - getattr(self, "_poller_last_seen", 0)) < 4.0
+                if poller_active:
+                    # Listener thread is running. Wait smoothly on Event with ZERO getUpdates conflict!
+                    rem = max(0.1, timeout_seconds - (time.time() - start_time))
+                    if conf_event.wait(timeout=min(1.0, rem)):
+                        return bool(result_holder.get("confirmed"))
+                else:
+                    # Standalone/test fallback: Poll Telegram updates directly
+                    self.process_incoming_commands()
+                    if conf_event.wait(timeout=0.5):
+                        return bool(result_holder.get("confirmed"))
 
             # Timeout reached
             self._record_approval_audit(trade_id, None, "TIMEOUT", f"Confirmation timeout reached ({timeout_seconds}s)", trade_spec)
@@ -823,6 +789,8 @@ class TelegramConfirmationBot:
         """
         if not self.is_configured:
             return
+
+        self._poller_last_seen = time.time()
 
         if not self._poll_lock.acquire(blocking=False):
             return

@@ -70,6 +70,7 @@ class MultiAgentTradingOrchestrator:
         self.data_validator = MarketDataValidator()
         self.telegram = TelegramNotifier()
         self.telegram_bot = TelegramConfirmationBot()
+        self.telegram_bot._active_orchestrator = self
 
         self.risk_manager = RiskManager(
             max_risk_per_trade_pct=float(os.getenv("MAX_RISK_PER_TRADE_PCT", "0.02")),
@@ -890,6 +891,44 @@ class MultiAgentTradingOrchestrator:
             # 2. ONLY IF 100% PERFECT -> Dispatch proposal card to user
             self._recent_proposals[trade.get("symbol", "")] = now_ts
             print("\n📱 [Layer 3: Telegram Confirmation Gate] Candidate 100% verified in background! Sending proposal card to user...")
+
+            # Generate directional candlestick chart with UP/DOWN indication
+            try:
+                from src.candlestick_chart import generate_candlestick_chart
+                c_res = self.client.get_candles(trade["symbol"], resolution="15")
+                c_data = c_res.get("result") if (c_res and isinstance(c_res, dict)) else None
+                if isinstance(c_data, list) and len(c_data) >= 5:
+                    c_dict = {
+                        "o": [float(x.get("open", 0)) for x in c_data],
+                        "h": [float(x.get("high", 0)) for x in c_data],
+                        "l": [float(x.get("low", 0)) for x in c_data],
+                        "c": [float(x.get("close", 0)) for x in c_data],
+                        "v": [float(x.get("volume", 0)) for x in c_data],
+                        "t": [int(x.get("time", 0)) for x in c_data],
+                    }
+                    side_str = str(trade.get("side", "")).upper()
+                    is_buy = side_str in ["BUY", "LONG"]
+                    sl_p = float(trade.get("stop_loss_price", 0))
+                    tp_p = float(trade.get("take_profit_price", 0))
+                    cur_p = float(trade.get("entry_price", c_dict["c"][-1]))
+                    chart_kl = {
+                        "breakout_level": cur_p if is_buy else tp_p,
+                        "breakdown_level": sl_p if is_buy else cur_p,
+                        "status_label": f"PROPOSED {side_str} ({trade.get('strategy_name', 'SMC Edge')})",
+                        "proximity_status": "TESTING_BREAKOUT" if is_buy else "TESTING_BREAKDOWN",
+                        "bullish_breakout_plan": {
+                            "take_profit_price": tp_p if is_buy else 0.0,
+                            "stop_loss_price": sl_p if is_buy else 0.0
+                        },
+                        "bearish_breakdown_plan": {
+                            "take_profit_price": tp_p if not is_buy else 0.0,
+                            "stop_loss_price": sl_p if not is_buy else 0.0
+                        }
+                    }
+                    trade["chart_path"] = generate_candlestick_chart(c_dict, trade["symbol"], key_levels=chart_kl, timeframe_label="15m")
+            except Exception as ce:
+                logger.debug(f"Could not generate chart for background trade proposal: {ce}")
+
             t6 = time.time()
             execute_now = False
 
@@ -1073,53 +1112,30 @@ class MultiAgentTradingOrchestrator:
                 "reason": f"Maximum concurrent positions reached ({len(active_pos_symbols)}/{system_config.max_portfolio_concurrency} active: {', '.join(active_pos_symbols)}). Use /close <symbol> to close a position first."
             }
 
-        # If no specific symbol was requested, scan primary institutional assets across the universe
+        # Fast-Path On-Demand Target Selection:
         if not symbol or symbol.upper() in ["ALL", "AUTO", "ANY", "SCAN"]:
-            target_symbols = ["BTCUSD", "ETHUSD", "XAUUSD", "SOLUSD"]
-            available_symbols = [s for s in target_symbols if s not in active_pos_symbols]
-            if not available_symbols:
-                # Check if any active position is profitable for a scale-in opportunity
-                for s in target_symbols:
-                    pos_match = next((p for p in raw_positions if str(p.get("symbol") or p.get("product_symbol") or "").upper() == s), None)
-                    if pos_match and float(pos_match.get("unrealized_pnl", 0.0)) > 0:
-                        available_symbols = [s]
-                        is_scale_in = True
-                        break
-                if not available_symbols:
+            # Priority 1: If an active position is profitable, propose scale-in opportunity immediately!
+            scale_candidate = None
+            for s in ["BTCUSD", "ETHUSD", "XAUUSD", "SOLUSD"]:
+                pm = next((p for p in raw_positions if str(p.get("symbol") or p.get("product_symbol") or "").upper() == s), None)
+                if pm and float(pm.get("unrealized_pnl", 0.0)) > 0:
+                    scale_candidate = s
+                    is_scale_in = True
+                    break
+
+            if scale_candidate:
+                symbol = scale_candidate
+                logger.info(f"Orchestrator: Fast-path selected active winning position {symbol} for scale-in /trade.")
+            else:
+                available = [s for s in ["BTCUSD", "ETHUSD", "XAUUSD", "SOLUSD"] if s not in active_pos_symbols]
+                if not available:
                     return {
                         "status": "REJECTED",
                         "code": "ALL_ASSETS_HAVE_POSITIONS",
                         "reason": f"Active positions already exist on all core assets ({', '.join(active_pos_symbols)}). Use /close <symbol> to free up an asset."
                     }
-
-            logger.info(f"Orchestrator: Scanning {len(available_symbols)} primary universe assets for /trade opportunity...")
-            try:
-                scan_results = self.regime_analyst.scan_universe(available_symbols, resolution="15")
-                candidates = self.strategy_agent.find_best_candidates(scan_results)
-
-                # Determine macro posture & directional bias
-                direction_bias = "BOTH"
-                if hasattr(self, "exposure_coach"):
-                    try:
-                        posture_data = self.exposure_coach.evaluate_market_posture(scan_results)
-                        direction_bias = posture_data.get("direction_bias", "BOTH")
-                    except Exception:
-                        pass
-
-                if side:
-                    candidates = [c for c in candidates if c.get("side") == side.lower()]
-                elif direction_bias == "SHORTS_ONLY":
-                    candidates = [c for c in candidates if c.get("side") == "sell"]
-                elif direction_bias == "LONGS_ONLY":
-                    candidates = [c for c in candidates if c.get("side") == "buy"]
-
-                if candidates:
-                    candidate = candidates[0]
-                    symbol = candidate["symbol"]
-                    side = candidate["side"]
-                    logger.info(f"Orchestrator: Selected top market opportunity across all assets: {symbol} {side.upper()} (Score: {candidate.get('score')}/100 | Bias: {direction_bias})")
-            except Exception as e:
-                logger.error(f"Error scanning universe for /trade: {e}")
+                symbol = available[0]
+                logger.info(f"Orchestrator: Fast-path selected primary asset {symbol} for immediate /trade proposal.")
 
         if not symbol:
             symbol = "BTCUSD"
@@ -1308,6 +1324,47 @@ class MultiAgentTradingOrchestrator:
 
         # 6. ONLY IF 100% PERFECT -> Dispatch Telegram confirmation card
         logger.info(f"📱 Candidate {decision['symbol']} verified 100% perfect in background by all agents! Dispatching proposal card to Telegram...")
+
+        # Generate directional candlestick chart with UP/DOWN indication
+        try:
+            from src.candlestick_chart import generate_candlestick_chart
+            if not candles_15m or len(candles_15m.get("c", [])) < 5:
+                c_res = self.client.get_candles(decision["symbol"], resolution="15")
+                c_data = c_res.get("result") if (c_res and isinstance(c_res, dict)) else None
+                if isinstance(c_data, list) and len(c_data) >= 5:
+                    candles_15m = {
+                        "o": [float(x.get("open", 0)) for x in c_data],
+                        "h": [float(x.get("high", 0)) for x in c_data],
+                        "l": [float(x.get("low", 0)) for x in c_data],
+                        "c": [float(x.get("close", 0)) for x in c_data],
+                        "v": [float(x.get("volume", 0)) for x in c_data],
+                        "t": [int(x.get("time", 0)) for x in c_data],
+                    }
+
+            if candles_15m and len(candles_15m.get("c", [])) >= 5:
+                sl_p = float(decision.get("stop_loss_price", 0))
+                tp_p = float(decision.get("take_profit_price", 0))
+                side_str = str(decision.get("side", "")).upper()
+                is_buy = side_str in ["BUY", "LONG"]
+                chart_kl = {
+                    "breakout_level": cur_mark if is_buy else tp_p,
+                    "breakdown_level": sl_p if is_buy else cur_mark,
+                    "status_label": f"PROPOSED {side_str} ({decision.get('strategy_name', 'SMC Scalp')})",
+                    "proximity_status": "TESTING_BREAKOUT" if is_buy else "TESTING_BREAKDOWN",
+                    "bullish_breakout_plan": {
+                        "take_profit_price": tp_p if is_buy else 0.0,
+                        "stop_loss_price": sl_p if is_buy else 0.0
+                    },
+                    "bearish_breakdown_plan": {
+                        "take_profit_price": tp_p if not is_buy else 0.0,
+                        "stop_loss_price": sl_p if not is_buy else 0.0
+                    }
+                }
+                chart_path = generate_candlestick_chart(candles_15m, decision["symbol"], key_levels=chart_kl, timeframe_label="15m")
+                decision["chart_path"] = chart_path
+        except Exception as chart_err:
+            logger.debug(f"Could not generate candlestick chart for proposal: {chart_err}")
+
         if self.telegram_bot.is_configured:
             execute_now = self.telegram_bot.request_trade_confirmation(
                 trade_spec=decision,

@@ -94,6 +94,10 @@ class TelegramNotifier:
             logger.error(f"Telegram network exception: {e}")
             return False
 
+    def send_alert(self, text: str) -> bool:
+        """Send an urgent alert message to Telegram."""
+        return self.send_message(text, parse_mode="Markdown")
+
     def send_photo(
         self,
         photo_path_or_bytes: Any,

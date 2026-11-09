@@ -213,6 +213,10 @@ class TelegramConfirmationBot:
             logger.error(f"Telegram network error: {e}")
             return None
 
+    def send_alert(self, text: str, chat_id: Optional[str] = None) -> bool:
+        """Alias for send_message to ensure compatibility with emergency alerts."""
+        return bool(self.send_message(text, parse_mode="Markdown", chat_id=chat_id))
+
     def send_photo(
         self,
         photo_path_or_bytes: Any,

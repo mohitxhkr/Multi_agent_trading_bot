@@ -248,7 +248,10 @@ class ExecutionAgent:
                 f"Action Taken: Immediate emergency market close dispatched (`{close_res.get('success')}`)."
             )
             if self.telegram:
-                self.telegram.send_alert(alert_msg)
+                if hasattr(self.telegram, "send_alert"):
+                    self.telegram.send_alert(alert_msg)
+                elif hasattr(self.telegram, "send_message"):
+                    self.telegram.send_message(alert_msg)
 
             return {
                 "success": False,

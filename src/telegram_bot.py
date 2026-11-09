@@ -903,7 +903,11 @@ class TelegramConfirmationBot:
                     self.answer_callback(cb_id, f"🎯 Generating live {target_sym} scalp proposal...")
                     orch = orchestrator or getattr(self, "_active_orchestrator", None)
                     if orch and hasattr(orch, "propose_on_demand_trade"):
-                        orch.propose_on_demand_trade(symbol=target_sym, chat_id=cb_chat_id)
+                        threading.Thread(
+                            target=orch.propose_on_demand_trade,
+                            kwargs={"symbol": target_sym, "chat_id": cb_chat_id},
+                            daemon=True
+                        ).start()
                     else:
                         self.send_message(f"⚠️ Orchestrator unavailable. Cannot generate scalp for {target_sym}.", chat_id=cb_chat_id)
                     continue
@@ -1151,32 +1155,38 @@ class TelegramConfirmationBot:
             if target_sym:
                 reply(f"🔍 <i>Evaluating live trade setup for <code>{target_sym}</code>{dir_txt}...</i>")
             else:
-                reply(f"🔍 <i>Scanning all assets across trading universe (BTC, ETH, XAU, SOL, XRP, DOGE, ADA){dir_txt} for best trade setup...</i>")
+                reply(f"🔍 <i>Scanning primary assets (BTC, ETH, XAU, SOL){dir_txt} for best trade setup...</i>")
 
-            # Directly dispatch the actual live interactive trade proposal card with confirmation buttons
-            try:
-                if hasattr(orchestrator, "propose_on_demand_trade"):
-                    res = orchestrator.propose_on_demand_trade(symbol=target_sym, side=requested_side, chat_id=target_chat)
-                    status = res.get("status", "")
-                    code = res.get("code", "")
-                    if status == "SUCCESS":
-                        reply(
-                            f"🚀 <b>TRADE EXECUTED ON DELTA EXCHANGE!</b>\n\n"
-                            f"• <b>Order ID:</b> <code>#{res.get('order_id')}</code>\n"
-                            f"• <b>Contract:</b> <code>{res.get('symbol', target_sym or 'BTCUSD')}</code>\n"
-                            f"• <b>Size:</b> <code>{res.get('contracts')}</code> contracts\n"
-                            f"• <b>Status:</b> 🟢 <b>PUNCHED & ACTIVE</b> (SL & TP attached)"
-                        )
-                    elif code == "USER_REJECTED_OR_EXPIRED" or status == "TIMEOUT":
-                        pass
-                    elif status == "REJECTED":
-                        reply(f"🛡️ <b>Pre-Trade Agent Veto (Background Evaluation):</b>\n<code>{res.get('reason', 'Safety criteria failed')}</code>\n<i>Capital protected. Proposal withheld.</i>")
-                    elif status == "FAILED":
-                        reply(f"⚠️ <b>Order Execution Failed:</b> <code>{res.get('error', res.get('reason', 'Exchange error'))}</code>")
-                else:
-                    reply("⚠️ Orchestrator does not support on-demand scalp generator.")
-            except Exception as te:
-                reply(f"⚠️ Error finding trade on {target_sym or 'universe'}: {te}")
+            # Asynchronously dispatch in dedicated worker thread so the Telegram polling listener never freezes!
+            def _async_trade_task():
+                try:
+                    if hasattr(orchestrator, "propose_on_demand_trade"):
+                        res = orchestrator.propose_on_demand_trade(symbol=target_sym, side=requested_side, chat_id=target_chat)
+                        status = res.get("status", "")
+                        code = res.get("code", "")
+                        if status == "SUCCESS":
+                            reply(
+                                f"🚀 <b>TRADE EXECUTED ON DELTA EXCHANGE!</b>\n\n"
+                                f"• <b>Order ID:</b> <code>#{res.get('order_id')}</code>\n"
+                                f"• <b>Contract:</b> <code>{res.get('symbol', target_sym or 'BTCUSD')}</code>\n"
+                                f"• <b>Size:</b> <code>{res.get('contracts')}</code> contracts\n"
+                                f"• <b>Status:</b> 🟢 <b>PUNCHED & ACTIVE</b> (SL & TP attached)"
+                            )
+                        elif code == "USER_REJECTED_OR_EXPIRED" or status == "TIMEOUT":
+                            pass
+                        elif status == "REJECTED":
+                            reply(f"🛡️ <b>Pre-Trade Agent Veto (Background Evaluation):</b>\n<code>{res.get('reason', 'Safety criteria failed')}</code>\n<i>Capital protected. Proposal withheld.</i>")
+                        elif status == "FAILED":
+                            reply(f"⚠️ <b>Order Execution Failed:</b> <code>{res.get('error', res.get('reason', 'Exchange error'))}</code>")
+                        else:
+                            reply(f"ℹ️ <b>Trade Search Result:</b> <code>{res.get('reason', res.get('code', 'No setup available this cycle.'))}</code>")
+                    else:
+                        reply("⚠️ Orchestrator does not support on-demand scalp generator.")
+                except Exception as te:
+                    logger.error(f"Error in on-demand trade worker: {te}", exc_info=True)
+                    reply(f"⚠️ Error finding trade on {target_sym or 'universe'}: {te}")
+
+            threading.Thread(target=_async_trade_task, daemon=True).start()
 
         elif cmd in ["/radar", "/preradar", "/scalpradar", "/pretrade"]:
             parts = full_text.strip().split()

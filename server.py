@@ -186,7 +186,7 @@ def run_scanner_loop():
         except Exception as e:
             logger.error(f"Scanner exception: {e}", exc_info=True)
 
-        # Monitor trailing stops and poll Telegram commands every 2 seconds
+        # Monitor trailing stops every 2 seconds (Telegram commands handled continuously by dedicated tg_thread)
         elapsed = 0
         trailing_tick = 0
         while elapsed < interval:
@@ -197,10 +197,8 @@ def run_scanner_loop():
                 if trailing_tick >= 10:
                     orchestrator.trailing_stop_manager.check_and_update_trailing_stops()
                     trailing_tick = 0
-                # Real-time Telegram command listener (/chart, /levels, /news, /scan, /trade, /status)
-                orchestrator.telegram_bot.process_incoming_commands(orchestrator)
             except Exception as e:
-                logger.error(f"Trailing stop / Telegram command background tick error: {e}")
+                logger.error(f"Trailing stop background tick error: {e}")
 
 
 def main():

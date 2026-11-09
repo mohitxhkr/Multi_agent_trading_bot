@@ -1038,39 +1038,61 @@ class MultiAgentTradingOrchestrator:
         except Exception as pe:
             logger.debug(f"Could not check active positions for collision: {pe}")
 
-        # Check portfolio concurrency limit before proposing trade
         from src.config import system_config
-        if len(active_pos_symbols) >= system_config.max_portfolio_concurrency:
+        is_scale_in = False
+        raw_positions = []
+        try:
+            raw_positions = pos_res.get("result", []) if pos_res.get("success") else []
+        except Exception:
+            pass
+
+        # If a specific symbol was requested and already has an active position, evaluate scale-in opportunity
+        if symbol and symbol.upper() not in ["ALL", "AUTO", "ANY", "SCAN"]:
+            clean_sym = symbol.upper()
+            if not clean_sym.endswith("USD") and not clean_sym.endswith("USDT"):
+                clean_sym = f"{clean_sym}USD"
+            if clean_sym in active_pos_symbols:
+                # Check if existing position is profitable (eligible for scale-in / add to winner)
+                pos_match = next((p for p in raw_positions if str(p.get("symbol") or p.get("product_symbol") or "").upper() == clean_sym), None)
+                pos_pnl = float(pos_match.get("unrealized_pnl", 0.0)) if pos_match else 0.0
+                if pos_match and pos_pnl > 0:
+                    logger.info(f"Orchestrator: Active {clean_sym} position is in profit (+${pos_pnl:.2f}). Approving scale-in for /trade!")
+                    is_scale_in = True
+                else:
+                    return {
+                        "status": "REJECTED",
+                        "code": "POSITION_ALREADY_EXISTS",
+                        "reason": f"An active position on {clean_sym} already exists on Delta Exchange and is currently flat or in drawdown (PnL: ${pos_pnl:.2f}). Adding quantity is only permitted when trade is in profit. Use /close {clean_sym} to close it first."
+                    }
+
+        # Check portfolio concurrency limit (scale-in does not consume a new asset slot)
+        if not is_scale_in and len(active_pos_symbols) >= system_config.max_portfolio_concurrency:
             return {
                 "status": "REJECTED",
                 "code": "PORTFOLIO_CONCURRENCY_LIMIT",
                 "reason": f"Maximum concurrent positions reached ({len(active_pos_symbols)}/{system_config.max_portfolio_concurrency} active: {', '.join(active_pos_symbols)}). Use /close <symbol> to close a position first."
             }
 
-        # If a specific symbol was requested and already has an active position, notify user
-        if symbol and symbol.upper() not in ["ALL", "AUTO", "ANY", "SCAN"]:
-            clean_sym = symbol.upper()
-            if not clean_sym.endswith("USD") and not clean_sym.endswith("USDT"):
-                clean_sym = f"{clean_sym}USD"
-            if clean_sym in active_pos_symbols:
-                return {
-                    "status": "REJECTED",
-                    "code": "POSITION_ALREADY_EXISTS",
-                    "reason": f"An active position on {clean_sym} already exists on Delta Exchange. Delta does not allow multiple simultaneous bracket orders on the same product. Use /close {clean_sym} to close it first."
-                }
-
-        # If no specific symbol was requested, scan ALL AVAILABLE assets across the universe
+        # If no specific symbol was requested, scan primary institutional assets across the universe
         if not symbol or symbol.upper() in ["ALL", "AUTO", "ANY", "SCAN"]:
-            target_symbols = self.symbols or ["BTCUSD", "ETHUSD", "XAUUSD", "SOLUSD", "XRPUSD", "DOGEUSD", "ADAUSD"]
+            target_symbols = ["BTCUSD", "ETHUSD", "XAUUSD", "SOLUSD"]
             available_symbols = [s for s in target_symbols if s not in active_pos_symbols]
             if not available_symbols:
-                return {
-                    "status": "REJECTED",
-                    "code": "ALL_ASSETS_HAVE_POSITIONS",
-                    "reason": f"Active positions already exist on all universe assets ({', '.join(active_pos_symbols)}). Use /close <symbol> to free up an asset."
-                }
+                # Check if any active position is profitable for a scale-in opportunity
+                for s in target_symbols:
+                    pos_match = next((p for p in raw_positions if str(p.get("symbol") or p.get("product_symbol") or "").upper() == s), None)
+                    if pos_match and float(pos_match.get("unrealized_pnl", 0.0)) > 0:
+                        available_symbols = [s]
+                        is_scale_in = True
+                        break
+                if not available_symbols:
+                    return {
+                        "status": "REJECTED",
+                        "code": "ALL_ASSETS_HAVE_POSITIONS",
+                        "reason": f"Active positions already exist on all core assets ({', '.join(active_pos_symbols)}). Use /close <symbol> to free up an asset."
+                    }
 
-            logger.info(f"Orchestrator: Scanning {len(available_symbols)} available universe assets for /trade opportunity (excluding open: {active_pos_symbols})...")
+            logger.info(f"Orchestrator: Scanning {len(available_symbols)} primary universe assets for /trade opportunity...")
             try:
                 scan_results = self.regime_analyst.scan_universe(available_symbols, resolution="15")
                 candidates = self.strategy_agent.find_best_candidates(scan_results)
@@ -1247,6 +1269,8 @@ class MultiAgentTradingOrchestrator:
         decision["take_profit_price"] = float(decision.get("take_profit_price") or candidate["take_profit_price"])
         decision["confluence"] = candidate["confluence"]
         decision["time_machine"] = candidate["time_machine"]
+        if is_scale_in:
+            decision["is_scale_in"] = True
 
         liq_price = float(decision.get("estimated_liquidation_price") or 0.0)
         stop_dist = abs(cur_mark - sl_price)

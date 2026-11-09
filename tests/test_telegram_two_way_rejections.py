@@ -75,7 +75,7 @@ class TestTelegramTwoWayRejections(unittest.TestCase):
 
         self.assertTrue(len(sent_messages) > 0)
         self.assertIn("Unrecognized Command / Input", sent_messages[0])
-        self.assertIn("propse trade btc", sent_messages[0])
+        self.assertIn("propose trade btc", sent_messages[0])
         self.assertIn("/trade", sent_messages[0])
 
     def test_close_command_when_no_position_exists(self):

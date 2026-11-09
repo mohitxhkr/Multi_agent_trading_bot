@@ -800,6 +800,19 @@ class TelegramConfirmationBot:
         if raw.startswith("/"):
             parts = raw.split()
             cmd = parts[0].lower().split("@")[0]
+            # Normalize legacy/alias commands into clean core commands
+            if cmd in ["/scalp", "/findtrade", "/find_trade", "/proposal", "/propose"]:
+                cmd = "/trade"
+                raw = f"/trade {' '.join(parts[1:])}".strip()
+            elif cmd in ["/scan", "/market", "/radar", "/preradar", "/scalpradar", "/pretrade"]:
+                cmd = "/levels"
+                raw = f"/levels {' '.join(parts[1:])}".strip()
+            elif cmd in ["/posture", "/regime", "/marketposture"]:
+                cmd = "/status"
+                raw = "/status"
+            elif cmd in ["/rules", "/discipline", "/operatingrules"]:
+                cmd = "/help"
+                raw = "/help"
             return cmd, raw
 
         lower = raw.lower().replace("?", "").replace("!", "").replace(",", " ").strip()
@@ -834,7 +847,7 @@ class TelegramConfirmationBot:
             elif tok in ["sell", "short"]:
                 side = "sell"
 
-        # 1. Trade / Scalp intent: e.g. "propse trade btc", "propose trade btc", "trade btc", "propose btc", "find trade"
+        # 1. Trade intent: e.g. "propse trade btc", "propose trade btc", "trade btc", "propose btc", "scalp btc"
         trade_keywords = {"trade", "propose", "propse", "propsal", "proposal", "scalp", "findtrade", "find_trade"}
         if any(w in trade_keywords for w in tokens) or (side and asset):
             cmd_str = f"/trade {asset or ''} {side or ''}".strip()
@@ -858,12 +871,8 @@ class TelegramConfirmationBot:
         if "close" in tokens:
             return "/close", f"/close {asset or ''}".strip()
 
-        # 6. Radar / Opportunity
-        if any(w in {"radar", "preradar", "scalpradar", "pretrade"} for w in tokens):
-            return "/radar", f"/radar {asset or ''}".strip()
-
-        # 7. Levels / Breakout / Breakdown
-        if any(w in {"levels", "breakout", "breakdown", "keylevels"} for w in tokens):
+        # 6. Levels / Breakout / Breakdown / Market / Radar (Normalized to /levels)
+        if any(w in {"levels", "breakout", "breakdown", "keylevels", "radar", "scan", "market"} for w in tokens):
             return "/levels", "/levels"
 
         # 8. Chart / Candlestick / Graph
@@ -983,12 +992,12 @@ class TelegramConfirmationBot:
                     self.answer_callback(cb_id, "Sending demonstration proposal...")
                     self.send_sample_proposal(chat_id=cb_chat_id)
                     continue
-                elif cb_data.startswith("propose_scalp_"):
-                    target_sym = cb_data.replace("propose_scalp_", "").strip()
-                    self.answer_callback(cb_id, f"🎯 Generating live {target_sym} scalp proposal...")
+                elif cb_data.startswith("propose_trade_") or cb_data.startswith("propose_scalp_"):
+                    target_sym = cb_data.replace("propose_trade_", "").replace("propose_scalp_", "").strip()
+                    self.answer_callback(cb_id, f"🎯 Evaluating live {target_sym} trade proposal...")
                     orch = orchestrator or getattr(self, "_active_orchestrator", None)
                     if orch and hasattr(orch, "propose_on_demand_trade"):
-                        def _scalp_worker():
+                        def _trade_worker():
                             try:
                                 res = orch.propose_on_demand_trade(symbol=target_sym, chat_id=cb_chat_id)
                                 if res and not res.get("notified"):
@@ -1010,12 +1019,12 @@ class TelegramConfirmationBot:
                                             chat_id=cb_chat_id
                                         )
                             except Exception as we:
-                                logger.error(f"Error in scalp worker thread: {we}", exc_info=True)
+                                logger.error(f"Error in trade worker thread: {we}", exc_info=True)
                                 self.send_message(f"⚠️ Error evaluating {target_sym}: {we}", chat_id=cb_chat_id)
 
-                        threading.Thread(target=_scalp_worker, daemon=True).start()
+                        threading.Thread(target=_trade_worker, daemon=True).start()
                     else:
-                        self.send_message(f"⚠️ Orchestrator unavailable. Cannot generate scalp for {target_sym}.", chat_id=cb_chat_id)
+                        self.send_message(f"⚠️ Orchestrator unavailable. Cannot generate trade for {target_sym}.", chat_id=cb_chat_id)
                     continue
 
             msg = update.get("message")
@@ -1116,18 +1125,14 @@ class TelegramConfirmationBot:
                         status_lines.append(f"  Entry: <code>${ent:.5f}</code> | Mark: <code>${mark:.5f}</code> | PnL: <b>{pnl_str}</b>")
 
                 status_lines.append("━━━━━━━━━━━━━━━━━━━━━━")
-                status_lines.append("⚡ <i>Type /positions for full risk spec or /scan for on-demand analysis.</i>")
+                status_lines.append("⚡ <i>Type /positions for active trades, /trade to propose, or /levels for chart.</i>")
                 reply("\n".join(status_lines))
             except Exception as e:
                 reply(f"⚠️ Error fetching status: {e}")
 
         elif cmd in ["/scan", "/market"]:
-            try:
-                reply("🔍 <i>Scanning BTC, ETH, and XAU across 5 timeframes... Please wait a few seconds.</i>")
-                digest = orchestrator.get_market_digest_text()
-                reply(digest)
-            except Exception as e:
-                reply(f"⚠️ Error generating scan: {e}")
+            # Route to breakout levels which gives clear, structured market plans and candlestick chart
+            self._handle_command("/levels", orchestrator, full_text="/levels", chat_id=target_chat)
 
         elif cmd in ["/positions", "/pos", "/portfolio", "/openpositions"]:
             try:
@@ -1297,7 +1302,7 @@ class TelegramConfirmationBot:
                         else:
                             reply(f"ℹ️ <b>Trade Search Result:</b> <code>{res.get('reason', res.get('code', 'No setup available this cycle.'))}</code>")
                     else:
-                        reply("⚠️ Orchestrator does not support on-demand scalp generator.")
+                        reply("⚠️ Orchestrator does not support on-demand trade generator.")
                 except Exception as te:
                     logger.error(f"Error in on-demand trade worker: {te}", exc_info=True)
                     reply(f"⚠️ Error evaluating trade on {target_sym or 'universe'}: {te}")
@@ -1360,18 +1365,18 @@ class TelegramConfirmationBot:
             radar_markup = {
                 "inline_keyboard": [
                     [
-                        {"text": "🎯 Propose BTC Scalp", "callback_data": "propose_scalp_BTCUSD"},
-                        {"text": "🎯 Propose ETH Scalp", "callback_data": "propose_scalp_ETHUSD"},
+                        {"text": "🎯 Propose BTC Trade", "callback_data": "propose_trade_BTCUSD"},
+                        {"text": "🎯 Propose ETH Trade", "callback_data": "propose_trade_ETHUSD"},
                     ],
                     [
-                        {"text": "🎯 Propose XAU Scalp", "callback_data": "propose_scalp_XAUUSD"},
+                        {"text": "🎯 Propose XAU Trade", "callback_data": "propose_trade_XAUUSD"},
                         {"text": "📋 View Sample Card", "callback_data": "sample_proposal_view"},
                     ]
                 ]
             }
 
             radar_msg = (
-                "🛡️ <b>[PRE-TRADE SCALP RADAR &amp; OPPORTUNITY SCAN]</b>\n"
+                "🛡️ <b>[PRE-TRADE OPPORTUNITY RADAR]</b>\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"• <b>Active Focus Asset:</b> <code>{target_sym}</code>\n"
                 f"• <b>Market Posture:</b> <code>{regime}</code>\n"
@@ -1762,26 +1767,23 @@ class TelegramConfirmationBot:
             help_msg = (
                 "📖 <b>[DELTA BOT COMMAND CENTER]</b>\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "You can command your trading bot anytime directly in this chat:\n\n"
-                "• <code>/status</code> — View 24/7 cloud health, available equity &amp; open count\n"
-                "• <code>/chart &lt;symbol&gt;</code> — Live Candlestick Chart with Breakout/Breakdown Levels\n"
-                "• <code>/levels</code> — Breakout &amp; Breakdown Key Levels with Pre-Trade Plans &amp; Chart\n"
-                "• <code>/news</code> — Daily Crypto Morning Briefing &amp; Sentiment Card (10-11 AM IST)\n"
-                "• <code>/posture</code> — View Market Posture, Breadth % &amp; Exposure Ceiling\n"
-                "• <code>/rules</code> — Inspect dynamic Next-Session Operating Rules\n"
-                "• <code>/trade [symbol] [side]</code> — Generate live interactive Trade Proposal Card with [Confirm] / [Reject] buttons\n"
-                "• <code>/radar [symbol]</code> — View Pre-Trade Scalp Radar, market posture, prices &amp; quick-switch buttons\n"
-                "• <code>/scan</code> — Trigger on-demand 5-timeframe scan of BTC, ETH &amp; XAU\n"
-                "• <code>/sample</code> — Send interactive sample trade card with live buttons\n"
-                "• <code>/positions</code> — View currently active positions &amp; PnL\n"
-                "• <code>/orders</code> — Inspect pending limit/bracket orders\n"
-                "• <code>/scorecard</code> — View algorithm self-learning audit, win rate &amp; learned patterns\n"
-                "• <code>/close &lt;symbol&gt;</code> — Market close a specific position (e.g. /close BTCUSD)\n"
-                "• <code>/closeall</code> — Emergency flatten all positions &amp; cancel all orders\n"
-                "• <code>/help</code> — Show this help manual\n"
+                "Essential controls for 24/7 cloud trading:\n\n"
+                "• <code>/trade [symbol]</code> — Propose live trade setup with 15m chart (e.g. <code>/trade BTC</code>)\n"
+                "• <code>/status</code> — 24/7 cloud health, active position count &amp; cash USD\n"
+                "• <code>/positions</code> — View currently active positions, margin &amp; live PnL\n"
+                "• <code>/levels</code> — Breakout &amp; breakdown key levels with candlestick chart\n"
+                "• <code>/chart [symbol]</code> — Live 15m directional candlestick chart\n"
+                "• <code>/close &lt;symbol&gt;</code> — Market close a specific position (e.g. <code>/close BTCUSD</code>)\n"
+                "• <code>/closeall</code> — Emergency flatten all active positions to cash USD\n"
+                "• <code>/orders</code> — Inspect pending limit &amp; bracket orders on Delta\n"
+                "• <code>/news</code> — Daily Crypto Morning Briefing &amp; sentiment index\n"
+                "• <code>/scorecard</code> — Dynamic self-learning audit, win rate &amp; R:R tracking\n"
+                "• <code>/pause</code> / <code>/resume</code> — Pause or resume automated scanning\n"
+                "• <code>/sample</code> — Test interactive confirmation proposal card\n"
+                "• <code>/help</code> — Show this command manual\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "🎯 <b>Primary Focus:</b> BTC, ETH, XAU (Gold)\n"
-                "⚠️ <b>Zero trades execute without your explicit button click.</b>"
+                "🎯 <b>Primary Assets:</b> BTC, ETH, XAU (Gold), SOL\n"
+                "🛡️ <b>Capital Safety:</b> Zero trades execute without your explicit button confirmation."
             )
             reply(help_msg)
 
@@ -1791,12 +1793,11 @@ class TelegramConfirmationBot:
                 f"❓ <b>Unrecognized Command / Input:</b> <i>\"{html.escape(full_text)}\"</i>\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "I didn't recognize that instruction. Here are quick commands you can use:\n\n"
-                "• <code>/trade BTC</code> (or <i>propse trade btc</i>) — Propose live BTC trade\n"
+                "• <code>/trade BTC</code> (or <i>propose trade btc</i>) — Propose live BTC trade\n"
                 "• <code>/trade</code> — Evaluate best setup across primary assets\n"
-                "• <code>/radar</code> — Pre-trade opportunity scanner & quick action buttons\n"
-                "• <code>/status</code> — System health & cash balances\n"
-                "• <code>/positions</code> — Active running positions & PnL\n"
-                "• <code>/levels</code> — Breakout/breakdown levels & candlestick chart\n"
+                "• <code>/status</code> — System health &amp; cash balances\n"
+                "• <code>/positions</code> — Active running positions &amp; PnL\n"
+                "• <code>/levels</code> — Breakout/breakdown levels &amp; candlestick chart\n"
                 "• <code>/help</code> — Full command center manual\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "💡 <i>Tip: You can use slash commands like <code>/trade btc</code> or plain English phrases.</i>"

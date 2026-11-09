@@ -160,6 +160,48 @@ class TestTelegramTwoWayRejections(unittest.TestCase):
         self.assertIn("TRADE PROPOSAL VETOED BY RISK CONTROLLER", sent_messages[0])
         self.assertIn("EMERGENCY_HALT_ACTIVE", sent_messages[0])
 
+    def test_guest_can_access_public_market_intelligence(self):
+        """Verify guest user can access /levels, /news, /help, /chart without restriction."""
+        sent_messages = []
+        self.bot.send_message = MagicMock(side_effect=lambda text, **kwargs: sent_messages.append(text))
+        mock_orch = MagicMock()
+        mock_orch.format_market_levels_telegram.return_value = "⚡ BTC Breakout Levels Analysis"
+
+        # 1. /levels
+        self.bot._handle_command("/levels", mock_orch, full_text="/levels", chat_id="999999", is_admin=False)
+        self.assertTrue(any("Breakout Levels" in m for m in sent_messages))
+
+        # 2. /help for guest
+        sent_messages.clear()
+        self.bot._handle_command("/help", mock_orch, full_text="/help", chat_id="999999", is_admin=False)
+        self.assertTrue(any("GUEST ACCESS" in m for m in sent_messages))
+        self.assertTrue(any("Security Note" in m for m in sent_messages))
+
+    def test_guest_blocked_from_private_balances_and_trading(self):
+        """Verify guest user is blocked from viewing balances, running positions, or placing trades."""
+        sent_messages = []
+        self.bot.send_message = MagicMock(side_effect=lambda text, **kwargs: sent_messages.append(text))
+        mock_orch = MagicMock()
+
+        # 1. /status & /balance blocked
+        self.bot._handle_command("/status", mock_orch, full_text="/status", chat_id="999999", is_admin=False)
+        self.assertIn("ACCOUNT BALANCE RESTRICTED", sent_messages[-1])
+
+        # 2. /positions blocked
+        self.bot._handle_command("/positions", mock_orch, full_text="/positions", chat_id="999999", is_admin=False)
+        self.assertIn("PORTFOLIO POSITIONS RESTRICTED", sent_messages[-1])
+
+        # 3. /trade blocked
+        self.bot._handle_command("/trade", mock_orch, full_text="/trade BTC", chat_id="999999", is_admin=False)
+        self.assertIn("TRADE EXECUTION RESTRICTED", sent_messages[-1])
+
+        # 4. /close & /closeall blocked
+        self.bot._handle_command("/close", mock_orch, full_text="/close BTCUSD", chat_id="999999", is_admin=False)
+        self.assertIn("SECURITY VETO", sent_messages[-1])
+
+        self.bot._handle_command("/closeall", mock_orch, full_text="/closeall", chat_id="999999", is_admin=False)
+        self.assertIn("SECURITY VETO", sent_messages[-1])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -949,11 +949,12 @@ class TelegramConfirmationBot:
                 from_user = cb.get("from", {})
                 cb_chat_id = str(cb.get("message", {}).get("chat", {}).get("id", self.chat_id))
 
-                if not self._is_user_authorized(from_user, chat_id=cb_chat_id):
-                    self.answer_callback(cb_id, "⛔ Unauthorized user.")
-                    continue
+                is_admin = self._is_user_authorized(from_user, chat_id=cb_chat_id)
 
                 if cb_data.startswith("confirm_") or cb_data.startswith("reject_"):
+                    if not is_admin:
+                        self.answer_callback(cb_id, "🔒 Access Restricted: Live trade execution is restricted to the administrator.", show_alert=True)
+                        continue
                     self._process_trade_confirmation_callback(
                         cb_id=cb_id,
                         cb_data=cb_data,
@@ -963,6 +964,9 @@ class TelegramConfirmationBot:
                     continue
 
                 if cb_data == "execute_emergency_closeall":
+                    if not is_admin:
+                        self.answer_callback(cb_id, "⛔ Security Veto: Emergency closeall is restricted to the administrator.", show_alert=True)
+                        continue
                     self.answer_callback(cb_id, "🚨 Flattening all positions now...")
                     orch = orchestrator or getattr(self, "_active_orchestrator", None)
                     if orch:
@@ -977,6 +981,9 @@ class TelegramConfirmationBot:
                         )
                     continue
                 elif cb_data == "cancel_emergency_closeall":
+                    if not is_admin:
+                        self.answer_callback(cb_id, "⛔ Security Veto: Restricted to administrator.", show_alert=True)
+                        continue
                     self.answer_callback(cb_id, "Cancelled.")
                     self.send_message("✅ Emergency close cancelled. Protective trailing stops remain active.", chat_id=cb_chat_id)
                     continue
@@ -993,6 +1000,9 @@ class TelegramConfirmationBot:
                     self.send_sample_proposal(chat_id=cb_chat_id)
                     continue
                 elif cb_data.startswith("propose_trade_") or cb_data.startswith("propose_scalp_"):
+                    if not is_admin:
+                        self.answer_callback(cb_id, "🔒 Trade proposal generation is restricted to the administrator. Type /levels for analysis.", show_alert=True)
+                        continue
                     target_sym = cb_data.replace("propose_trade_", "").replace("propose_scalp_", "").strip()
                     self.answer_callback(cb_id, f"🎯 Evaluating live {target_sym} trade proposal...")
                     orch = orchestrator or getattr(self, "_active_orchestrator", None)
@@ -1034,30 +1044,27 @@ class TelegramConfirmationBot:
             chat_id = str(msg.get("chat", {}).get("id", ""))
             from_user = msg.get("from", {})
 
-            # Authorization check
+            # Role-Based Access Control: Admin vs Public Guest
             is_authorized = self._is_user_authorized(from_user, chat_id=chat_id)
 
             text = (msg.get("text") or "").strip()
             if not text:
                 continue
 
-            if not is_authorized:
-                logger.warning(f"Ignored Telegram message '{text}' from unauthorized user {from_user} in chat {chat_id}")
-                uid = from_user.get("id") or "unknown"
-                self.send_message(
-                    f"⛔ <b>Access Denied:</b> You are not authorized to control this trading bot.\n"
-                    f"Your Telegram User ID is: <code>{uid}</code>\n"
-                    f"Add this ID to <code>AUTHORIZED_TELEGRAM_USERS</code> in your environment variables.",
-                    chat_id=chat_id
-                )
-                continue
-
             cmd, full_text = self._normalize_incoming_command(text)
-            logger.info(f"Received Telegram command: '{cmd}' (normalized from '{text}') in chat {chat_id}")
+            role_label = "ADMIN" if is_authorized else "GUEST"
+            logger.info(f"Received Telegram command '{cmd}' (normalized from '{text}') from {role_label} in chat {chat_id}")
             orch = orchestrator or getattr(self, "_active_orchestrator", None)
-            self._handle_command(cmd, orch, full_text=full_text, chat_id=chat_id)
+            self._handle_command(cmd, orch, full_text=full_text, chat_id=chat_id, is_admin=is_authorized)
 
-    def _handle_command(self, cmd: str, orchestrator=None, full_text: str = "", chat_id: Optional[str] = None) -> None:
+    def _handle_command(
+        self,
+        cmd: str,
+        orchestrator=None,
+        full_text: str = "",
+        chat_id: Optional[str] = None,
+        is_admin: bool = True
+    ) -> None:
         """Route user slash command to response."""
         target_chat = chat_id or self.chat_id
         if not orchestrator:
@@ -1076,6 +1083,15 @@ class TelegramConfirmationBot:
         client = orchestrator.client
 
         if cmd in ["/status", "/ping", "/balance", "/wallet", "/equity", "/cash"]:
+            if not is_admin:
+                reply(
+                    "🔒 <b>[ACCOUNT BALANCE RESTRICTED]</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "Available cash balances, equity, and wallet metrics are private and restricted to the bot administrator.\n\n"
+                    "💡 <i>To explore public market analysis and key levels, use <code>/levels</code> or <code>/chart BTC</code>.</i>"
+                )
+                return
+
             try:
                 wallet = client.get_wallet_balances()
                 avail_usd = 0.0
@@ -1135,6 +1151,15 @@ class TelegramConfirmationBot:
             self._handle_command("/levels", orchestrator, full_text="/levels", chat_id=target_chat)
 
         elif cmd in ["/positions", "/pos", "/portfolio", "/openpositions"]:
+            if not is_admin:
+                reply(
+                    "🔒 <b>[PORTFOLIO POSITIONS RESTRICTED]</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "Active open positions, entry prices, leverage, and unrealized PnL are private and restricted to the bot administrator.\n\n"
+                    "💡 <i>To view public market levels and breakout setups, use <code>/levels</code>.</i>"
+                )
+                return
+
             try:
                 pos_res = client.get_positions()
                 if not pos_res.get("success"):
@@ -1203,6 +1228,17 @@ class TelegramConfirmationBot:
                 reply(f"⚠️ Error fetching positions: {e}")
 
         elif cmd in ["/trade", "/proposal", "/propose", "/scalp", "/findtrade", "/find_trade"]:
+            if not is_admin:
+                reply(
+                    "🔒 <b>[TRADE EXECUTION RESTRICTED]</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "• <b>Live Trade Placement:</b> Restricted to the fund administrator.\n"
+                    "• <b>Delta Exchange Orders:</b> Disabled for guest users.\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "💡 <i>You can explore live key breakout/breakdown levels using <code>/levels</code> or view live charts with <code>/chart BTC</code>!</i>"
+                )
+                return
+
             parts = full_text.strip().split()
             target_sym = None
             requested_side = None
@@ -1392,6 +1428,10 @@ class TelegramConfirmationBot:
             reply(radar_msg, reply_markup=radar_markup)
 
         elif cmd in ["/orders", "/orderbook", "/pending"]:
+            if not is_admin:
+                reply("🔒 <b>[ORDERS RESTRICTED]</b> Pending order details on Delta Exchange are private and restricted to the administrator.")
+                return
+
             try:
                 orders_res = client.get_open_orders()
                 if not orders_res.get("success"):
@@ -1418,6 +1458,10 @@ class TelegramConfirmationBot:
                 reply(f"⚠️ Error fetching orders: {e}")
 
         elif cmd in ["/pause", "/halt", "/stop", "/freeze"]:
+            if not is_admin:
+                reply("⛔ <b>[SECURITY VETO]</b> Pausing the bot is restricted to the administrator.")
+                return
+
             try:
                 from src.emergency_controller import EmergencyController
                 ec = EmergencyController(client=client)
@@ -1433,6 +1477,10 @@ class TelegramConfirmationBot:
                 reply(f"⚠️ Error pausing bot: {e}")
 
         elif cmd in ["/resume", "/unpause", "/start_scanning"]:
+            if not is_admin:
+                reply("⛔ <b>[SECURITY VETO]</b> Resuming the bot is restricted to the administrator.")
+                return
+
             try:
                 from src.emergency_controller import EmergencyController
                 ec = EmergencyController(client=client)
@@ -1446,6 +1494,10 @@ class TelegramConfirmationBot:
                 reply(f"⚠️ Error resuming bot: {e}")
 
         elif cmd in ["/closeall", "/panic", "/flatten", "/killall"]:
+            if not is_admin:
+                reply("⛔ <b>[SECURITY VETO]</b> Emergency flatten is restricted to the administrator.")
+                return
+
             try:
                 confirm_markup = {
                     "inline_keyboard": [
@@ -1464,6 +1516,10 @@ class TelegramConfirmationBot:
                 reply(f"⚠️ Error initiating closeall: {e}")
 
         elif cmd == "/close":
+            if not is_admin:
+                reply("⛔ <b>[SECURITY VETO]</b> Closing positions is restricted to the administrator.")
+                return
+
             parts = full_text.split()
             if len(parts) < 2:
                 reply("⚠️ Please specify symbol to close, e.g.: <code>/close BTCUSD</code> or use <code>/closeall</code>")
@@ -1486,6 +1542,14 @@ class TelegramConfirmationBot:
                     reply(f"⚠️ Error closing {sym}: {e}")
 
         elif cmd in ["/scorecard", "/learning", "/performance", "/audit"]:
+            if not is_admin:
+                reply(
+                    "🔒 <b>[PERFORMANCE AUDIT RESTRICTED]</b>\n"
+                    "Detailed trading history and cumulative dollar PnL are private and restricted to the administrator.\n\n"
+                    "💡 <i>Check <code>/levels</code> or <code>/news</code> for live market insights!</i>"
+                )
+                return
+
             try:
                 import json, os
                 from multiagent_team.adaptive_learning import AdaptiveLearningEngine
@@ -1764,44 +1828,72 @@ class TelegramConfirmationBot:
                 reply(f"⚠️ Error generating candlestick chart: {ce}")
 
         elif cmd in ["/help", "/start"]:
-            help_msg = (
-                "📖 <b>[DELTA BOT COMMAND CENTER]</b>\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "Essential controls for 24/7 cloud trading:\n\n"
-                "• <code>/trade [symbol]</code> — Propose live trade setup with 15m chart (e.g. <code>/trade BTC</code>)\n"
-                "• <code>/status</code> — 24/7 cloud health, active position count &amp; cash USD\n"
-                "• <code>/positions</code> — View currently active positions, margin &amp; live PnL\n"
-                "• <code>/levels</code> — Breakout &amp; breakdown key levels with candlestick chart\n"
-                "• <code>/chart [symbol]</code> — Live 15m directional candlestick chart\n"
-                "• <code>/close &lt;symbol&gt;</code> — Market close a specific position (e.g. <code>/close BTCUSD</code>)\n"
-                "• <code>/closeall</code> — Emergency flatten all active positions to cash USD\n"
-                "• <code>/orders</code> — Inspect pending limit &amp; bracket orders on Delta\n"
-                "• <code>/news</code> — Daily Crypto Morning Briefing &amp; sentiment index\n"
-                "• <code>/scorecard</code> — Dynamic self-learning audit, win rate &amp; R:R tracking\n"
-                "• <code>/pause</code> / <code>/resume</code> — Pause or resume automated scanning\n"
-                "• <code>/sample</code> — Test interactive confirmation proposal card\n"
-                "• <code>/help</code> — Show this command manual\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "🎯 <b>Primary Assets:</b> BTC, ETH, XAU (Gold), SOL\n"
-                "🛡️ <b>Capital Safety:</b> Zero trades execute without your explicit button confirmation."
-            )
+            if is_admin:
+                help_msg = (
+                    "📖 <b>[DELTA BOT COMMAND CENTER · ADMIN]</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "Essential controls for 24/7 cloud trading:\n\n"
+                    "• <code>/trade [symbol]</code> — Propose live trade setup with 15m chart (e.g. <code>/trade BTC</code>)\n"
+                    "• <code>/status</code> — 24/7 cloud health, active position count &amp; cash USD\n"
+                    "• <code>/positions</code> — View currently active positions, margin &amp; live PnL\n"
+                    "• <code>/levels</code> — Breakout &amp; breakdown key levels with candlestick chart\n"
+                    "• <code>/chart [symbol]</code> — Live 15m directional candlestick chart\n"
+                    "• <code>/close &lt;symbol&gt;</code> — Market close a specific position (e.g. <code>/close BTCUSD</code>)\n"
+                    "• <code>/closeall</code> — Emergency flatten all active positions to cash USD\n"
+                    "• <code>/orders</code> — Inspect pending limit &amp; bracket orders on Delta\n"
+                    "• <code>/news</code> — Daily Crypto Morning Briefing &amp; sentiment index\n"
+                    "• <code>/scorecard</code> — Dynamic self-learning audit, win rate &amp; R:R tracking\n"
+                    "• <code>/pause</code> / <code>/resume</code> — Pause or resume automated scanning\n"
+                    "• <code>/sample</code> — Test interactive confirmation proposal card\n"
+                    "• <code>/help</code> — Show this command manual\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "🎯 <b>Primary Assets:</b> BTC, ETH, XAU (Gold), SOL\n"
+                    "🛡️ <b>Capital Safety:</b> Zero trades execute without your explicit button confirmation."
+                )
+            else:
+                help_msg = (
+                    "🌐 <b>[DELTA AI MARKET INTELLIGENCE · GUEST ACCESS]</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "Welcome! You have Guest Access to 24/7 institutional crypto analysis:\n\n"
+                    "• <code>/levels</code> — Breakout &amp; breakdown key price levels with pre-trade plans &amp; candlestick chart\n"
+                    "• <code>/chart &lt;symbol&gt;</code> — Live 15m candlestick chart with levels overlay (e.g. <code>/chart BTC</code>, <code>/chart ETH</code>, <code>/chart XAU</code>)\n"
+                    "• <code>/news</code> — Daily Crypto Morning Briefing, market sentiment &amp; Fear/Greed index\n"
+                    "• <code>/sample</code> — View demonstration AI trade proposal card\n"
+                    "• <code>/help</code> — Show this market intelligence guide\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "🎯 <b>Tracked Assets:</b> Bitcoin (BTC), Ethereum (ETH), Gold (XAU), Solana (SOL)\n"
+                    "🔒 <b>Security Note:</b> Live trade execution and private portfolio balances are restricted to the fund manager."
+                )
             reply(help_msg)
 
         elif cmd == "/unknown":
             import html
-            reply(
-                f"❓ <b>Unrecognized Command / Input:</b> <i>\"{html.escape(full_text)}\"</i>\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "I didn't recognize that instruction. Here are quick commands you can use:\n\n"
-                "• <code>/trade BTC</code> (or <i>propose trade btc</i>) — Propose live BTC trade\n"
-                "• <code>/trade</code> — Evaluate best setup across primary assets\n"
-                "• <code>/status</code> — System health &amp; cash balances\n"
-                "• <code>/positions</code> — Active running positions &amp; PnL\n"
-                "• <code>/levels</code> — Breakout/breakdown levels &amp; candlestick chart\n"
-                "• <code>/help</code> — Full command center manual\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "💡 <i>Tip: You can use slash commands like <code>/trade btc</code> or plain English phrases.</i>"
-            )
+            if is_admin:
+                reply(
+                    f"❓ <b>Unrecognized Command / Input:</b> <i>\"{html.escape(full_text)}\"</i>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "I didn't recognize that instruction. Here are quick commands you can use:\n\n"
+                    "• <code>/trade BTC</code> (or <i>propose trade btc</i>) — Propose live BTC trade\n"
+                    "• <code>/trade</code> — Evaluate best setup across primary assets\n"
+                    "• <code>/status</code> — System health &amp; cash balances\n"
+                    "• <code>/positions</code> — Active running positions &amp; PnL\n"
+                    "• <code>/levels</code> — Breakout/breakdown levels &amp; candlestick chart\n"
+                    "• <code>/help</code> — Full command center manual\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "💡 <i>Tip: You can use slash commands like <code>/trade btc</code> or plain English phrases.</i>"
+                )
+            else:
+                reply(
+                    f"❓ <b>Unrecognized Command / Input:</b> <i>\"{html.escape(full_text)}\"</i>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "Here are the market intelligence commands you can use:\n\n"
+                    "• <code>/levels</code> — Breakout/breakdown levels &amp; candlestick chart\n"
+                    "• <code>/chart BTC</code> — Live 15m candlestick chart for Bitcoin\n"
+                    "• <code>/news</code> — Daily market sentiment &amp; Fear/Greed index\n"
+                    "• <code>/help</code> — View guest guide\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "🔒 <i>Note: Live trading and account balances are restricted to the bot administrator.</i>"
+                )
 
         else:
             reply(

@@ -144,10 +144,10 @@ def run_scanner_loop():
         "• <b>Primary Focus:</b> 🌟 <b>BTC, ETH, XAU (Gold)</b>\n"
         "• <b>2-Way Confirmation:</b> ✅ <b>STRICTLY REQUIRED</b>\n"
         "  <i>(Zero trades will execute without your Telegram click)</i>\n"
-        "• <b>Trailing Stop Loss:</b> 🛡️ <b>ACTIVE (15s Loop)</b>\n"
+        "• <b>Trailing Stop Loss:</b> 🛡️ <b>ACTIVE (10s Loop)</b>\n"
         "  <i>(1:1 -> Breakeven, 1:2 -> Lock +1R & trail to 1:3, 1:5)</i>\n"
         "• <b>Interactive Commands Active:</b>\n"
-        "  Type <code>/status</code>, <code>/scan</code>, <code>/positions</code>, or <code>/orders</code> anytime!\n"
+        "  Type <code>/chart</code>, <code>/levels</code>, <code>/news</code>, <code>/scan</code>, <code>/status</code>, <code>/positions</code> anytime!\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "⚡ <i>Actively scanning charts 24/7. Capital is protected.</i>"
     )
@@ -159,21 +159,25 @@ def run_scanner_loop():
         try:
             scanner_status["cycle_count"] += 1
             scanner_status["last_scan_time"] = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
-            
+
             # Runs market cycle: only alerts Telegram when a qualified setup (score >= 75) is found!
             result = orchestrator.run_trading_cycle()
             scanner_status["last_result"] = result
         except Exception as e:
             logger.error(f"Scanner exception: {e}", exc_info=True)
 
-        # Sleep in 15-second chunks, continuously monitoring trailing stops & Telegram commands
+        # Monitor trailing stops and poll Telegram commands every 2 seconds
         elapsed = 0
+        trailing_tick = 0
         while elapsed < interval:
-            time.sleep(15)
-            elapsed += 15
+            time.sleep(2)
+            elapsed += 2
+            trailing_tick += 2
             try:
-                orchestrator.trailing_stop_manager.check_and_update_trailing_stops()
-                # Check for Telegram slash commands (/status, /scan, /positions, /orders, /help)
+                if trailing_tick >= 10:
+                    orchestrator.trailing_stop_manager.check_and_update_trailing_stops()
+                    trailing_tick = 0
+                # Real-time Telegram command listener (/chart, /levels, /news, /scan, /trade, /status)
                 orchestrator.telegram_bot.process_incoming_commands(orchestrator)
             except Exception as e:
                 logger.error(f"Trailing stop / Telegram command background tick error: {e}")

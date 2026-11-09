@@ -274,3 +274,4 @@ def generate_candlestick_chart(
     plt.close(fig)
 
     return os.path.abspath(output_path)
+

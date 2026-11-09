@@ -81,13 +81,23 @@ class DeterministicSafetyController:
             failures.append(("CRITERION_2_INSUFFICIENT_EQUITY", f"Equity (${account_equity:.2f}) is below minimum $10 threshold"))
 
         # ---------------------------------------------------------------------
-        # 3. Total portfolio exposure within limit
+        # 3. Total portfolio exposure within limit & duplicate position check
         # ---------------------------------------------------------------------
         if len(active_positions) >= system_config.max_portfolio_concurrency:
             failures.append((
                 "CRITERION_3_PORTFOLIO_CONCURRENCY_EXCEEDED",
                 f"Active positions ({len(active_positions)}) >= max allowed ({system_config.max_portfolio_concurrency})"
             ))
+
+        # Check if an active position already exists for this symbol (Delta rejects duplicate bracket orders)
+        for pos in active_positions:
+            pos_sym = str(pos.get("symbol") or pos.get("product_symbol") or "").upper()
+            if pos_sym == symbol and abs(float(pos.get("size", 0))) > 0:
+                failures.append((
+                    "CRITERION_3_POSITION_ALREADY_EXISTS",
+                    f"An active position on {symbol} already exists on Delta Exchange ({pos.get('size')} contracts). Delta does not allow multiple simultaneous bracket orders on the same asset. Close it via /close {symbol} first."
+                ))
+                break
 
         # ---------------------------------------------------------------------
         # 4. Per-trade risk within limit (hard dollar cap & equity %)

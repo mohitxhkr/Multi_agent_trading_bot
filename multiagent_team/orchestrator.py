@@ -920,12 +920,46 @@ class MultiAgentTradingOrchestrator:
 
         candidate = None
         direction_bias = "BOTH"
-        # If no specific symbol was requested, scan ALL assets across the entire universe
+
+        # Check existing active positions to prevent Delta Exchange duplicate bracket collision
+        active_pos_symbols = set()
+        try:
+            pos_res = self.client.get_positions()
+            if pos_res.get("success"):
+                for p in pos_res.get("result", []):
+                    if abs(float(p.get("size", 0))) > 0:
+                        psym = str(p.get("symbol") or p.get("product_symbol") or "").upper()
+                        if psym:
+                            active_pos_symbols.add(psym)
+        except Exception as pe:
+            logger.debug(f"Could not check active positions for collision: {pe}")
+
+        # If a specific symbol was requested and already has an active position, notify user
+        if symbol and symbol.upper() not in ["ALL", "AUTO", "ANY", "SCAN"]:
+            clean_sym = symbol.upper()
+            if not clean_sym.endswith("USD") and not clean_sym.endswith("USDT"):
+                clean_sym = f"{clean_sym}USD"
+            if clean_sym in active_pos_symbols:
+                return {
+                    "status": "REJECTED",
+                    "code": "POSITION_ALREADY_EXISTS",
+                    "reason": f"An active position on {clean_sym} already exists on Delta Exchange. Delta does not allow multiple simultaneous bracket orders on the same product. Use /close {clean_sym} to close it first."
+                }
+
+        # If no specific symbol was requested, scan ALL AVAILABLE assets across the universe
         if not symbol or symbol.upper() in ["ALL", "AUTO", "ANY", "SCAN"]:
             target_symbols = self.symbols or ["BTCUSD", "ETHUSD", "XAUUSD", "SOLUSD", "XRPUSD", "DOGEUSD", "ADAUSD"]
-            logger.info(f"Orchestrator: Scanning all {len(target_symbols)} universe assets for /trade opportunity...")
+            available_symbols = [s for s in target_symbols if s not in active_pos_symbols]
+            if not available_symbols:
+                return {
+                    "status": "REJECTED",
+                    "code": "ALL_ASSETS_HAVE_POSITIONS",
+                    "reason": f"Active positions already exist on all universe assets ({', '.join(active_pos_symbols)}). Use /close <symbol> to free up an asset."
+                }
+
+            logger.info(f"Orchestrator: Scanning {len(available_symbols)} available universe assets for /trade opportunity (excluding open: {active_pos_symbols})...")
             try:
-                scan_results = self.regime_analyst.scan_universe(target_symbols, resolution="15")
+                scan_results = self.regime_analyst.scan_universe(available_symbols, resolution="15")
                 candidates = self.strategy_agent.find_best_candidates(scan_results)
 
                 # Determine macro posture & directional bias

@@ -128,6 +128,14 @@ class ExecutionAgent:
                 else:
                     last_error = str(order_res.get("error"))
                     logger.warning(f"ExecutionAgent: Attempt {attempt + 1}/{max_retries} failed: {last_error}")
+                    if "bracket_order_position_exists" in last_error:
+                        return {
+                            "success": False,
+                            "trade_id": trade_uid,
+                            "client_order_id": client_order_id,
+                            "error": f"An active position with bracket orders already exists on {symbol} on Delta Exchange. Delta does not allow multiple simultaneous bracket orders on the same product. Close the existing position via /close {symbol} first.",
+                            "symbol": symbol
+                        }
             except Exception as e:
                 last_error = str(e)
                 logger.error(f"ExecutionAgent network exception on attempt {attempt + 1}: {e}")

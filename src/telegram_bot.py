@@ -1072,10 +1072,10 @@ class TelegramConfirmationBot:
 
                 if arg1 in ["BUY", "LONG"]:
                     requested_side = "buy"
-                    raw_sym = arg2 if arg2 else "BTCUSD"
+                    raw_sym = arg2 if arg2 else None
                 elif arg1 in ["SELL", "SHORT"]:
                     requested_side = "sell"
-                    raw_sym = arg2 if arg2 else "BTCUSD"
+                    raw_sym = arg2 if arg2 else None
                 else:
                     raw_sym = arg1
                     if arg2 in ["BUY", "LONG"]:
@@ -1083,28 +1083,26 @@ class TelegramConfirmationBot:
                     elif arg2 in ["SELL", "SHORT"]:
                         requested_side = "sell"
 
-                # Normalize raw_sym
-                if raw_sym in ["BTC", "BITCOIN"]:
-                    target_sym = "BTCUSD"
-                elif raw_sym in ["ETH", "ETHEREUM"]:
-                    target_sym = "ETHUSD"
-                elif raw_sym in ["GOLD", "XAU", "PAXG"]:
-                    target_sym = "XAUUSD"
-                elif raw_sym in ["SOL", "SOLANA"]:
-                    target_sym = "SOLUSD"
-                elif raw_sym in ["XRP", "RIPPLE"]:
-                    target_sym = "XRPUSD"
-                elif raw_sym.endswith("USDT"):
-                    target_sym = raw_sym[:-1]
-                elif not raw_sym.endswith("USD"):
-                    target_sym = f"{raw_sym}USD"
-                else:
-                    target_sym = raw_sym
-            else:
-                target_sym = "BTCUSD"
-
-            if not target_sym:
-                target_sym = "BTCUSD"
+                if raw_sym:
+                    # Normalize raw_sym
+                    if raw_sym in ["BTC", "BITCOIN"]:
+                        target_sym = "BTCUSD"
+                    elif raw_sym in ["ETH", "ETHEREUM"]:
+                        target_sym = "ETHUSD"
+                    elif raw_sym in ["GOLD", "XAU", "PAXG"]:
+                        target_sym = "XAUUSD"
+                    elif raw_sym in ["SOL", "SOLANA"]:
+                        target_sym = "SOLUSD"
+                    elif raw_sym in ["XRP", "RIPPLE"]:
+                        target_sym = "XRPUSD"
+                    elif raw_sym in ["ALL", "AUTO", "ANY", "SCAN"]:
+                        target_sym = None
+                    elif raw_sym.endswith("USDT"):
+                        target_sym = raw_sym[:-1]
+                    elif not raw_sym.endswith("USD"):
+                        target_sym = f"{raw_sym}USD"
+                    else:
+                        target_sym = raw_sym
 
             self._active_command_chat_id = target_chat
 
@@ -1121,6 +1119,12 @@ class TelegramConfirmationBot:
                     )
                     return
 
+            dir_txt = f" ({requested_side.upper()})" if requested_side else ""
+            if target_sym:
+                reply(f"🔍 <i>Evaluating live trade setup for <code>{target_sym}</code>{dir_txt}...</i>")
+            else:
+                reply(f"🔍 <i>Scanning all assets across trading universe (BTC, ETH, XAU, SOL, XRP, DOGE, ADA){dir_txt} for best trade setup...</i>")
+
             # Directly dispatch the actual live interactive trade proposal card with confirmation buttons
             try:
                 if hasattr(orchestrator, "propose_on_demand_trade"):
@@ -1128,7 +1132,7 @@ class TelegramConfirmationBot:
                     status = res.get("status", "")
                     code = res.get("code", "")
                     if status == "SUCCESS":
-                        reply(f"✅ <b>Order Placed:</b> #{res.get('order_id')} — {target_sym} {res.get('contracts')} contracts submitted to Delta Exchange!")
+                        reply(f"✅ <b>Order Placed:</b> #{res.get('order_id')} — {res.get('symbol', target_sym or 'BTCUSD')} {res.get('contracts')} contracts submitted to Delta Exchange!")
                     elif code == "USER_REJECTED_OR_EXPIRED" or status == "TIMEOUT":
                         pass
                     elif status == "REJECTED":
@@ -1138,7 +1142,7 @@ class TelegramConfirmationBot:
                 else:
                     reply("⚠️ Orchestrator does not support on-demand scalp generator.")
             except Exception as te:
-                reply(f"⚠️ Error proposing scalp trade on {target_sym}: {te}")
+                reply(f"⚠️ Error finding trade on {target_sym or 'universe'}: {te}")
 
         elif cmd in ["/radar", "/preradar", "/scalpradar", "/pretrade"]:
             parts = full_text.strip().split()

@@ -1146,7 +1146,7 @@ class TelegramConfirmationBot:
                     elif code == "USER_REJECTED_OR_EXPIRED" or status == "TIMEOUT":
                         pass
                     elif status == "REJECTED":
-                        reply(f"🛡️ <b>Trade Filtered by Safety Gate:</b> <code>{res.get('reason', 'Safety criteria failed')}</code>")
+                        reply(f"🛡️ <b>Pre-Trade Agent Veto (Background Evaluation):</b>\n<code>{res.get('reason', 'Safety criteria failed')}</code>\n<i>Capital protected. Proposal withheld.</i>")
                     elif status == "FAILED":
                         reply(f"⚠️ <b>Order Execution Failed:</b> <code>{res.get('error', res.get('reason', 'Exchange error'))}</code>")
                 else:

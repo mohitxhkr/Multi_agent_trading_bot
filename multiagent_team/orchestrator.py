@@ -412,11 +412,8 @@ class MultiAgentTradingOrchestrator:
                                     if k not in decision or decision[k] is None:
                                         decision[k] = v
                                 if decision.get("gate_decision") != "APPROVED":
-                                    decision["contracts"] = max(1, decision.get("contracts", 1))
-                                    decision["dollar_risk_usd"] = decision.get("dollar_risk_usd") or 2.50
-                                    decision["required_margin_usd"] = decision.get("required_margin_usd") or 25.0
-                                    decision["leverage"] = asset_lev
-                                    decision["gate_decision"] = "APPROVED"
+                                    logger.info(f"Level candidate {sym} vetoed in background by Risk Gatekeeper: {decision.get('reason')}")
+                                    continue
 
                                 threading.Thread(
                                     target=self._execute_proposal_flow,
@@ -441,13 +438,37 @@ class MultiAgentTradingOrchestrator:
     def _execute_proposal_flow(self, trade: Dict[str, Any], chat_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Thread-safe execution flow for a trade proposal card:
-        Dispatches interactive proposal card to Telegram with [Confirm & Execute] and [Reject] buttons,
-        awaits user confirmation (up to 300s), and if confirmed, validates deterministic safety
-        and executes bracket order on Delta Exchange.
+        All agents and Safety Controller validate in background FIRST.
+        ONLY IF 100% PERFECT and fully approved in background, dispatches interactive proposal card to Telegram.
+        When confirmed by user, executes bracket order on Delta Exchange.
         """
         try:
             sym = trade.get("symbol", "")
-            logger.info(f"📱 Dispatching automated proposal card for {sym} to Telegram...")
+
+            # 1. Background Pre-Validation by Safety Controller & Agents BEFORE Telegram proposal
+            pos_res = self.client.get_positions()
+            active_pos = [p for p in pos_res.get("result", []) if abs(float(p.get("size", 0))) > 0] if pos_res.get("success") else []
+            wallet_res = self.client.get_wallet_balances()
+            tot_equity = 1000.0
+            if wallet_res.get("success"):
+                for b in wallet_res.get("result", []):
+                    if b.get("asset_symbol") in ["USDT", "USD"]:
+                        tot_equity = float(b.get("balance", 1000.0))
+
+            pre_safety = self.safety_controller.validate_and_issue_token(
+                trade_setup=trade,
+                account_equity=tot_equity,
+                active_positions=active_pos,
+                telegram_approval=None
+            )
+            if not pre_safety.get("passed"):
+                code = pre_safety.get("failure_code", "SAFETY_VETO")
+                reason = pre_safety.get("reason", "Safety check failed")
+                logger.info(f"Orchestrator: Candidate {sym} vetoed in background by Safety Controller ({code}: {reason}). Proposal suppressed.")
+                return {"status": "REJECTED", "code": code, "reason": reason}
+
+            # 2. ONLY IF PERFECT -> Dispatch interactive proposal card to Telegram
+            logger.info(f"📱 Candidate {sym} verified 100% perfect in background by all agents! Dispatching proposal card to Telegram...")
             execute_now = False
             if self.telegram_bot.is_configured:
                 execute_now = self.telegram_bot.request_trade_confirmation(
@@ -464,16 +485,7 @@ class MultiAgentTradingOrchestrator:
                 logger.info(f"⏭️ Automated trade proposal for {sym} declined or timed out. Capital protected.")
                 return {"status": "TIMEOUT", "code": "USER_REJECTED_OR_EXPIRED", "trade": trade}
 
-            # Pre-Execution Safety Controller
-            pos_res = self.client.get_positions()
-            active_pos = [p for p in pos_res.get("result", []) if abs(float(p.get("size", 0))) > 0] if pos_res.get("success") else []
-            wallet_res = self.client.get_wallet_balances()
-            tot_equity = 1000.0
-            if wallet_res.get("success"):
-                for b in wallet_res.get("result", []):
-                    if b.get("asset_symbol") in ["USDT", "USD"]:
-                        tot_equity = float(b.get("balance", 1000.0))
-
+            # 3. Post-Approval Final Token Issuance & Delta Exchange Execution
             safety_res = self.safety_controller.validate_and_issue_token(
                 trade_setup=trade,
                 account_equity=tot_equity,
@@ -825,8 +837,32 @@ class MultiAgentTradingOrchestrator:
         # Agent 6: Telegram 2-Way Human Authorization Gate
         executed_records = []
         for trade in eligible_trades[:1]:
+            # 1. Background Pre-Validation by Safety Controller & Agents BEFORE Telegram proposal
+            pos_res = self.client.get_positions()
+            active_pos = [p for p in pos_res.get("result", []) if abs(float(p.get("size", 0))) > 0] if pos_res.get("success") else []
+            wallet_res = self.client.get_wallet_balances()
+            tot_equity = 1000.0
+            if wallet_res.get("success"):
+                for b in wallet_res.get("result", []):
+                    if b.get("asset_symbol") in ["USDT", "USD"]:
+                        tot_equity = float(b.get("balance", 1000.0))
+
+            pre_safety = self.safety_controller.validate_and_issue_token(
+                trade_setup=trade,
+                account_equity=tot_equity,
+                active_positions=active_pos,
+                telegram_approval=None
+            )
+            if not pre_safety.get("passed"):
+                failure_code = pre_safety.get("failure_code", "SAFETY_VETO")
+                reason = pre_safety.get("reason", "Safety check failed")
+                print(f"   🛡️ [Pre-Proposal Safety Veto] Candidate {trade['symbol']} rejected in background ({failure_code}: {reason}). Proposal suppressed.")
+                self.system_monitor.record_trade_rejection(failure_code, trade["symbol"], reason)
+                continue
+
+            # 2. ONLY IF 100% PERFECT -> Dispatch proposal card to user
             self._recent_proposals[trade.get("symbol", "")] = now_ts
-            print("\n📱 [Layer 3: Telegram Confirmation Gate] Sending proposal card to user...")
+            print("\n📱 [Layer 3: Telegram Confirmation Gate] Candidate 100% verified in background! Sending proposal card to user...")
             t6 = time.time()
             execute_now = False
 
@@ -854,17 +890,7 @@ class MultiAgentTradingOrchestrator:
             # Layer 4: Deterministic Safety Controller & Order Execution (Agent 7)
             # -------------------------------------------------------------
             t7 = time.time()
-            print("   🛡️ [Pre-Execution Gate] Validating 14 Deterministic Safety Criteria...")
-            
-            # Fetch fresh active positions and equity for safety validation
-            pos_res = self.client.get_positions()
-            active_pos = [p for p in pos_res.get("result", []) if abs(float(p.get("size", 0))) > 0] if pos_res.get("success") else []
-            wallet_res = self.client.get_wallet_balances()
-            tot_equity = 1000.0
-            if wallet_res.get("success"):
-                for b in wallet_res.get("result", []):
-                    if b.get("asset_symbol") in ["USDT", "USD"]:
-                        tot_equity = float(b.get("balance", 1000.0))
+            print("   🛡️ [Pre-Execution Gate] Issuing final verified execution token...")
 
             safety_token_res = self.safety_controller.validate_and_issue_token(
                 trade_setup=trade,
@@ -1170,11 +1196,13 @@ class MultiAgentTradingOrchestrator:
                 decision[k] = v
 
         if decision.get("gate_decision") != "APPROVED":
-            decision["contracts"] = max(1, decision.get("contracts", 1))
-            decision["dollar_risk_usd"] = decision.get("dollar_risk_usd") or 2.50
-            decision["required_margin_usd"] = decision.get("required_margin_usd") or 25.0
-            decision["leverage"] = asset_lev
-            decision["gate_decision"] = "APPROVED"
+            rg_reason = decision.get("reason", "Risk parameters exceeded.")
+            logger.info(f"Orchestrator: Candidate {candidate.get('symbol')} vetoed in background by Risk Gatekeeper: {rg_reason}")
+            return {
+                "status": "REJECTED",
+                "code": "RISK_GATEKEEPER_VETO",
+                "reason": f"Risk Gatekeeper rejected trade in background: {rg_reason}"
+            }
 
         decision["symbol"] = decision.get("symbol") or candidate["symbol"]
         decision["side"] = decision.get("side") or candidate["side"]
@@ -1193,7 +1221,34 @@ class MultiAgentTradingOrchestrator:
             decision["estimated_liquidation_price"] = liq_price
         decision["liq_distance_pct"] = round(abs(cur_mark - liq_price) / cur_mark * 100.0, 2)
 
-        # 5. Telegram confirmation card dispatch
+        # 5. Background Pre-Validation by Safety Controller BEFORE Telegram Proposal
+        pos_res = self.client.get_positions()
+        active_pos = [p for p in pos_res.get("result", []) if abs(float(p.get("size", 0))) > 0] if pos_res.get("success") else []
+        wallet_res = self.client.get_wallet_balances()
+        tot_equity = 1000.0
+        if wallet_res.get("success"):
+            for b in wallet_res.get("result", []):
+                if b.get("asset_symbol") in ["USDT", "USD"]:
+                    tot_equity = float(b.get("balance", 1000.0))
+
+        pre_safety = self.safety_controller.validate_and_issue_token(
+            trade_setup=decision,
+            account_equity=tot_equity,
+            active_positions=active_pos,
+            telegram_approval=None
+        )
+        if not pre_safety.get("passed"):
+            code = pre_safety.get("failure_code", "SAFETY_VETO")
+            reason = pre_safety.get("reason", "Safety criteria failed")
+            logger.info(f"Orchestrator: Candidate {decision['symbol']} vetoed in background by Safety Controller ({code}: {reason}). Proposal suppressed.")
+            return {
+                "status": "REJECTED",
+                "code": code,
+                "reason": f"Safety Controller vetoed trade in background: {reason}"
+            }
+
+        # 6. ONLY IF 100% PERFECT -> Dispatch Telegram confirmation card
+        logger.info(f"📱 Candidate {decision['symbol']} verified 100% perfect in background by all agents! Dispatching proposal card to Telegram...")
         if self.telegram_bot.is_configured:
             execute_now = self.telegram_bot.request_trade_confirmation(
                 trade_spec=decision,
@@ -1210,16 +1265,7 @@ class MultiAgentTradingOrchestrator:
         if not execute_now:
             return {"status": "TIMEOUT", "code": "USER_REJECTED_OR_EXPIRED", "trade": decision}
 
-        # 6. Pre-Execution Safety Controller
-        pos_res = self.client.get_positions()
-        active_pos = [p for p in pos_res.get("result", []) if abs(float(p.get("size", 0))) > 0] if pos_res.get("success") else []
-        wallet_res = self.client.get_wallet_balances()
-        tot_equity = 1000.0
-        if wallet_res.get("success"):
-            for b in wallet_res.get("result", []):
-                if b.get("asset_symbol") in ["USDT", "USD"]:
-                    tot_equity = float(b.get("balance", 1000.0))
-
+        # 7. Post-Approval Final Token Issuance & Execution on Delta Exchange
         safety_res = self.safety_controller.validate_and_issue_token(
             trade_setup=decision,
             account_equity=tot_equity,

@@ -94,8 +94,15 @@ def main():
             except Exception as e:
                 logger.error(f"Error during scan cycle #{cycle_count}: {e}", exc_info=True)
 
-            print(f"⏳ Sleeping {args.interval}s until next scan cycle... (Press Ctrl+C to halt)")
-            time.sleep(args.interval)
+            print(f"⏳ Monitoring market & listening for Telegram commands ({args.interval}s)... (Press Ctrl+C to halt)")
+            sleep_elapsed = 0
+            while sleep_elapsed < args.interval:
+                time.sleep(1.5)
+                sleep_elapsed += 1.5
+                try:
+                    orchestrator.telegram_bot.process_incoming_commands(orchestrator)
+                except Exception as pe:
+                    logger.debug(f"Command listener poll exception: {pe}")
 
     except KeyboardInterrupt:
         print("\n🛑 24/7 Multi-Agent Scanner safely halted by user.")

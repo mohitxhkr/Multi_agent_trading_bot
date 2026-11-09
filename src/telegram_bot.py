@@ -649,7 +649,8 @@ class TelegramConfirmationBot:
                     continue
 
                 chat_id = str(msg.get("chat", {}).get("id", ""))
-                if chat_id != str(self.chat_id):
+                from_user = msg.get("from", {})
+                if chat_id != str(self.chat_id) and not self._is_user_authorized(from_user):
                     continue
 
                 text = (msg.get("text") or "").strip()
@@ -658,7 +659,8 @@ class TelegramConfirmationBot:
 
                 full_text = text.strip()
                 cmd = full_text.split()[0].lower()
-                logger.info(f"Received Telegram command: {cmd}")
+                cmd = cmd.split("@")[0]  # Strip bot handle e.g. /chart@MyBot -> /chart
+                logger.info(f"Received Telegram command: {cmd} from chat {chat_id}")
                 self._handle_command(cmd, orchestrator, full_text=full_text)
         except Exception as e:
             logger.error(f"Error checking Telegram commands: {e}")
@@ -1142,28 +1144,52 @@ class TelegramConfirmationBot:
 
         elif cmd in ["/chart", "/candlestick", "/graph"]:
             parts = full_text.split()
-            target_sym = parts[1].upper() if len(parts) > 1 else "BTCUSD"
-            if not target_sym.endswith("USD") and not target_sym.endswith("USDT"):
-                target_sym = f"{target_sym}USD"
+            raw_sym = parts[1].upper() if len(parts) > 1 else "BTCUSD"
+            # Normalize user-friendly symbols
+            if raw_sym in ["BTC", "BITCOIN"]:
+                target_sym = "BTCUSD"
+            elif raw_sym in ["ETH", "ETHEREUM"]:
+                target_sym = "ETHUSD"
+            elif raw_sym in ["GOLD", "XAU", "PAXG"]:
+                target_sym = "XAUUSD"
+            elif raw_sym in ["SOL", "SOLANA"]:
+                target_sym = "SOLUSD"
+            elif raw_sym in ["XRP", "RIPPLE"]:
+                target_sym = "XRPUSD"
+            elif raw_sym.endswith("USDT"):
+                target_sym = raw_sym[:-1]
+            elif not raw_sym.endswith("USD"):
+                target_sym = f"{raw_sym}USD"
+            else:
+                target_sym = raw_sym
 
             try:
                 self.send_message(f"📊 <i>Generating live 15m candlestick chart for {target_sym}...</i>")
                 from src.candlestick_chart import generate_candlestick_chart
-                analysis = orchestrator.regime_analyst.analyze_symbol(target_sym, resolution="15")
+                regime_analyst = getattr(orchestrator, "regime_analyst", None)
+                if not regime_analyst:
+                    from multiagent_team.regime_analyst import RegimeAnalystAgent
+                    regime_analyst = RegimeAnalystAgent(client=orchestrator.client)
+
+                analysis = regime_analyst.analyze_symbol(target_sym, resolution="15")
                 candles = analysis.get("_raw_candles_15m") or analysis.get("_raw_candles_1h")
                 if not candles or len(candles.get("c", [])) < 5:
                     self.send_message(f"⚠️ Could not fetch sufficient candlestick history for {target_sym}.")
                 else:
                     kl = analysis.get("key_levels_analysis", {})
                     chart_path = generate_candlestick_chart(candles, target_sym, key_levels=kl, timeframe_label="15m")
+                    import html
+                    st_label = html.escape(str(kl.get('status_label', 'SCANNING')))
                     cap = (
                         f"📊 <b>[{target_sym} LIVE CANDLESTICK CHART · 15m]</b>\n"
                         f"• <b>Mark Price:</b> <code>${kl.get('current_price', 0):,.2f}</code>\n"
                         f"• <b>Breakout Ceiling:</b> <code>${kl.get('breakout_level', 0):,.2f}</code> (+{kl.get('distance_to_breakout_pct', 0):.2f}%)\n"
                         f"• <b>Breakdown Floor:</b> <code>${kl.get('breakdown_level', 0):,.2f}</code> (-{kl.get('distance_to_breakdown_pct', 0):.2f}%)\n"
-                        f"• <b>Status:</b> <b>{kl.get('status_label', 'SCANNING')}</b>"
+                        f"• <b>Status:</b> <b>{st_label}</b>"
                     )
-                    self.send_photo(chart_path, caption=cap)
+                    sent = self.send_photo(chart_path, caption=cap)
+                    if not sent:
+                        self.send_message("⚠️ Chart was generated but could not be sent to Telegram. Check bot permissions.")
             except Exception as ce:
                 self.send_message(f"⚠️ Error generating candlestick chart: {ce}")
 

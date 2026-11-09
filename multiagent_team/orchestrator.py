@@ -1085,35 +1085,27 @@ class MultiAgentTradingOrchestrator:
         except Exception:
             pass
 
-        # If a specific symbol was requested and already has an active position, evaluate scale-in opportunity
+        # Target Asset & Scale-In Selection:
         if symbol and symbol.upper() not in ["ALL", "AUTO", "ANY", "SCAN"]:
             clean_sym = symbol.upper()
             if not clean_sym.endswith("USD") and not clean_sym.endswith("USDT"):
                 clean_sym = f"{clean_sym}USD"
-            if clean_sym in active_pos_symbols:
+            symbol = clean_sym
+            if symbol in active_pos_symbols:
                 # Check if existing position is profitable (eligible for scale-in / add to winner)
-                pos_match = next((p for p in raw_positions if str(p.get("symbol") or p.get("product_symbol") or "").upper() == clean_sym), None)
+                pos_match = next((p for p in raw_positions if str(p.get("symbol") or p.get("product_symbol") or "").upper() == symbol), None)
                 pos_pnl = float(pos_match.get("unrealized_pnl", 0.0)) if pos_match else 0.0
                 if pos_match and pos_pnl > 0:
-                    logger.info(f"Orchestrator: Active {clean_sym} position is in profit (+${pos_pnl:.2f}). Approving scale-in for /trade!")
+                    logger.info(f"Orchestrator: Active {symbol} position is in profit (+${pos_pnl:.2f}). Approving scale-in for /trade!")
                     is_scale_in = True
                 else:
                     return {
                         "status": "REJECTED",
                         "code": "POSITION_ALREADY_EXISTS",
-                        "reason": f"An active position on {clean_sym} already exists on Delta Exchange and is currently flat or in drawdown (PnL: ${pos_pnl:.2f}). Adding quantity is only permitted when trade is in profit. Use /close {clean_sym} to close it first."
+                        "reason": f"An active position on {symbol} already exists on Delta Exchange and is currently flat or in drawdown (PnL: ${pos_pnl:.2f}). Adding quantity is only permitted when trade is in profit. Use /close {symbol} to close it first."
                     }
-
-        # Check portfolio concurrency limit (scale-in does not consume a new asset slot)
-        if not is_scale_in and len(active_pos_symbols) >= system_config.max_portfolio_concurrency:
-            return {
-                "status": "REJECTED",
-                "code": "PORTFOLIO_CONCURRENCY_LIMIT",
-                "reason": f"Maximum concurrent positions reached ({len(active_pos_symbols)}/{system_config.max_portfolio_concurrency} active: {', '.join(active_pos_symbols)}). Use /close <symbol> to close a position first."
-            }
-
-        # Fast-Path On-Demand Target Selection:
-        if not symbol or symbol.upper() in ["ALL", "AUTO", "ANY", "SCAN"]:
+        else:
+            # No specific symbol requested (/trade):
             # Priority 1: If an active position is profitable, propose scale-in opportunity immediately!
             scale_candidate = None
             for s in ["BTCUSD", "ETHUSD", "XAUUSD", "SOLUSD"]:
@@ -1136,6 +1128,14 @@ class MultiAgentTradingOrchestrator:
                     }
                 symbol = available[0]
                 logger.info(f"Orchestrator: Fast-path selected primary asset {symbol} for immediate /trade proposal.")
+
+        # Check portfolio concurrency limit (scale-in does not consume a new asset slot)
+        if not is_scale_in and len(active_pos_symbols) >= system_config.max_portfolio_concurrency:
+            return {
+                "status": "REJECTED",
+                "code": "PORTFOLIO_CONCURRENCY_LIMIT",
+                "reason": f"Maximum concurrent positions reached ({len(active_pos_symbols)}/{system_config.max_portfolio_concurrency} active: {', '.join(active_pos_symbols)}). Use /close <symbol> to close a position first."
+            }
 
         if not symbol:
             symbol = "BTCUSD"
@@ -1204,6 +1204,13 @@ class MultiAgentTradingOrchestrator:
                 except Exception:
                     pass
 
+            pos_match = None
+            if is_scale_in:
+                pos_match = next((p for p in raw_positions if str(p.get("symbol") or p.get("product_symbol") or "").upper() == symbol), None)
+                if pos_match:
+                    existing_size = float(pos_match.get("size", 0))
+                    side = "buy" if existing_size > 0 else "sell"
+
             if not side:
                 if locals().get("direction_bias") == "SHORTS_ONLY":
                     side = "sell"
@@ -1233,12 +1240,19 @@ class MultiAgentTradingOrchestrator:
                 "stop_loss_price": sl,
                 "take_profit_price": tp,
                 "planned_rr_ratio": rr,
-                "strategy_name": f"OnDemand_SMC_{side.upper()}_Scalp",
-                "thesis": f"🎯 On-Demand Scalp: 15m {side.upper()} @ VWAP ${vwap:,.2f} with {asset_lev}x Isolated Risk Sizing",
-                "score": 90,
-                "conviction_tier": "ON_DEMAND_SCALP",
+                "strategy_name": f"ScaleIn_Pyramid_{side.upper()}" if is_scale_in else f"OnDemand_SMC_{side.upper()}_Scalp",
+                "thesis": f"🔥 [SCALE-IN: ADDING TO WINNER] 15m {side.upper()} @ VWAP ${vwap:,.2f}" if is_scale_in else f"🎯 On-Demand Scalp: 15m {side.upper()} @ VWAP ${vwap:,.2f} with {asset_lev}x Isolated Risk Sizing",
+                "score": 92 if is_scale_in else 90,
+                "conviction_tier": "SCALE_IN_WINNER" if is_scale_in else "ON_DEMAND_SCALP",
                 "atr_14": atr,
                 "spread_pct": 0.02,
+                "is_scale_in": is_scale_in,
+                "scale_in_parent": {
+                    "existing_size": abs(float(pos_match.get("size", 0))),
+                    "entry_price": float(pos_match.get("entry_price", cur_mark)),
+                    "unrealized_pnl": float(pos_match.get("unrealized_pnl", 0.0)),
+                    "side": side
+                } if (is_scale_in and pos_match) else {},
                 "confluence": {
                     "vwap_detail": f"Mark: ${cur_mark:,.2f} | 15m VWAP: ${vwap:,.2f} | ATR: ${atr:,.2f}",
                     "liquidity_detail": f"Targeting 1:{rr:.1f} R:R Risk-Engineered Scalp",
@@ -1253,6 +1267,19 @@ class MultiAgentTradingOrchestrator:
                 }
             }
         else:
+            if is_scale_in:
+                candidate["is_scale_in"] = True
+                pos_match = next((p for p in raw_positions if str(p.get("symbol") or p.get("product_symbol") or "").upper() == symbol), None)
+                if pos_match:
+                    existing_size = float(pos_match.get("size", 0))
+                    side = "buy" if existing_size > 0 else "sell"
+                    candidate["side"] = side
+                    candidate["scale_in_parent"] = {
+                        "existing_size": abs(float(pos_match.get("size", 0))),
+                        "entry_price": float(pos_match.get("entry_price", cur_mark)),
+                        "unrealized_pnl": float(pos_match.get("unrealized_pnl", 0.0)),
+                        "side": side
+                    }
             if "time_machine" not in candidate or not candidate["time_machine"]:
                 candidate["time_machine"] = {
                     "sample_size": 28,
@@ -1263,6 +1290,7 @@ class MultiAgentTradingOrchestrator:
                 }
 
         # 4. Risk Gatekeeper evaluation
+        candidate["is_scale_in"] = is_scale_in
         decision = self.risk_gatekeeper.evaluate_candidate(candidate, leverage=asset_lev)
         for k, v in candidate.items():
             if k not in decision or decision[k] is None:

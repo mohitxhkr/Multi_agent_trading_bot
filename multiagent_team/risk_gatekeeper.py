@@ -202,25 +202,28 @@ class RiskGatekeeperAgent:
         raw_positions = pos_res.get("result", []) if pos_res.get("success") else []
         active_positions = [p for p in raw_positions if float(p.get("size", 0)) != 0]
 
+        is_scale_in = bool(setup.get("is_scale_in", False))
+
         # Strict Portfolio Concurrency Cap (Max 2 active positions total across portfolio)
-        if len(active_positions) >= 2:
+        if not is_scale_in and len(active_positions) >= 2:
             return {
                 "gate_decision": "REJECTED",
                 "reason": f"Maximum portfolio concurrency limit reached ({len(active_positions)}/2 active positions). Selective quality enforcement active."
             }
 
         # Duplicate symbol check
-        for p in active_positions:
-            if p.get("symbol") == symbol or p.get("product_symbol") == symbol:
-                return {
-                    "gate_decision": "REJECTED",
-                    "reason": f"Active position already exists for symbol {symbol}."
-                }
+        if not is_scale_in:
+            for p in active_positions:
+                if p.get("symbol") == symbol or p.get("product_symbol") == symbol:
+                    return {
+                        "gate_decision": "REJECTED",
+                        "reason": f"Active position already exists for symbol {symbol}."
+                    }
 
         # Correlated Exposure Limit (max 2 concurrent directional crypto positions)
         crypto_symbols = ["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA"]
         is_crypto = any(c in symbol.upper() for c in crypto_symbols)
-        if is_crypto:
+        if is_crypto and not is_scale_in:
             same_side_crypto = 0
             for p in active_positions:
                 p_sym = p.get("symbol", "")

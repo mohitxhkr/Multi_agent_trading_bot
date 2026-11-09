@@ -164,6 +164,197 @@ class MultiAgentTradingOrchestrator:
             logger.warning(f"Error checking daily morning briefing: {e}")
             return False
 
+    def format_market_levels_telegram(self, symbols: Optional[List[str]] = None) -> str:
+        """
+        Format comprehensive Breakout & Breakdown Key Levels analysis card for Telegram.
+        Covers all assets with immediate proximity status, pre-trade plans, and order flow context.
+        """
+        import html
+        from datetime import datetime, timezone, timedelta
+        ist_zone = timezone(timedelta(hours=5, minutes=30))
+        now_ist = datetime.now(ist_zone)
+        date_str = now_ist.strftime("%A, %d %b %Y · %I:%M %p IST")
+
+        target_symbols = symbols or ["BTCUSD", "ETHUSD", "XAUUSD"]
+        scan_results = self.regime_analyst.scan_universe(target_symbols, resolution="60")
+        symbols_data = scan_results.get("symbols_data", {})
+
+        lines = [
+            "⚡ <b>[MARKET KEY LEVELS &amp; BREAKOUT/BREAKDOWN RADAR]</b>",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            f"📅 <b>Timestamp:</b> <code>{date_str}</code>",
+            "🎯 <b>Pre-Trade Strategy:</b> High-Confluence Breakout &amp; Breakdown Triggers",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ]
+
+        for sym in target_symbols:
+            d = symbols_data.get(sym)
+            if not d:
+                continue
+
+            price = float(d.get("mark_price") or d.get("current_price") or 0.0)
+            kla = d.get("key_levels_analysis", {})
+            if "error" in kla or not kla:
+                continue
+
+            reg_1h = d.get("regime", "NEUTRAL")
+            h4_reg = d.get("macro_4h", {}).get("regime", "N/A").replace("MACRO_", "")
+            atr_val = kla.get("atr_14", 0.0)
+            atr_pct = kla.get("atr_pct", 0.0)
+            status_label = html.escape(str(kla.get("status_label", "RANGING")))
+
+            # Order Flow
+            of = kla.get("order_flow", {})
+            cvd_t = of.get("cvd_trend", "NEUTRAL")
+            cvd_div = of.get("cvd_divergence", "NONE")
+            cvd_str = f"{cvd_t}" + (f" ({cvd_div})" if cvd_div != "NONE" else "")
+            obi_st = of.get("obi_status", "NEUTRAL")
+            obi_r = of.get("obi_ratio", 0.0)
+            vwap_p = kla.get("vwap_price", price)
+            vwap_st = kla.get("vwap_stance", "AT_VWAP")
+
+            bo = kla.get("bullish_breakout_plan", {})
+            bd = kla.get("bearish_breakdown_plan", {})
+
+            bo_lvl = kla.get("breakout_level", 0.0)
+            dist_bo_pct = kla.get("distance_to_breakout_pct", 0.0)
+
+            bd_lvl = kla.get("breakdown_level", 0.0)
+            dist_bd_pct = kla.get("distance_to_breakdown_pct", 0.0)
+
+            bo_crit = html.escape(str(bo.get("confirmation_criteria", "15m close above level")))
+            bd_crit = html.escape(str(bd.get("confirmation_criteria", "15m close below level")))
+
+            sym_name = f"{sym} (Gold)" if "XAU" in sym else sym
+            lines.append(f"🪙 <b>{sym_name}:</b> <code>${price:,.2f}</code> | <b>{status_label}</b>")
+            lines.append(f"• <b>Context:</b> 1H:{reg_1h} | 4H:{h4_reg} | 1H ATR: <code>${atr_val:,.2f} ({atr_pct:.2f}%)</code>")
+            lines.append(f"• <b>Order Flow Pulse:</b> CVD: <code>{cvd_str}</code> | OBI: <code>{obi_st} ({obi_r:+.2f})</code> | VWAP: <code>${vwap_p:,.2f} ({vwap_st})</code>")
+            lines.append("")
+            lines.append(f"🟢 <b>BULLISH BREAKOUT LEVEL: <code>${bo_lvl:,.2f}</code> (+{dist_bo_pct:.2f}%)</b>")
+            lines.append(f"  ↳ <b>Trigger:</b> <i>{bo_crit}</i>")
+            lines.append(f"  ↳ <b>Target (TP):</b> <code>${bo.get('take_profit_price', 0):,.2f}</code> | <b>Stop (SL):</b> <code>${bo.get('stop_loss_price', 0):,.2f}</code>")
+            lines.append(f"  ↳ <b>Projected R:R:</b> <b>{bo.get('planned_rr', 2.3)} : 1</b>")
+            lines.append("")
+            lines.append(f"🔴 <b>BEARISH BREAKDOWN LEVEL: <code>${bd_lvl:,.2f}</code> (-{dist_bd_pct:.2f}%)</b>")
+            lines.append(f"  ↳ <b>Trigger:</b> <i>{bd_crit}</i>")
+            lines.append(f"  ↳ <b>Target (TP):</b> <code>${bd.get('take_profit_price', 0):,.2f}</code> | <b>Stop (SL):</b> <code>${bd.get('stop_loss_price', 0):,.2f}</code>")
+            lines.append(f"  ↳ <b>Projected R:R:</b> <b>{bd.get('planned_rr', 2.3)} : 1</b>")
+            lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        lines.append("🛡️ <b>PRE-TRADE DISCIPLINE &amp; RULES:</b>")
+        lines.append("• <b>Never Front-Run:</b> Wait for confirmed 15m candle close across the level.")
+        lines.append("• <b>Order Flow Check:</b> Confirm CVD &amp; OBI volume support before entering.")
+        lines.append("• <b>Capital Protection:</b> Fixed $2-$4 risk budget with protective bracket SL.")
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append("⚡ <i>Send /levels for live update or /trade for execution scan</i>")
+
+        return "\n".join(lines)
+
+    def check_and_dispatch_level_breakout_alerts(self, symbols_data: Optional[Dict[str, Any]] = None) -> int:
+        """
+        Detect if any primary asset is within <= 0.35% of a critical breakout or breakdown level,
+        and dispatch an immediate proactive Pre-Trade Radar Alert to Telegram.
+        """
+        if not self.telegram or not getattr(self.telegram, "enabled", False):
+            return 0
+
+        target_data = symbols_data or {}
+        if not target_data:
+            return 0
+
+        import html
+        alerts_sent = 0
+        state_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "posted_level_alerts.json")
+        now_ts = time.time()
+        posted_alerts = {}
+
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, "r", encoding="utf-8") as f:
+                    posted_alerts = json.load(f)
+            except Exception as e:
+                logger.debug(f"Could not load posted level alerts: {e}")
+
+        for sym, d in target_data.items():
+            if sym not in ["BTCUSD", "ETHUSD", "XAUUSD"]:
+                continue
+
+            kla = d.get("key_levels_analysis", {})
+            if not kla or "error" in kla:
+                continue
+
+            if not kla.get("is_imminent"):
+                continue
+
+            status = kla.get("proximity_status")
+            if status not in ["TESTING_BREAKOUT", "TESTING_BREAKDOWN"]:
+                continue
+
+            alert_key = f"{sym}_{status}"
+            last_alert_time = posted_alerts.get(alert_key, 0)
+            # 45-minute cooldown (2700s) to prevent spam
+            if now_ts - last_alert_time < 2700:
+                continue
+
+            price = float(d.get("mark_price") or d.get("current_price") or 0.0)
+            if status == "TESTING_BREAKOUT":
+                plan = kla.get("bullish_breakout_plan", {})
+                lvl = kla.get("breakout_level", 0.0)
+                dist_pct = kla.get("distance_to_breakout_pct", 0.0)
+                dir_emoji = "🟢 BULLISH BREAKOUT"
+                dir_tag = "RESISTANCE CEILING"
+            else:
+                plan = kla.get("bearish_breakdown_plan", {})
+                lvl = kla.get("breakdown_level", 0.0)
+                dist_pct = kla.get("distance_to_breakdown_pct", 0.0)
+                dir_emoji = "🔴 BEARISH BREAKDOWN"
+                dir_tag = "SUPPORT FLOOR"
+
+            of = kla.get("order_flow", {})
+            cvd_t = of.get("cvd_trend", "NEUTRAL")
+            obi_st = of.get("obi_status", "NEUTRAL")
+            crit_text = html.escape(str(plan.get("confirmation_criteria", "15m close across level")))
+
+            msg = (
+                f"🚨 <b>[PRE-TRADE RADAR: {sym} TESTING KEY LEVEL]</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🪙 <b>Asset:</b> <code>{sym}</code> @ <code>${price:,.2f}</code>\n"
+                f"⚡ <b>Proximity:</b> <b>{dir_emoji} TESTING {dir_tag} ({dist_pct:+.2f}%)</b>\n"
+                f"🎯 <b>Key Trigger Level:</b> <code>${lvl:,.2f}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"📋 <b>PRE-TRADE ACTION PLAN:</b>\n"
+                f"• <b>Trigger:</b> <i>{crit_text}</i>\n"
+                f"• <b>Target (TP):</b> <code>${plan.get('take_profit_price', 0):,.2f}</code>\n"
+                f"• <b>Stop (SL):</b> <code>${plan.get('stop_loss_price', 0):,.2f}</code>\n"
+                f"• <b>Projected R:R:</b> <b>{plan.get('planned_rr', 2.3)} : 1</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"📊 <b>Order Flow Confirmation:</b>\n"
+                f"• <b>CVD Trend:</b> <code>{cvd_t}</code>\n"
+                f"• <b>Order Book:</b> <code>{obi_st}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⚠️ <b>Pre-Trade Notice:</b> Prepare for potential entry once 15m candle closes and confirms.\n"
+                f"⚡ <i>Send /trade to execute or /levels for all asset maps</i>"
+            )
+
+            try:
+                sent = self.telegram.send_message(msg)
+                if sent:
+                    posted_alerts[alert_key] = now_ts
+                    alerts_sent += 1
+                    logger.info(f"Orchestrator: Dispatched pre-trade level alert for {alert_key}")
+            except Exception as se:
+                logger.warning(f"Failed to send pre-trade level alert: {se}")
+
+        if alerts_sent > 0:
+            try:
+                os.makedirs(os.path.dirname(state_file), exist_ok=True)
+                with open(state_file, "w", encoding="utf-8") as f:
+                    json.dump(posted_alerts, f, indent=2)
+            except Exception as we:
+                logger.warning(f"Could not save posted level alerts state: {we}")
+
+        return alerts_sent
+
     def run_trading_cycle(self, symbols: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Execute one complete multi-agent cycle through Layers 1 to 5.
@@ -236,6 +427,12 @@ class MultiAgentTradingOrchestrator:
         print(f"   BTC Macro Posture: {market_regime} | ADX: {btc_adx} | Vol State: {btc_vol}")
 
         self.system_monitor.record_agent_duration("Agent1_RegimeAnalyst", (time.time() - t1) * 1000)
+
+        # Check and dispatch pre-trade key level breakout/breakdown radar alerts
+        try:
+            self.check_and_dispatch_level_breakout_alerts(scan_results.get("symbols_data", {}))
+        except Exception as le:
+            logger.debug(f"Pre-trade level alert check skipped: {le}")
 
         # Layer 1: News Sentiment Intelligence Engine
         t_news = time.time()

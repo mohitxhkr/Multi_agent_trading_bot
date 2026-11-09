@@ -1074,12 +1074,21 @@ class TelegramConfirmationBot:
             except Exception as e:
                 self.send_message(f"⚠️ Error generating news briefing: {e}")
 
+        elif cmd in ["/levels", "/breakout", "/breakdown", "/keylevels"]:
+            try:
+                self.send_message("⚡ <i>Calculating critical breakout &amp; breakdown levels across all assets... Please wait.</i>")
+                msg = orchestrator.format_market_levels_telegram()
+                self.send_message(msg)
+            except Exception as e:
+                self.send_message(f"⚠️ Error calculating market levels: {e}")
+
         elif cmd in ["/help", "/start"]:
             help_msg = (
                 "📖 <b>[DELTA BOT COMMAND CENTER]</b>\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
                 "You can command your trading bot anytime directly in this chat:\n\n"
                 "• <code>/status</code> — View 24/7 cloud health, available equity &amp; open count\n"
+                "• <code>/levels</code> — Breakout &amp; Breakdown Key Levels with Pre-Trade Plans\n"
                 "• <code>/news</code> — Daily Crypto Morning Briefing &amp; Sentiment Card (10-11 AM IST)\n"
                 "• <code>/posture</code> — View Market Posture, Breadth % &amp; Exposure Ceiling\n"
                 "• <code>/rules</code> — Inspect dynamic Next-Session Operating Rules\n"

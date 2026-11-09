@@ -2546,4 +2546,175 @@ def analyze_multi_timeframe(
         "macro_regime": macro_4h_regime
     }
 
+    # Synthesize Breakout and Breakdown Key Levels & Pre-Trade Plan
+    try:
+        analysis_1h["key_levels_analysis"] = calculate_breakout_breakdown_levels(analysis_1h)
+    except Exception as kle:
+        analysis_1h["key_levels_analysis"] = {"error": str(kle)}
+
     return analysis_1h
+
+
+def calculate_breakout_breakdown_levels(analysis_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Synthesize order flow, volume profile, liquidity pools, and market structure
+    to extract critical breakout and breakdown trigger levels with pre-trade actionable plans.
+    """
+    symbol = analysis_data.get("symbol", "N/A")
+    current_price = float(analysis_data.get("mark_price") or analysis_data.get("current_price") or 0.0)
+    if current_price <= 0.0:
+        return {"error": "Invalid current price"}
+
+    atr = float(analysis_data.get("atr_14") or (current_price * 0.008))
+    atr_pct = float(analysis_data.get("atr_pct") or 0.80)
+
+    # 1. Structural Liquidity Levels (BSL & SSL)
+    liq = analysis_data.get("liquidity", {})
+    bsl_levels = [float(x) for x in liq.get("bsl_levels", []) if float(x) > current_price]
+    ssl_levels = [float(x) for x in liq.get("ssl_levels", []) if float(x) < current_price]
+
+    nearest_bsl = min(bsl_levels) if bsl_levels else 0.0
+    nearest_ssl = max(ssl_levels) if ssl_levels else 0.0
+
+    # 2. Volume Profile Value Area & POC
+    vp = analysis_data.get("volume_profile", {})
+    vah = float(vp.get("value_area_high") or 0.0)
+    val = float(vp.get("value_area_low") or 0.0)
+    poc = float(vp.get("poc_price") or current_price)
+
+    # 3. Session VWAP & Bands
+    vwap_data = analysis_data.get("vwap_analysis", {})
+    vwap_price = float(analysis_data.get("vwap") or current_price)
+    vwap_upper = float(vwap_data.get("upper_band_1") or (vwap_price + atr))
+    vwap_lower = float(vwap_data.get("lower_band_1") or (vwap_price - atr))
+    vwap_slope = vwap_data.get("slope", "FLAT")
+    vwap_stance = vwap_data.get("stance", "AT_VWAP")
+
+    # 4. Fair Value Gaps (FVG)
+    fvg_data = analysis_data.get("fvg", {})
+    bearish_fvg = fvg_data.get("nearest_unmitigated_bearish", {})
+    bullish_fvg = fvg_data.get("nearest_unmitigated_bullish", {})
+
+    # 5. Determine Breakout Resistance (Ceiling)
+    breakout_candidates = []
+    if nearest_bsl > current_price:
+        breakout_candidates.append(nearest_bsl)
+    if vah > current_price:
+        breakout_candidates.append(vah)
+    if vwap_upper > current_price:
+        breakout_candidates.append(vwap_upper)
+    if bearish_fvg and float(bearish_fvg.get("gap_bottom", 0)) > current_price:
+        breakout_candidates.append(float(bearish_fvg.get("gap_bottom")))
+
+    sr = analysis_data.get("support_resistance", {})
+    res_level = float(sr.get("resistance") or 0.0)
+    if res_level > current_price:
+        breakout_candidates.append(res_level)
+
+    if breakout_candidates:
+        breakout_level = round_price(min(breakout_candidates), current_price)
+    else:
+        breakout_level = round_price(current_price + (1.2 * atr), current_price)
+
+    # 6. Determine Breakdown Support (Floor)
+    breakdown_candidates = []
+    if nearest_ssl > 0 and nearest_ssl < current_price:
+        breakdown_candidates.append(nearest_ssl)
+    if val > 0 and val < current_price:
+        breakdown_candidates.append(val)
+    if vwap_lower > 0 and vwap_lower < current_price:
+        breakdown_candidates.append(vwap_lower)
+    if bullish_fvg and float(bullish_fvg.get("gap_top", 0)) < current_price:
+        breakdown_candidates.append(float(bullish_fvg.get("gap_top")))
+
+    sup_level = float(sr.get("support") or 0.0)
+    if sup_level > 0 and sup_level < current_price:
+        breakdown_candidates.append(sup_level)
+
+    if breakdown_candidates:
+        breakdown_level = round_price(max(breakdown_candidates), current_price)
+    else:
+        breakdown_level = round_price(max(0.0001, current_price - (1.2 * atr)), current_price)
+
+    # Distances
+    dist_breakout_usd = round(breakout_level - current_price, 4)
+    dist_breakout_pct = round((dist_breakout_usd / current_price) * 100.0, 3)
+
+    dist_breakdown_usd = round(current_price - breakdown_level, 4)
+    dist_breakdown_pct = round((dist_breakdown_usd / current_price) * 100.0, 3)
+
+    # Proximity & Coiling Status
+    if dist_breakout_pct <= 0.35:
+        proximity_status = "TESTING_BREAKOUT"
+        status_label = f"🔥 TESTING BREAKOUT (+{dist_breakout_pct:.2f}%)"
+    elif dist_breakdown_pct <= 0.35:
+        proximity_status = "TESTING_BREAKDOWN"
+        status_label = f"⚠️ TESTING BREAKDOWN (-{dist_breakdown_pct:.2f}%)"
+    elif ((breakout_level - breakdown_level) / current_price * 100.0) <= (atr_pct * 1.6):
+        proximity_status = "COILING_VOLATILITY_SQUEEZE"
+        status_label = f"⚡ COILING / SQUEEZE (Range: {((breakout_level - breakdown_level)/current_price*100.0):.2f}%)"
+    else:
+        proximity_status = "RANGING_IN_VALUE_AREA"
+        status_label = "⚖️ RANGING IN VALUE AREA"
+
+    # Pre-Trade Bullish Breakout Trade Plan
+    bullish_entry = breakout_level
+    bullish_sl = round_price(breakout_level - (0.8 * atr), current_price)
+    bullish_risk = max(0.0001, abs(bullish_entry - bullish_sl))
+    bullish_tp = round_price(breakout_level + (2.3 * bullish_risk), current_price)
+    bullish_rr = round(abs(bullish_tp - bullish_entry) / bullish_risk, 2)
+
+    # Pre-Trade Bearish Breakdown Trade Plan
+    bearish_entry = breakdown_level
+    bearish_sl = round_price(breakdown_level + (0.8 * atr), current_price)
+    bearish_risk = max(0.0001, abs(bearish_sl - bearish_entry))
+    bearish_tp = round_price(max(0.0001, breakdown_level - (2.3 * bearish_risk)), current_price)
+    bearish_rr = round(abs(bearish_entry - bearish_tp) / bearish_risk, 2)
+
+    # Order Flow Signals
+    cvd_data = analysis_data.get("cvd", {})
+    obi_data = analysis_data.get("order_book_imbalance", {})
+    macd_data = analysis_data.get("macd", {})
+
+    return {
+        "symbol": symbol,
+        "current_price": current_price,
+        "atr_14": atr,
+        "atr_pct": atr_pct,
+        "breakout_level": breakout_level,
+        "distance_to_breakout_usd": dist_breakout_usd,
+        "distance_to_breakout_pct": dist_breakout_pct,
+        "breakdown_level": breakdown_level,
+        "distance_to_breakdown_usd": dist_breakdown_usd,
+        "distance_to_breakdown_pct": dist_breakdown_pct,
+        "poc_price": poc,
+        "vwap_price": vwap_price,
+        "vwap_stance": vwap_stance,
+        "vwap_slope": vwap_slope,
+        "proximity_status": proximity_status,
+        "status_label": status_label,
+        "is_imminent": (dist_breakout_pct <= 0.35 or dist_breakdown_pct <= 0.35),
+        "order_flow": {
+            "cvd_trend": cvd_data.get("cvd_trend", "NEUTRAL"),
+            "cvd_divergence": cvd_data.get("divergence", "NONE"),
+            "obi_ratio": obi_data.get("obi_ratio", 0.0),
+            "obi_status": obi_data.get("imbalance_status", "NEUTRAL"),
+            "macd_bias": macd_data.get("bias", "NEUTRAL"),
+            "macd_momentum": macd_data.get("momentum_phase", "NEUTRAL")
+        },
+        "bullish_breakout_plan": {
+            "trigger_price": bullish_entry,
+            "stop_loss_price": bullish_sl,
+            "take_profit_price": bullish_tp,
+            "planned_rr": bullish_rr,
+            "confirmation_criteria": "Confirmed 15m candle close > breakout level with CVD buyer expansion & OBI > +0.15"
+        },
+        "bearish_breakdown_plan": {
+            "trigger_price": bearish_entry,
+            "stop_loss_price": bearish_sl,
+            "take_profit_price": bearish_tp,
+            "planned_rr": bearish_rr,
+            "confirmation_criteria": "Confirmed 15m candle close < breakdown level with aggressive CVD sell volume & OBI < -0.15"
+        }
+    }
+

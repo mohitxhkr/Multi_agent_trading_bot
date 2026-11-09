@@ -519,19 +519,27 @@ class MultiAgentTradingOrchestrator:
                 logger.info(f"🎉 Order placed! Trade ID: {exec_res.get('trade_id')} | Order ID: #{exec_res.get('order_id')}")
                 trade_atr = trade.get("atr_profile", {}).get("atr_14") or trade.get("atr_14") or 0.0
                 try:
-                    self.trailing_stop_manager.register_initial_trade(
-                        symbol=trade["symbol"],
-                        side=trade["side"],
-                        entry_price=trade["entry_price"],
-                        initial_sl=trade["stop_loss_price"],
-                        initial_tp=trade["take_profit_price"],
-                        contracts=trade["contracts"],
-                        sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
-                        tp_order_id=exec_res.get("take_profit_order_id"),
-                        is_high_volatility=False,
-                        trade_id=exec_res.get("trade_id"),
-                        atr=trade_atr,
-                    )
+                    if exec_res.get("is_scale_in"):
+                        self.trailing_stop_manager.scale_in_trade(
+                            symbol=trade["symbol"],
+                            additional_contracts=trade["contracts"],
+                            scale_in_price=trade["entry_price"],
+                            new_sl_order_id=exec_res.get("stop_loss_order_id")
+                        )
+                    else:
+                        self.trailing_stop_manager.register_initial_trade(
+                            symbol=trade["symbol"],
+                            side=trade["side"],
+                            entry_price=trade["entry_price"],
+                            initial_sl=trade["stop_loss_price"],
+                            initial_tp=trade["take_profit_price"],
+                            contracts=trade["contracts"],
+                            sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
+                            tp_order_id=exec_res.get("take_profit_order_id"),
+                            is_high_volatility=False,
+                            trade_id=exec_res.get("trade_id"),
+                            atr=trade_atr,
+                        )
                 except Exception as re_err:
                     logger.error(f"TrailingStopManager register error: {re_err}")
 
@@ -944,19 +952,27 @@ class MultiAgentTradingOrchestrator:
                     or trade.get("is_high_volatility", False)
                 )
                 trade_atr = trade.get("atr_profile", {}).get("atr_14") or trade.get("atr_14") or 0.0
-                self.trailing_stop_manager.register_initial_trade(
-                    symbol=trade["symbol"],
-                    side=trade["side"],
-                    entry_price=trade["entry_price"],
-                    initial_sl=trade["stop_loss_price"],
-                    initial_tp=trade["take_profit_price"],
-                    contracts=trade["contracts"],
-                    sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
-                    tp_order_id=exec_res.get("take_profit_order_id"),
-                    is_high_volatility=is_high_vol,
-                    trade_id=exec_res.get("trade_id"),
-                    atr=trade_atr,
-                )
+                if exec_res.get("is_scale_in"):
+                    self.trailing_stop_manager.scale_in_trade(
+                        symbol=trade["symbol"],
+                        additional_contracts=trade["contracts"],
+                        scale_in_price=trade["entry_price"],
+                        new_sl_order_id=exec_res.get("stop_loss_order_id")
+                    )
+                else:
+                    self.trailing_stop_manager.register_initial_trade(
+                        symbol=trade["symbol"],
+                        side=trade["side"],
+                        entry_price=trade["entry_price"],
+                        initial_sl=trade["stop_loss_price"],
+                        initial_tp=trade["take_profit_price"],
+                        contracts=trade["contracts"],
+                        sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
+                        tp_order_id=exec_res.get("take_profit_order_id"),
+                        is_high_volatility=is_high_vol,
+                        trade_id=exec_res.get("trade_id"),
+                        atr=trade_atr,
+                    )
                 self.risk_gatekeeper.register_execution(trade["symbol"])
 
                 # Journal execution into persistent memory
@@ -1315,19 +1331,27 @@ class MultiAgentTradingOrchestrator:
                 trade_atr = cur_mark * 0.006
 
             try:
-                self.trailing_stop_manager.register_initial_trade(
-                    symbol=decision["symbol"],
-                    side=decision["side"],
-                    entry_price=decision["entry_price"],
-                    initial_sl=decision["stop_loss_price"],
-                    initial_tp=decision["take_profit_price"],
-                    contracts=decision["contracts"],
-                    sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
-                    tp_order_id=exec_res.get("take_profit_order_id"),
-                    is_high_volatility=False,
-                    trade_id=exec_res.get("trade_id"),
-                    atr=trade_atr,
-                )
+                if exec_res.get("is_scale_in"):
+                    self.trailing_stop_manager.scale_in_trade(
+                        symbol=decision["symbol"],
+                        additional_contracts=decision["contracts"],
+                        scale_in_price=decision["entry_price"],
+                        new_sl_order_id=exec_res.get("stop_loss_order_id")
+                    )
+                else:
+                    self.trailing_stop_manager.register_initial_trade(
+                        symbol=decision["symbol"],
+                        side=decision["side"],
+                        entry_price=decision["entry_price"],
+                        initial_sl=decision["stop_loss_price"],
+                        initial_tp=decision["take_profit_price"],
+                        contracts=decision["contracts"],
+                        sl_order_id=exec_res.get("stop_loss_order_id") or exec_res.get("order_id"),
+                        tp_order_id=exec_res.get("take_profit_order_id"),
+                        is_high_volatility=False,
+                        trade_id=exec_res.get("trade_id"),
+                        atr=trade_atr,
+                    )
             except Exception as re_err:
                 logger.error(f"TrailingStopManager register error: {re_err}")
 

@@ -353,8 +353,22 @@ class TelegramConfirmationBot:
         score = trade_spec.get("score", 85)
         clean_strat = strategy.replace("_", " ").title()
 
+        is_scale_in = bool(trade_spec.get("is_scale_in", False))
+        scale_parent = trade_spec.get("scale_in_parent", {})
+        existing_size = float(scale_parent.get("existing_size", 0))
+        unrealized_pnl = float(scale_parent.get("unrealized_pnl", 0.0))
+        title = "🔥 <b>[SCALE-IN: ADDING TO WINNER]</b>" if is_scale_in else "🎯 <b>[NEW TRADE PROPOSAL]</b>"
+
         conv_mult = float(trade_spec.get("conviction_multiplier", 1.0))
+        boost_info = trade_spec.get("past_win_boost", {})
+        boost_reason = boost_info.get("reason")
         boost_tag = f" · 🔥 <b>+{int(round((conv_mult - 1.0) * 100))}% Size Boost</b>" if conv_mult > 1.0 else ""
+        boost_line = ""
+        if conv_mult > 1.0:
+            boost_pct = int(round((conv_mult - 1.0) * 100))
+            r_str = f" · <i>{boost_reason}</i>" if boost_reason else ""
+            boost_line = f"🚀 <b>PAST WIN LOT BOOST:</b> <b>{conv_mult:.2f}x (+{boost_pct}% contracts)</b>{r_str}\n"
+
         score_badge = "A+ PRIME CONVICTION" if score >= 90 else ("HIGH CONVICTION EDGE" if score >= 80 else "STANDARD")
         rr_badge = trade_spec.get("risk_reward_badge") or "🟢 MIN RISK · MAX PROFIT"
         rr_desc = trade_spec.get("risk_reward_desc") or "Asymmetric Institutional Alpha"
@@ -389,13 +403,23 @@ class TelegramConfirmationBot:
             a_emoji = "🟢" if a_bias == "BULLISH" else ("🔴" if a_bias == "BEARISH" else "⚪")
             asset_sentiment_line = f" · {a_emoji} {base_sym} Sentiment: {a_bias} ({asset_sent.get('score', 0.0):+.2f})"
 
+        scale_in_block = (
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏆 <b>ACTIVE TRADE GOING WELL:</b>\n"
+            f"• <b>Existing Position:</b> <code>{int(existing_size)} contracts</code> (PnL: <b>+${unrealized_pnl:.2f} USD</b>)\n"
+            f"• <b>Adding to Winner:</b> <code>+{contracts} contracts</code> (Second entry opportunity)\n"
+            f"• <b>New Combined Size:</b> <code>{int(existing_size + contracts)} contracts</code>\n"
+        ) if is_scale_in else ""
+
         proposal_text = (
-            f"🎯 <b>[NEW TRADE PROPOSAL]</b>\n"
+            f"{title}\n"
             f"⭐ <b>QUALITY SCORE:</b> <b><u>{score}/100</u> ({score_badge})</b>{boost_tag}\n"
             f"💎 <b>PROFILE:</b> <b>{rr_badge}</b> <i>({rr_desc})</i>\n"
+            f"{boost_line}"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
             f"• <b>Setup:</b> <i>{clean_strat}</i>\n"
+            f"{scale_in_block}"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🧠 <b>MARKET SENTIMENT &amp; MACRO PULSE:</b>\n"
             f"• <b>Fear &amp; Greed:</b> <code>{fng_val}/100 ({fng_class})</code>\n"
@@ -409,7 +433,7 @@ class TelegramConfirmationBot:
             f"🛑 <b>Stop Loss:</b> <code>{fmt_p(sl)}</code>\n"
             f"🎯 <b>Take Profit:</b> <code>{fmt_p(tp)}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💼 <b>Position:</b> <code>{contracts} contracts</code> ({leverage}x Isolated | Margin: ~${margin:,.2f})\n"
+            f"💼 <b>Order Size:</b> <code>{contracts} contracts</code> ({leverage}x Isolated | Margin: ~${margin:,.2f})\n"
             f"{backtest_line}"
             f"🛡️ <b>Protection:</b> Risk Slashed at +0.80R · Green Profit Locked at +1.10R\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"

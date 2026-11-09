@@ -81,23 +81,69 @@ class DeterministicSafetyController:
             failures.append(("CRITERION_2_INSUFFICIENT_EQUITY", f"Equity (${account_equity:.2f}) is below minimum $10 threshold"))
 
         # ---------------------------------------------------------------------
-        # 3. Total portfolio exposure within limit & duplicate position check
+        # 3. Total portfolio exposure within limit & duplicate/scale-in position check
         # ---------------------------------------------------------------------
-        if len(active_positions) >= system_config.max_portfolio_concurrency:
+        distinct_active_symbols = {
+            str(p.get("symbol") or p.get("product_symbol") or "").upper()
+            for p in active_positions
+            if abs(float(p.get("size", 0))) > 0
+        }
+
+        # Concurrency limit applies to distinct assets
+        if symbol not in distinct_active_symbols and len(distinct_active_symbols) >= system_config.max_portfolio_concurrency:
             failures.append((
                 "CRITERION_3_PORTFOLIO_CONCURRENCY_EXCEEDED",
-                f"Active positions ({len(active_positions)}) >= max allowed ({system_config.max_portfolio_concurrency})"
+                f"Active distinct asset positions ({len(distinct_active_symbols)}) >= max allowed ({system_config.max_portfolio_concurrency})"
             ))
 
-        # Check if an active position already exists for this symbol (Delta rejects duplicate bracket orders)
+        # Check if an active position already exists for this symbol
+        existing_pos = None
         for pos in active_positions:
             pos_sym = str(pos.get("symbol") or pos.get("product_symbol") or "").upper()
             if pos_sym == symbol and abs(float(pos.get("size", 0))) > 0:
-                failures.append((
-                    "CRITERION_3_POSITION_ALREADY_EXISTS",
-                    f"An active position on {symbol} already exists on Delta Exchange ({pos.get('size')} contracts). Delta does not allow multiple simultaneous bracket orders on the same asset. Close it via /close {symbol} first."
-                ))
+                existing_pos = pos
                 break
+
+        if existing_pos:
+            existing_size = float(existing_pos.get("size", 0))
+            existing_side = "buy" if existing_size > 0 else "sell"
+
+            if side.lower() != existing_side:
+                failures.append((
+                    "CRITERION_3_OPPOSITE_POSITION_EXISTS",
+                    f"An active opposite {existing_side.upper()} position exists on {symbol} ({abs(existing_size)} contracts). "
+                    f"Opposite-direction trades on the same asset are blocked."
+                ))
+            else:
+                # Same direction: evaluate if active position is "going well" (profitable)
+                unrealized_pnl = float(existing_pos.get("unrealized_pnl") or 0.0)
+                pos_entry = float(existing_pos.get("entry_price") or existing_pos.get("cost_price") or existing_pos.get("avg_entry_price") or 0.0)
+                pos_mark = float(existing_pos.get("mark_price") or entry_price or 0.0)
+
+                # In profit if unrealized PnL is positive or mark price has moved favorably from entry
+                is_favorable_price = (pos_entry > 0 and ((pos_mark > pos_entry) if side == "buy" else (pos_mark < pos_entry)))
+                is_profitable = unrealized_pnl > 0 or is_favorable_price
+
+                if is_profitable:
+                    logger.info(
+                        f"DeterministicSafetyController: Active {symbol} {side.upper()} position is going well "
+                        f"(Unrealized PnL: +${unrealized_pnl:.2f}, Entry: ${pos_entry:.2f}, Mark: ${pos_mark:.2f}). "
+                        f"Approving scale-in opportunity to add {contracts} contracts to winning trade!"
+                    )
+                    trade_setup["is_scale_in"] = True
+                    trade_setup["scale_in_parent"] = {
+                        "existing_size": abs(existing_size),
+                        "unrealized_pnl": unrealized_pnl,
+                        "entry_price": pos_entry,
+                        "mark_price": pos_mark
+                    }
+                else:
+                    failures.append((
+                        "CRITERION_3_POSITION_ALREADY_EXISTS",
+                        f"An active {side.upper()} position on {symbol} already exists on Delta Exchange ({abs(existing_size)} contracts), "
+                        f"but is currently flat or in drawdown (PnL: ${unrealized_pnl:.2f}). "
+                        f"Adding quantity to a losing trade is strictly prohibited. Scale-in is only permitted when trade is in profit."
+                    ))
 
         # ---------------------------------------------------------------------
         # 4. Per-trade risk within limit (hard dollar cap & equity %)
@@ -110,7 +156,12 @@ class DeterministicSafetyController:
             system_config.max_dollar_risk_per_trade,
             account_equity * system_config.max_risk_per_trade_pct
         )
-        # 1% tolerance for float rounding
+        # Check conviction / past win boost multiplier
+        boost_mult = float(trade_setup.get("conviction_multiplier") or trade_setup.get("lot_boost", {}).get("multiplier", 1.0))
+        if boost_mult > 1.0:
+            max_allowed_dollar_risk = max_allowed_dollar_risk * boost_mult
+
+        # 2% tolerance for float rounding
         if dollar_risk > (max_allowed_dollar_risk * 1.02):
             failures.append((
                 "CRITERION_4_RISK_LIMIT_EXCEEDED",

@@ -34,6 +34,87 @@ class RiskGatekeeperAgent:
         import time
         self.last_trade_time[symbol] = time.time()
 
+    def _calculate_past_success_boost(self, symbol: str, setup: Dict[str, Any]) -> tuple[float, str]:
+        """
+        Evaluate past success from trade journal and historical backtest to boost lot size.
+        Rewards proven winning streaks and high empirical win rates.
+        Returns: (multiplier, reason)
+        """
+        boost_mult = 1.0
+        boost_reasons = []
+
+        # 1. Query past closed trades from journal
+        try:
+            from src.journal import load_journal
+            journal = load_journal()
+            closed_trades = [t for t in journal.get("trades", []) if t.get("status") == "CLOSED"]
+
+            # Check symbol-specific closed trades
+            sym_clean = symbol.replace("USD", "").replace("USDT", "").replace("-", "").upper()
+            sym_trades = [
+                t for t in closed_trades
+                if sym_clean in str(t.get("symbol", "")).upper()
+            ]
+
+            # Count win streak on this symbol (from most recent backward)
+            sym_win_streak = 0
+            for t in reversed(sym_trades):
+                if float(t.get("realized_pnl_usd", 0.0)) > 0:
+                    sym_win_streak += 1
+                else:
+                    break
+
+            # Count overall portfolio win streak across recent closed trades
+            overall_win_streak = 0
+            for t in reversed(closed_trades):
+                if float(t.get("realized_pnl_usd", 0.0)) > 0:
+                    overall_win_streak += 1
+                else:
+                    break
+
+            if sym_win_streak >= 3 or overall_win_streak >= 3:
+                boost_mult = 1.50  # +50% quantity boost
+                streak_n = max(sym_win_streak, overall_win_streak)
+                boost_reasons.append(f"{streak_n}-Trade Winning Streak in Past Trades (1.50x Boost)")
+            elif sym_win_streak == 2 or overall_win_streak == 2:
+                boost_mult = 1.30  # +30% quantity boost
+                boost_reasons.append("2-Trade Winning Streak in Past Trades (1.30x Boost)")
+            elif sym_win_streak == 1 or overall_win_streak == 1:
+                boost_mult = 1.15  # +15% quantity boost
+                boost_reasons.append("Previous Trade Closed in Profit (1.15x Boost)")
+            elif len(sym_trades) >= 3:
+                # Check recent win rate on this symbol
+                recent_sym = sym_trades[-5:]
+                recent_wins = sum(1 for t in recent_sym if float(t.get("realized_pnl_usd", 0.0)) > 0)
+                win_rate = (recent_wins / len(recent_sym)) * 100.0
+                if win_rate >= 60.0:
+                    boost_mult = 1.25  # +25% quantity boost
+                    boost_reasons.append(f"Past Symbol Win Rate {win_rate:.0f}% over last {len(recent_sym)} trades (1.25x Boost)")
+        except Exception as e:
+            logger.debug(f"RiskGatekeeper: Journal lookup for past success: {e}")
+
+        # 2. Time Machine Walk-Forward Backtest Edge
+        tm = setup.get("time_machine", {})
+        tm_win_rate = float(tm.get("win_rate_pct") or 0.0)
+        tm_ev = float(tm.get("expected_value_r") or 0.0)
+
+        if boost_mult < 1.25:
+            if tm_win_rate >= 65.0 and tm_ev >= 0.35:
+                boost_mult = max(boost_mult, 1.30)
+                boost_reasons.append(f"Empirical Backtest Win Rate {tm_win_rate:.0f}% & EV +{tm_ev:.2f}R (1.30x Boost)")
+            elif tm_win_rate >= 60.0 or tm_ev >= 0.25:
+                boost_mult = max(boost_mult, 1.20)
+                boost_reasons.append(f"Empirical Backtest Win Rate {tm_win_rate:.0f}% & EV +{tm_ev:.2f}R (1.20x Boost)")
+
+        # 3. Reinforced Machine Learning Edge
+        is_reinforced = "REINFORCED" in str(setup.get("thesis", "")) or "REINFORCED" in str(setup.get("strategy_name", ""))
+        if is_reinforced and boost_mult < 1.20:
+            boost_mult = max(boost_mult, 1.20)
+            boost_reasons.append("Empirically Reinforced Strategy Edge (1.20x Boost)")
+
+        reason = " · ".join(boost_reasons) if boost_reasons else "Standard baseline sizing"
+        return boost_mult, reason
+
     def evaluate_candidate(
         self,
         setup: Dict[str, Any],
@@ -242,10 +323,26 @@ class RiskGatekeeperAgent:
             self.risk_manager.max_risk_per_trade_pct if is_primary else (self.risk_manager.max_risk_per_trade_pct * 0.75)
         )
         
-        # Max dollar risk is strictly capped by hard limits and scaled down by drawdown
+        # Baseline dollar risk budget (scales up on winning streak, but strictly bounded by hard_dollar_risk_cap)
+        baseline_cap = min(hard_dollar_risk_cap * 0.75, 2.70) if is_primary else min(hard_dollar_risk_cap * 0.60, 2.00)
+        base_dollar_risk = min(
+            baseline_cap * dd_risk_scalar,
+            total_usdt * target_risk_pct * dd_risk_scalar
+        )
+
+        # Dynamic Historical Win Lot Size Boost:
+        # Check past closed trades and empirical backtest performance to reward winning streaks
+        boost_mult, boost_reason = self._calculate_past_success_boost(symbol, setup)
+        if boost_mult > 1.0:
+            conviction_multiplier = boost_mult
+            conviction_tier = f"BOOSTED_{int(round((boost_mult - 1.0) * 100))}%"
+            if boost_reason not in conviction_reasons:
+                conviction_reasons.append(boost_reason)
+
+        # Boost scales up from base risk toward hard risk cap, strictly NEVER exceeding hard_dollar_risk_cap
         calculated_dollar_risk = min(
             hard_dollar_risk_cap * dd_risk_scalar,
-            total_usdt * target_risk_pct * dd_risk_scalar
+            base_dollar_risk * conviction_multiplier
         )
 
         # Include estimated round-trip taker fees (0.10%) + slippage (0.06%) into risk unit
@@ -258,6 +355,12 @@ class RiskGatekeeperAgent:
         raw_contracts = int(calculated_dollar_risk / risk_per_contract)
         # Align strictly with lot size steps
         aligned_contracts = (raw_contracts // lot_size) * lot_size
+
+        # Ensure boosted sizing is at least base sizing
+        base_raw = int(base_dollar_risk / risk_per_contract)
+        base_contracts = (base_raw // lot_size) * lot_size
+        if aligned_contracts < base_contracts:
+            aligned_contracts = base_contracts
 
         # CRITICAL SAFETY RULE: Never force a minimum contract quantity if it exceeds the permitted risk budget!
         if aligned_contracts < lot_size:
@@ -434,6 +537,15 @@ class RiskGatekeeperAgent:
             "conviction_tier": conviction_tier,
             "conviction_boost_pct": int(round((conviction_multiplier - 1.0) * 100)),
             "conviction_reasons": conviction_reasons,
+            "past_win_boost": {
+                "applied": conviction_multiplier > 1.0,
+                "multiplier": round(conviction_multiplier, 2),
+                "reason": boost_reason,
+                "base_dollar_risk": round(base_dollar_risk, 2),
+                "boosted_dollar_risk": round(calculated_dollar_risk, 2),
+                "base_contracts": base_contracts,
+                "boosted_contracts": contracts
+            },
             "contracts": contracts,
             "entry_price": entry,
             "stop_loss_price": stop,

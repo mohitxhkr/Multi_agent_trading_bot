@@ -91,6 +91,57 @@ class TrailingStopManager:
         vol_note = " [HIGH VOLATILITY BUFFER ENGAGED]" if is_high_volatility else ""
         logger.info(f"Registered trade for trailing stop: {symbol} | Entry: {entry_price} | SL: {initial_sl} | Risk: {risk:.2f}{vol_note}")
 
+    def scale_in_trade(
+        self,
+        symbol: str,
+        additional_contracts: int,
+        scale_in_price: float,
+        new_sl_order_id: Optional[Any] = None,
+        new_tp_order_id: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """
+        Scale into an active winning trade by adding contracts and updating
+        weighted average entry price and order IDs in persistent state.
+        """
+        if symbol not in self.state:
+            logger.warning(f"TrailingStopManager: Cannot scale into {symbol} - no active registered trade found.")
+            return {"success": False, "error": f"No active registered trade for {symbol}"}
+
+        pos = self.state[symbol]
+        old_contracts = int(pos.get("contracts", 0))
+        old_entry = float(pos.get("entry_price", scale_in_price))
+        total_contracts = old_contracts + int(additional_contracts)
+
+        # Calculate weighted average entry price
+        if total_contracts > 0:
+            avg_entry = ((old_contracts * old_entry) + (additional_contracts * scale_in_price)) / total_contracts
+        else:
+            avg_entry = scale_in_price
+
+        pos["contracts"] = total_contracts
+        pos["entry_price"] = round(avg_entry, 4)
+        pos["scale_in_count"] = int(pos.get("scale_in_count", 0)) + 1
+        pos["last_scale_in_price"] = float(scale_in_price)
+        pos["last_scale_in_time"] = time.time()
+
+        if new_sl_order_id:
+            pos["sl_order_id"] = new_sl_order_id
+        if new_tp_order_id:
+            pos["tp_order_id"] = new_tp_order_id
+
+        self._save_state()
+        logger.info(
+            f"TrailingStopManager: Successfully scaled into {symbol}! "
+            f"Added {additional_contracts} contracts. New Total: {total_contracts} contracts @ avg entry ${avg_entry:.4f}"
+        )
+        return {
+            "success": True,
+            "symbol": symbol,
+            "added_contracts": additional_contracts,
+            "total_contracts": total_contracts,
+            "avg_entry": round(avg_entry, 4)
+        }
+
     def _is_market_highly_volatile(self, pos_state: Dict[str, Any]) -> bool:
         """
         Check if the market or position is in high volatility mode,

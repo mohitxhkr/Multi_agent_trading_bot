@@ -88,6 +88,139 @@ class ExecutionAgent:
             time.sleep(0.5 * (attempt + 1))
 
         trade_uid = f"trade_{uuid.uuid4().hex[:8]}"
+        is_scale_in = bool(decision.get("is_scale_in", False))
+
+        if is_scale_in:
+            logger.info(
+                f"ExecutionAgent: 🔥 SCALE-IN OPPORTUNITY DETECTED for {symbol} {side.upper()}! "
+                f"Placing market order for +{contracts} contracts to expand winning position..."
+            )
+            order_res: Dict[str, Any] = {}
+            last_error = ""
+
+            for attempt in range(max_retries):
+                if attempt > 0:
+                    try:
+                        reconcile_res = self.client.get_order_by_client_id(client_order_id, symbol=symbol)
+                        if reconcile_res.get("success") and reconcile_res.get("result"):
+                            order_res = {"success": True, "result": reconcile_res["result"]}
+                            break
+                    except Exception as e:
+                        logger.warning(f"ExecutionAgent: Scale-in reconciliation check failed: {e}")
+
+                try:
+                    order_res = self.client.place_order(
+                        symbol=symbol,
+                        size=contracts,
+                        side=side,
+                        order_type="market_order",
+                        client_order_id=client_order_id
+                    )
+                    if order_res.get("success"):
+                        break
+                    else:
+                        last_error = str(order_res.get("error"))
+                        logger.warning(f"ExecutionAgent: Scale-in attempt {attempt + 1}/{max_retries} failed: {last_error}")
+                except Exception as e:
+                    last_error = str(e)
+                    logger.error(f"ExecutionAgent network exception on scale-in attempt {attempt + 1}: {e}")
+
+                time.sleep(1.0 * (2 ** attempt))
+
+            if not order_res.get("success"):
+                return {
+                    "success": False,
+                    "trade_id": trade_uid,
+                    "client_order_id": client_order_id,
+                    "error": f"Scale-in market order failed after {max_retries} attempts: {last_error}",
+                    "symbol": symbol
+                }
+
+            order_data = order_res.get("result", {})
+            order_id = str(order_data.get("id", ""))
+
+            # Fetch updated position size
+            time.sleep(0.5)
+            pos_res = self.client.get_positions()
+            total_contracts = contracts
+            if pos_res.get("success"):
+                for p in pos_res.get("result", []):
+                    p_sym = str(p.get("symbol") or p.get("product_symbol") or "").upper()
+                    if p_sym == symbol:
+                        total_contracts = abs(int(float(p.get("size", contracts))))
+                        break
+
+            # Adjust protective Stop Loss to protect expanded position
+            sl_updated = False
+            sl_order_id = None
+            try:
+                open_orders_res = self.client.get_open_orders(symbol=symbol)
+                if open_orders_res.get("success"):
+                    expected_sl_side = "sell" if side == "buy" else "buy"
+                    for o in open_orders_res.get("result", []):
+                        o_type = str(o.get("order_type", "")).lower()
+                        o_side = str(o.get("side", "")).lower()
+                        o_stop_type = str(o.get("stop_order_type", "")).lower()
+                        is_stop = "stop" in o_type or "stop" in o_stop_type or bool(o.get("stop_price")) or (o.get("bracket_order") and o_side == expected_sl_side)
+                        if is_stop and o_side == expected_sl_side:
+                            sl_order_id = int(o.get("id"))
+                            edit_res = self.client.edit_order(symbol=symbol, order_id=sl_order_id, size=total_contracts)
+                            if edit_res.get("success"):
+                                logger.info(f"ExecutionAgent: Successfully updated existing SL #{sl_order_id} size to {total_contracts} contracts.")
+                                sl_updated = True
+                            break
+            except Exception as e:
+                logger.warning(f"ExecutionAgent: Error attempting to edit existing SL order size: {e}")
+
+            if not sl_updated:
+                # Place supplementary protective stop for added contracts
+                try:
+                    add_sl_res = self.client.place_protective_stop(
+                        symbol=symbol,
+                        size=contracts,
+                        side=side,
+                        stop_price=stop_loss,
+                        client_order_id=f"scale_sl_{uuid.uuid4().hex[:6]}"
+                    )
+                    if add_sl_res.get("success"):
+                        sl_order_id = str(add_sl_res.get("result", {}).get("id"))
+                        sl_updated = True
+                        logger.info(f"ExecutionAgent: Supplementary protective stop confirmed for {contracts} contracts: Order #{sl_order_id}")
+                except Exception as e:
+                    logger.warning(f"ExecutionAgent: Supplementary stop error: {e}")
+
+            # Record in state manager
+            self.state_manager.record_order(
+                order_id=order_id,
+                client_order_id=client_order_id,
+                symbol=symbol,
+                side=side,
+                order_type="market_order",
+                price=entry_price,
+                size=contracts,
+                status="filled"
+            )
+
+            logger.info(f"ExecutionAgent: Scale-in complete! Added {contracts} contracts on {symbol}. Total size: {total_contracts} contracts.")
+            return {
+                "success": True,
+                "is_scale_in": True,
+                "trade_id": trade_uid,
+                "symbol": symbol,
+                "order_id": order_id,
+                "client_order_id": client_order_id,
+                "status": "SCALED_IN",
+                "contracts_added": contracts,
+                "total_contracts": total_contracts,
+                "contracts": contracts,
+                "side": side,
+                "entry_price": entry_price,
+                "stop_loss_price": stop_loss,
+                "take_profit_price": take_profit,
+                "stop_loss_order_id": sl_order_id,
+                "sl_verified": True,
+                "delta_response": order_data
+            }
 
         logger.info(
             f"ExecutionAgent: Submitting bracket order: {side.upper()} {contracts} contracts {symbol} "

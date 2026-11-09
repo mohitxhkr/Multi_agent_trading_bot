@@ -971,102 +971,103 @@ class TelegramConfirmationBot:
                     target_sym = f"{raw_sym}USD"
                 else:
                     target_sym = raw_sym
+            else:
+                target_sym = "BTCUSD"
 
-            # If user explicitly requested a symbol, directly build and propose the on-demand scalp!
-            if target_sym:
-                try:
-                    dir_txt = f" ({requested_side.upper()})" if requested_side else ""
-                    reply(f"🎯 <i>Analyzing live orderbook &amp; generating on-demand scalp proposal for {target_sym}{dir_txt}...</i>")
-                    if hasattr(orchestrator, "propose_on_demand_trade"):
-                        res = orchestrator.propose_on_demand_trade(symbol=target_sym, side=requested_side, chat_id=target_chat)
-                        status = res.get("status", "")
-                        if status == "SUCCESS":
-                            reply(f"✅ <b>Order Placed:</b> #{res.get('order_id')} — {target_sym} {res.get('contracts')} contracts submitted to Delta Exchange!")
-                        elif status == "REJECTED":
-                            reply(f"🛡️ <b>Trade Filtered by Safety Gate:</b> {res.get('reason', 'Safety criteria failed')}")
-                        elif status == "FAILED":
-                            reply(f"⚠️ <b>Order Execution Failed:</b> {res.get('error', 'Exchange error')}")
-                    else:
-                        reply("⚠️ Orchestrator does not support on-demand scalp generator.")
-                except Exception as te:
-                    reply(f"⚠️ Error proposing scalp trade on {target_sym}: {te}")
-                return
+            if not target_sym:
+                target_sym = "BTCUSD"
 
-            # Default /trade without arguments: scan BTC, ETH, XAU and provide live radar
-            try:
-                reply("🎯 <i>Running institutional scalp scan on BTC, ETH, and XAU... Please wait.</i>")
-                self._active_command_chat_id = target_chat
-                res = orchestrator.run_trading_cycle(symbols=["BTCUSD", "ETHUSD", "XAUUSD"])
-                if not isinstance(res, dict):
-                    res = {}
+            self._active_command_chat_id = target_chat
 
-                status = res.get("status", "")
-                code = res.get("code", "")
-                reason = res.get("reason", "")
-                regime = res.get("regime", "NEUTRAL")
-
-                if status in ["SUCCESS", "ORDER_EXECUTED"]:
-                    reply(f"✅ <b>Trade Executed!</b> Order #{res.get('order_id')} successfully placed on Delta Exchange.")
-                    return
-                elif status == "TIMEOUT" or code == "USER_REJECTED_OR_EXPIRED":
-                    reply("⌛ <b>[TRADE PROPOSAL RESOLVED]</b>\n• <b>Result:</b> User declined or proposal timed out. Capital intact.")
-                    return
-                elif code == "EMERGENCY_HALT_ACTIVE" or status == "SKIPPED":
+            # 1. Emergency Halt Check
+            if hasattr(orchestrator, "emergency_controller"):
+                is_halted, halt_reason = orchestrator.emergency_controller.is_halted()
+                if is_halted:
                     reply(
                         "🛑 <b>[BOT CURRENTLY PAUSED]</b>\n"
                         "━━━━━━━━━━━━━━━━━━━━━━\n"
                         "• <b>Status:</b> Trading is paused via Emergency Controller.\n"
-                        f"• <b>Reason:</b> {reason or 'Manual pause active.'}\n"
+                        f"• <b>Reason:</b> {halt_reason or 'Manual pause active.'}\n"
                         "• <i>Send <code>/resume</code> to re-enable automated trading.</i>"
                     )
                     return
 
-                # If no automated A+ setup triggered, fetch live mark prices and show interactive scalp buttons!
-                btc_mark = 0.0
-                eth_mark = 0.0
-                xau_mark = 0.0
-                try:
-                    for s_chk in ["BTCUSD", "ETHUSD", "XAUUSD"]:
-                        t_obj = client.get_ticker(s_chk)
-                        if t_obj and t_obj.get("success"):
-                            p = float(t_obj.get("result", {}).get("mark_price", 0.0) or 0.0)
-                            if s_chk == "BTCUSD": btc_mark = p
-                            elif s_chk == "ETHUSD": eth_mark = p
-                            elif s_chk == "XAUUSD": xau_mark = p
-                except Exception:
-                    pass
+            # 2. Fetch live mark prices for BTC, ETH, XAU
+            btc_mark = 0.0
+            eth_mark = 0.0
+            xau_mark = 0.0
+            try:
+                for s_chk in ["BTCUSD", "ETHUSD", "XAUUSD"]:
+                    t_obj = client.get_ticker(s_chk)
+                    if t_obj and t_obj.get("success"):
+                        p = float(t_obj.get("result", {}).get("mark_price", 0.0) or 0.0)
+                        if s_chk == "BTCUSD": btc_mark = p
+                        elif s_chk == "ETHUSD": eth_mark = p
+                        elif s_chk == "XAUUSD": xau_mark = p
+            except Exception:
+                pass
 
-                trade_markup = {
-                    "inline_keyboard": [
-                        [
-                            {"text": "⚡ Propose BTC Scalp", "callback_data": "propose_scalp_BTCUSD"},
-                            {"text": "⚡ Propose ETH Scalp", "callback_data": "propose_scalp_ETHUSD"},
-                        ],
-                        [
-                            {"text": "⚡ Propose XAU Scalp", "callback_data": "propose_scalp_XAUUSD"},
-                            {"text": "📋 View Sample Card", "callback_data": "sample_proposal_view"},
-                        ]
+            # 3. Market Posture
+            regime = "NEUTRAL"
+            try:
+                if hasattr(orchestrator, "exposure_coach"):
+                    posture_data = orchestrator.exposure_coach.evaluate_market_posture(orchestrator.client)
+                    regime = posture_data.get("posture", "NEUTRAL")
+                elif hasattr(orchestrator, "regime_analyst"):
+                    ra = orchestrator.regime_analyst.analyze_symbol(target_sym, resolution="15")
+                    regime = ra.get("regime", "NEUTRAL")
+            except Exception:
+                pass
+
+            # 4. First: Dispatch the Pre-Trade Scalp Radar
+            trade_markup = {
+                "inline_keyboard": [
+                    [
+                        {"text": "⚡ Switch to BTC Scalp", "callback_data": "propose_scalp_BTCUSD"},
+                        {"text": "⚡ Switch to ETH Scalp", "callback_data": "propose_scalp_ETHUSD"},
+                    ],
+                    [
+                        {"text": "⚡ Switch to XAU Scalp", "callback_data": "propose_scalp_XAUUSD"},
+                        {"text": "📋 View Sample Card", "callback_data": "sample_proposal_view"},
                     ]
-                }
+                ]
+            }
 
-                radar_msg = (
-                    "🛡️ <b>[ON-DEMAND SCALP RADAR &amp; OPPORTUNITY SCAN]</b>\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "• <b>Automated Strategy Status:</b> 100% Cash Defense Active (Zero forced trades)\n"
-                    f"• <b>Market Posture:</b> <code>{regime}</code>\n"
-                    "• <b>Discipline Rule:</b> Capital is protected in cash until an A+ institutional confluence aligns.\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "📊 <b>Live Market Prices:</b>\n"
-                    f"• <b>BTCUSD:</b> <code>${btc_mark:,.2f}</code>\n"
-                    f"• <b>ETHUSD:</b> <code>${eth_mark:,.2f}</code>\n"
-                    f"• <b>XAUUSD:</b> <code>${xau_mark:,.2f}</code>\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "💡 <b>Evaluate a Live Scalp on Demand:</b>\n"
-                    "Tap below or send <code>/trade BTC</code>, <code>/trade ETH</code>, or <code>/trade BUY BTC</code> to generate an instant scalp proposal with exact Stop Loss, Take Profit &amp; 1:2.5 R:R:"
-                )
-                reply(radar_msg, reply_markup=trade_markup)
-            except Exception as e:
-                reply(f"⚠️ Error running scalp scan: {e}")
+            dir_txt = f" · Bias: {requested_side.upper()}" if requested_side else ""
+            radar_msg = (
+                "🛡️ <b>[ON-DEMAND SCALP RADAR &amp; OPPORTUNITY SCAN]</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"• <b>Target Scalp Symbol:</b> <code>{target_sym}</code>{dir_txt}\n"
+                f"• <b>Market Posture:</b> <code>{regime}</code>\n"
+                "• <b>Capital Protection:</b> 100% Isolated Margin | Fixed $2–$4 Risk | 1:2.5 Min R:R\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "📊 <b>Live Market Prices:</b>\n"
+                f"• <b>BTCUSD:</b> <code>${btc_mark:,.2f}</code>\n"
+                f"• <b>ETHUSD:</b> <code>${eth_mark:,.2f}</code>\n"
+                f"• <b>XAUUSD:</b> <code>${xau_mark:,.2f}</code>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🎯 <i>Generating live institutional trade proposal card for {target_sym} below...</i>"
+            )
+            reply(radar_msg, reply_markup=trade_markup)
+
+            # 5. Second: Immediately dispatch the actual live trade proposal card with interactive buttons
+            try:
+                if hasattr(orchestrator, "propose_on_demand_trade"):
+                    res = orchestrator.propose_on_demand_trade(symbol=target_sym, side=requested_side, chat_id=target_chat)
+                    status = res.get("status", "")
+                    code = res.get("code", "")
+                    if status == "SUCCESS":
+                        reply(f"✅ <b>Order Placed:</b> #{res.get('order_id')} — {target_sym} {res.get('contracts')} contracts submitted to Delta Exchange!")
+                    elif code == "USER_REJECTED_OR_EXPIRED" or status == "TIMEOUT":
+                        pass
+                    elif status == "REJECTED":
+                        reply(f"🛡️ <b>Trade Filtered by Safety Gate:</b> {res.get('reason', 'Safety criteria failed')}")
+                    elif status == "FAILED":
+                        reply(f"⚠️ <b>Order Execution Failed:</b> {res.get('error', res.get('reason', 'Exchange error'))}")
+                else:
+                    reply("⚠️ Orchestrator does not support on-demand scalp generator.")
+            except Exception as te:
+                reply(f"⚠️ Error proposing scalp trade on {target_sym}: {te}")
 
         elif cmd in ["/orders", "/orderbook", "/pending"]:
             try:

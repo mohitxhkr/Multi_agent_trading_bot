@@ -838,10 +838,11 @@ class MultiAgentTradingOrchestrator:
 
         # 4. Risk Gatekeeper evaluation
         decision = self.risk_gatekeeper.evaluate_candidate(candidate, leverage=asset_lev)
+        for k, v in candidate.items():
+            if k not in decision or decision[k] is None:
+                decision[k] = v
+
         if decision.get("gate_decision") != "APPROVED":
-            for k, v in candidate.items():
-                if k not in decision:
-                    decision[k] = v
             decision["contracts"] = max(1, decision.get("contracts", 1))
             decision["dollar_risk_usd"] = decision.get("dollar_risk_usd") or 2.50
             decision["required_margin_usd"] = decision.get("required_margin_usd") or 25.0

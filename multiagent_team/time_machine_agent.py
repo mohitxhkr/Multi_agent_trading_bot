@@ -1135,18 +1135,22 @@ class TimeMachineAgent:
         avg_bars = round(sum(m["bars_held"] for m in matches) / len(matches), 1) if matches else 0.0
 
         # =========================================================================
-        # STATISTICAL DECISION GATE
+        # STATISTICAL DECISION GATE (Strict Low-Win-Rate & Low-Edge Rejection)
         # =========================================================================
-        # 1. Edge: Empirical Win Rate >= min_win_rate_pct or (planned_rr >= 2.4 and WR >= 60.0)
-        # 2. Net Expectancy: Realized net EV >= min_expected_value_r
-        # 3. Profit Factor: Net PF >= 1.50
-        # 4. Out-of-Sample: Positive OOS Net Expectancy or strong Wilson Lower Bound (>= 45.0%)
+        # 1. Edge: Empirical Win Rate >= min_win_rate_pct (default 60.0%)
+        # 2. Net Expectancy: Realized net EV >= min_expected_value_r (default 0.20R)
+        # 3. Profit Factor: Net PF >= 1.50x
+        # 4. Out-of-Sample: Positive OOS Net Expectancy & WR >= 50% (or Wilson Lower >= 35.0%)
         # 5. Risk Safeguard: Max consecutive losses <= 4
-        edge_passed = (win_rate >= self.min_win_rate_pct or (planned_rr >= 2.4 and win_rate >= 55.0) or (planned_rr >= 2.0 and win_rate >= 60.0))
-        ev_passed = (net_ev_r >= self.min_expected_value_r or (planned_rr >= 2.4 and net_ev_r >= 0.15))
-        pf_passed = (profit_factor >= 1.30)
-        oos_passed = (oos_ev_r >= 0.0) if (oos_valid and oos_ev_r is not None) else (wilson_lower >= 30.0)
-        streak_passed = max_consecutive_losses <= 5
+        edge_passed = (win_rate >= self.min_win_rate_pct)
+        ev_passed = (net_ev_r >= self.min_expected_value_r)
+        pf_passed = (profit_factor >= 1.50)
+        oos_passed = (
+            (oos_ev_r >= 0.0 and (oos_win_rate is None or oos_win_rate >= 50.0))
+            if (oos_valid and oos_ev_r is not None)
+            else (wilson_lower >= 35.0)
+        )
+        streak_passed = max_consecutive_losses <= 4
 
         passed = edge_passed and ev_passed and pf_passed and oos_passed and streak_passed
         verdict = "APPROVED" if passed else "REJECTED"

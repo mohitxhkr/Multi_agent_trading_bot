@@ -1162,13 +1162,27 @@ class AdaptiveLearningEngine:
 
         status = pat.get("status", "NEUTRAL")
         adj = pat.get("score_adjustment", 0)
+        resolved = int(pat.get("wins", 0)) + int(pat.get("losses", 0))
+        pat_wr = float(pat.get("win_rate_pct", 50.0))
+
+        if resolved >= 4 and pat_wr < 45.0:
+            return {
+                "pattern_key": pattern_key,
+                "status": "BLACKLISTED_LOW_WIN_RATE",
+                "score_adjustment": -25,
+                "can_trade": False,
+                "reason": (
+                    f"Pattern {pattern_key} rejected due to low historical win rate "
+                    f"({pat_wr:.1f}% across {resolved} trades < 45.0% floor)."
+                ),
+            }
 
         return {
             "pattern_key": pattern_key,
             "status": status,
             "score_adjustment": adj,
             "can_trade": True,
-            "reason": f"Pattern {status} ({pat.get('win_rate_pct', 50)}% win rate, adjustment: {adj:+d} pts)."
+            "reason": f"Pattern {status} ({pat_wr}% win rate, adjustment: {adj:+d} pts)."
         }
 
     def format_telegram_reflection(self, reflection_data: Dict[str, Any]) -> str:

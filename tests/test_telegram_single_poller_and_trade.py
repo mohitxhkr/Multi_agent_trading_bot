@@ -123,16 +123,12 @@ class TestTelegramSinglePollerAndTrade(unittest.TestCase):
         self.assertEqual(orch.telegram_bot._active_orchestrator, orch)
 
     def test_propose_on_demand_trade_generates_chart_and_passes_safety(self):
-        """Fast-path on-demand trade generates directional candlestick chart and passes safety gate."""
+        """On-demand /trade runs full multi-agent validation, generates chart, and passes safety gate on aligned trend."""
         mock_client = MagicMock()
         mock_client.get_positions.return_value = {"success": True, "result": []}
         mock_client.get_wallet_balances.return_value = {
             "success": True,
             "result": [{"asset_symbol": "USD", "balance": 1000.0}]
-        }
-        mock_client.get_ticker.return_value = {
-            "success": True,
-            "result": {"mark_price": 75000.0, "symbol": "BTCUSD"}
         }
         mock_client.get_product_info.return_value = {
             "contract_value": "0.001",
@@ -140,32 +136,79 @@ class TestTelegramSinglePollerAndTrade(unittest.TestCase):
             "tick_size": "0.1",
             "maintenance_margin_rate": "0.01"
         }
-        # Provide sample 15m candles
+        mock_client.get_orderbook.return_value = {"success": False}
+
+        # Provide 160 trending bullish candles with realistic pullbacks (healthy RSI ~55-68)
         now_ts = int(time.time())
-        candles = []
-        for i in range(20):
-            candles.append({
-                "open": 74800.0 + i * 10,
-                "high": 75100.0 + i * 10,
-                "low": 74700.0 + i * 10,
-                "close": 75000.0 + i * 10,
-                "volume": 100.0,
-                "time": now_ts - (20 - i) * 900
-            })
-        mock_client.get_candles.return_value = {"success": True, "result": candles}
+        n = 160
+        t_arr, o_arr, h_arr, l_arr, c_arr, v_arr = [], [], [], [], [], []
+        for i in range(n):
+            t_arr.append(now_ts - (n - i) * 900)
+            wave = -220.0 if (i % 4 == 2 and i < n - 1) else 140.0
+            prev_c = c_arr[-1] if c_arr else 70000.0
+            base_px = prev_c + wave
+            if i == n - 1:
+                # Final bar: high-volume bullish breakout expansion aligned with 1H/4H uptrend
+                o_p = prev_c
+                c_p = prev_c + 260.0
+                l_p = prev_c - 120.0
+                h_p = c_p + 60.0
+                vol_p = 450.0
+            elif wave < 0:
+                o_p = prev_c
+                c_p = base_px
+                h_p = prev_c + 120.0
+                l_p = base_px - 140.0
+                vol_p = 140.0
+            else:
+                o_p = prev_c
+                c_p = base_px
+                l_p = prev_c - 120.0
+                h_p = base_px + 140.0
+                vol_p = 150.0
+            o_arr.append(o_p)
+            h_arr.append(h_p)
+            l_arr.append(l_p)
+            c_arr.append(c_p)
+            v_arr.append(vol_p)
+
+        last_px = c_arr[-1]
+        mock_client.get_ticker.return_value = {
+            "success": True,
+            "result": {"mark_price": last_px, "bid": last_px - 1.0, "ask": last_px + 1.0, "symbol": "BTCUSD"}
+        }
+        mock_client.get_candles.return_value = {
+            "success": True,
+            "result": {"t": t_arr, "o": o_arr, "h": h_arr, "l": l_arr, "c": c_arr, "v": v_arr},
+        }
 
         orch = MultiAgentTradingOrchestrator(client=mock_client, interactive=False)
         # Mock request_trade_confirmation so it does not block
         orch.telegram_bot.request_trade_confirmation = MagicMock(return_value=False)
 
-        res = orch.propose_on_demand_trade(symbol="BTCUSD")
-        # request_trade_confirmation was called with trade_spec containing chart_path
-        self.assertTrue(orch.telegram_bot.request_trade_confirmation.called)
+        with patch.object(
+            orch.time_machine,
+            "simulate_setup",
+            return_value={
+                "passed": True,
+                "verdict": "APPROVED",
+                "sample_size": 12,
+                "wins": 9,
+                "losses": 3,
+                "win_rate_pct": 75.0,
+                "expected_value_r": 0.65,
+                "profit_factor": 2.4,
+            },
+        ):
+            res = orch.propose_on_demand_trade(symbol="BTCUSD")
+
+        self.assertTrue(orch.telegram_bot.request_trade_confirmation.called, f"Expected proposal call, got: {res}")
         trade_spec = orch.telegram_bot.request_trade_confirmation.call_args[1]["trade_spec"]
         self.assertIn("chart_path", trade_spec)
         chart_p = trade_spec["chart_path"]
         self.assertTrue(os.path.exists(chart_p), f"Candlestick chart file should exist at {chart_p}")
         self.assertEqual(trade_spec["symbol"], "BTCUSD")
+        self.assertEqual(trade_spec["side"], "buy")
         self.assertLessEqual(trade_spec.get("dollar_risk_usd", 0.0), 4.0)
 
     def test_handle_command_trade_is_non_blocking_and_dispatches_async(self):

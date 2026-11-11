@@ -472,7 +472,7 @@ class MultiAgentTradingOrchestrator:
                     alerts_sent += 1
                     logger.info(f"Orchestrator: Dispatched pre-trade level alert for {alert_key}")
 
-                    # Automatically dispatch the corresponding interactive proposal card for the level setup
+                    # Automatically dispatch the corresponding interactive proposal card ONLY if trend-aligned & Time Machine verified
                     try:
                         if hasattr(self, "telegram_bot") and getattr(self.telegram_bot, "is_configured", False):
                             side_val = "buy" if status == "TESTING_BREAKOUT" else "sell"
@@ -480,6 +480,18 @@ class MultiAgentTradingOrchestrator:
                             sl_p = float(plan.get("stop_loss_price", 0.0))
                             tp_p = float(plan.get("take_profit_price", 0.0))
                             planned_rr = float(plan.get("planned_rr", 2.3))
+
+                            sym_ctx = d if isinstance(d, dict) else {}
+                            h1_bias = str(sym_ctx.get("directional_bias") or sym_ctx.get("regime") or "").upper()
+                            h4_reg = str((sym_ctx.get("macro_4h") or {}).get("regime") or "").upper()
+                            d1_reg = str((sym_ctx.get("macro_daily") or {}).get("regime") or "").upper()
+                            counter_trend_breakout = (
+                                (side_val == "buy" and ("BEARISH" in h1_bias or "BEARISH" in h4_reg or "TRENDING_DOWN" in h1_bias or ("BEARISH" in d1_reg and "BULLISH" not in h4_reg)))
+                                or (side_val == "sell" and ("BULLISH" in h1_bias or "BULLISH" in h4_reg or "TRENDING_UP" in h1_bias or ("BULLISH" in d1_reg and "BEARISH" not in h4_reg)))
+                            )
+                            if counter_trend_breakout:
+                                logger.info(f"Level breakout proposal {sym} {side_val.upper()} vetoed: counter-trend against HTF regime (1H={h1_bias}, 4H={h4_reg}).")
+                                continue
 
                             if sl_p > 0 and tp_p > 0 and price > 0:
                                 b_cand = {
@@ -493,20 +505,21 @@ class MultiAgentTradingOrchestrator:
                                     "thesis": f"🚨 [KEY LEVEL BREAKOUT/BREAKDOWN RADAR] {sym} testing key level ${lvl:,.2f} ({dist_pct:+.2f}%)",
                                     "score": 88,
                                     "conviction_tier": "BREAKOUT_MOMENTUM",
-                                    "spread_pct": 0.02,
+                                    "spread_pct": float(sym_ctx.get("spread_pct") or 0.02),
                                     "confluence": {
                                         "levels_detail": f"Trigger: ${lvl:,.2f} | Proximity: {dist_pct:+.2f}%",
                                         "order_flow_detail": f"CVD: {cvd_t} | Order Book: {obi_st}",
                                         "macd_detail": "15m Breakout Momentum Alignment"
                                     },
-                                    "time_machine": {
-                                        "sample_size": 24,
-                                        "wins": 18,
-                                        "losses": 6,
-                                        "win_rate_pct": 75.0,
-                                        "expected_value_r": 0.45
-                                    }
                                 }
+                                c15_lvl = sym_ctx.get("_raw_candles_15m") or candles
+                                c1h_lvl = sym_ctx.get("_raw_candles_1h")
+                                tm_res = self.time_machine.simulate_setup(b_cand, candles_15m=c15_lvl, candles_1h=c1h_lvl)
+                                b_cand["time_machine"] = tm_res
+                                if not tm_res.get("passed") or float(tm_res.get("win_rate_pct", 0.0) or 0.0) < self.time_machine.min_win_rate_pct:
+                                    logger.info(f"Level breakout proposal {sym} {side_val.upper()} vetoed by Time Machine (low win rate/edge): {tm_res.get('reason')}")
+                                    continue
+
                                 decision = self.risk_gatekeeper.evaluate_candidate(b_cand, leverage=asset_lev)
                                 for k, v in b_cand.items():
                                     if k not in decision or decision[k] is None:
@@ -876,18 +889,12 @@ class MultiAgentTradingOrchestrator:
         self.system_monitor.record_agent_duration("Agent4_TimeMachine", (time.time() - t4) * 1000)
 
         if not tm_qualified:
-            # Promote top primary candidate with high score (>= 80) if available so user gets proposal
-            primary_candidates = [
-                c for c in candidates
-                if any(p in c.get("symbol", "").upper() for p in ["BTC", "ETH", "XAU"])
-                and c.get("score", 0) >= 80
-            ]
-            if primary_candidates:
-                print(f"\n   ⚡ Promoting {len(primary_candidates)} high-conviction primary candidate(s) to Risk Gatekeeper for proposal.")
-                candidates = primary_candidates
-            else:
-                print("\n   All setups rejected by Time Machine Simulation (insufficient statistical edge). Capital protected.")
-                return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": "No setup met >= 65% win rate edge with positive EV."}
+            best_veto_reason = (
+                candidates[0].get("time_machine", {}).get("reason")
+                if candidates else None
+            ) or f"No setup met >= {self.time_machine.min_win_rate_pct:.0f}% win rate edge with positive EV."
+            print(f"\n   All setups rejected by Time Machine Simulation ({best_veto_reason}). Capital protected.")
+            return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": best_veto_reason}
         else:
             candidates = tm_qualified
 
@@ -1262,7 +1269,7 @@ class MultiAgentTradingOrchestrator:
 
             if scale_candidate:
                 symbol = scale_candidate
-                logger.info(f"Orchestrator: Fast-path selected active winning position {symbol} for scale-in /trade.")
+                logger.info(f"Orchestrator: Selected active winning position {symbol} for scale-in evaluation.")
             else:
                 available = [s for s in ["BTCUSD", "ETHUSD", "XAUUSD", "SOLUSD"] if s not in active_pos_symbols]
                 if not available:
@@ -1275,8 +1282,68 @@ class MultiAgentTradingOrchestrator:
                         "reason": reason,
                         "notified": True
                     }
-                symbol = available[0]
-                logger.info(f"Orchestrator: Fast-path selected primary asset {symbol} for immediate /trade proposal.")
+
+                logger.info(f"Orchestrator: Running full multi-agent trend & edge scan across {available} for /trade...")
+                scan_results = self.regime_analyst.scan_universe(available, resolution="15")
+                posture_data = {}
+                if hasattr(self, "exposure_coach"):
+                    try:
+                        posture_data = self.exposure_coach.evaluate_market_posture(
+                            scan_results=scan_results,
+                            active_positions_count=len(active_pos_symbols)
+                        )
+                        direction_bias = posture_data.get("direction_bias", "BOTH")
+                    except Exception:
+                        pass
+
+                if posture_data.get("cash_priority"):
+                    reason = posture_data.get("rationale") or "Market breadth broken / choppy (Cash Priority active)."
+                    self.notify_telegram_rejection("PORTFOLIO", reason, "CASH_PRIORITY", chat_id=chat_id)
+                    return {"status": "REJECTED", "code": "CASH_PRIORITY", "reason": reason, "notified": True}
+
+                candidates = self.strategy_agent.find_best_candidates(scan_results)
+                if side:
+                    candidates = [c for c in candidates if c.get("side") == side.lower()]
+                elif direction_bias == "SHORTS_ONLY":
+                    candidates = [c for c in candidates if c.get("side") == "sell"]
+                elif direction_bias == "LONGS_ONLY":
+                    candidates = [c for c in candidates if c.get("side") == "buy"]
+
+                if not candidates:
+                    rej_notes = []
+                    for sym_a in available:
+                        rej = self.strategy_agent.get_last_rejection(sym_a)
+                        if rej:
+                            rej_notes.append(f"{sym_a}: {rej.get('gate')} ({rej.get('reason')})")
+                    reason = (
+                        "; ".join(rej_notes[:2])
+                        if rej_notes
+                        else f"No trend-aligned high-probability setup qualified across {', '.join(available)} (Bias: {direction_bias})."
+                    )
+                    self.notify_telegram_rejection("PORTFOLIO", reason, "NO_SETUPS_FOUND", chat_id=chat_id)
+                    return {"status": "REJECTED", "code": "NO_SETUPS_FOUND", "reason": reason, "notified": True}
+
+                tm_reject_reasons = []
+                for cand in candidates:
+                    c_sym = cand.get("symbol", "")
+                    sym_raw = scan_results.get("symbols_data", {}).get(c_sym, {})
+                    c15 = sym_raw.get("_raw_candles_15m")
+                    c1h = sym_raw.get("_raw_candles_1h")
+                    tm_res = self.time_machine.simulate_setup(cand, candles_15m=c15, candles_1h=c1h)
+                    cand["time_machine"] = tm_res
+                    if tm_res.get("passed") and float(tm_res.get("win_rate_pct", 0.0) or 0.0) >= self.time_machine.min_win_rate_pct:
+                        candidate = cand
+                        candles_15m = c15 or {}
+                        symbol = c_sym
+                        side = cand.get("side")
+                        break
+                    else:
+                        tm_reject_reasons.append(f"{c_sym} {cand.get('side', '').upper()}: {tm_res.get('reason')}")
+
+                if not candidate:
+                    reason = tm_reject_reasons[0] if tm_reject_reasons else f"All setups rejected by Time Machine (< {self.time_machine.min_win_rate_pct:.0f}% win rate)."
+                    self.notify_telegram_rejection("PORTFOLIO", reason, "TIME_MACHINE_VETO", chat_id=chat_id)
+                    return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": reason, "notified": True}
 
         # Check portfolio concurrency limit (scale-in does not consume a new asset slot)
         if not is_scale_in and len(active_pos_symbols) >= system_config.max_portfolio_concurrency:
@@ -1307,122 +1374,146 @@ class MultiAgentTradingOrchestrator:
             except Exception:
                 pass
 
-        # 3. Get 15m candles to compute dynamic ATR & VWAP if candidate not pre-formed
-        candles_15m = {}
-        if not candidate or cur_mark <= 0:
-            c_res = self.client.get_candles(symbol, resolution="15")
-            if c_res and isinstance(c_res, dict) and c_res.get("result"):
-                c_data = c_res["result"]
-                if isinstance(c_data, list) and len(c_data) >= 5:
-                    candles_15m = {
-                        "o": [float(x.get("open", 0)) for x in c_data],
-                        "h": [float(x.get("high", 0)) for x in c_data],
-                        "l": [float(x.get("low", 0)) for x in c_data],
-                        "c": [float(x.get("close", 0)) for x in c_data],
-                        "v": [float(x.get("volume", 0)) for x in c_data],
-                        "t": [int(x.get("time", 0)) for x in c_data],
-                    }
-
-            if cur_mark <= 0 and candles_15m.get("c"):
-                cur_mark = float(candles_15m["c"][-1])
-
-        if cur_mark <= 0:
-            reason = f"Could not fetch live market price for {symbol} from Delta Exchange."
-            code = "INVALID_PRICE"
-            self.notify_telegram_rejection(symbol, reason, code, chat_id=chat_id)
-            return {"status": "FAILED", "code": code, "reason": reason, "notified": True}
+        # 3. Full Multi-Agent Technical + Trend + Time Machine Evaluation for Specific Symbol or Scale-In
+        if "candles_15m" not in locals() or not isinstance(candles_15m, dict):
+            candles_15m = {}
+        candles_1h = {}
 
         asset_lev = int(os.getenv("BTC_LEVERAGE", "50")) if "BTC" in symbol else int(os.getenv("ALT_LEVERAGE", "25"))
 
-        # Build candidate if not already discovered from universe scan
         if not candidate:
-            # Dynamic ATR computation
-            atr = 0.0
-            if candles_15m.get("h") and len(candles_15m["h"]) >= 14:
-                from src.technical_analysis import calculate_atr
-                try:
-                    atr_series = calculate_atr(candles_15m, period=14)
-                    if atr_series and len(atr_series) > 0:
-                        atr = float(atr_series[-1])
-                except Exception:
-                    pass
-            if atr <= 0:
-                atr = cur_mark * 0.006
+            analysis = self.regime_analyst.analyze_symbol(symbol, resolution="15")
+            if isinstance(analysis, dict) and "error" not in analysis:
+                candles_15m = analysis.get("_raw_candles_15m") or {}
+                candles_1h = analysis.get("_raw_candles_1h") or {}
+                if cur_mark <= 0:
+                    cur_mark = float(analysis.get("mark_price") or analysis.get("current_price") or 0.0)
+            else:
+                analysis = {"symbol": symbol, "current_price": cur_mark}
 
-            # Direction calculation if not explicitly provided
-            vwap = cur_mark
-            if candles_15m.get("c") and candles_15m.get("v") and len(candles_15m["c"]) >= 5:
-                from src.technical_analysis import calculate_vwap
-                try:
-                    vwap_val = calculate_vwap(candles_15m)
-                    if vwap_val > 0:
-                        vwap = vwap_val
-                except Exception:
-                    pass
+            if cur_mark <= 0 and not candles_15m:
+                c_res = self.client.get_candles(symbol, resolution="15")
+                if c_res and isinstance(c_res, dict) and c_res.get("result"):
+                    c_data = c_res["result"]
+                    if isinstance(c_data, list) and len(c_data) >= 5:
+                        candles_15m = {
+                            "o": [float(x.get("open", 0)) for x in c_data],
+                            "h": [float(x.get("high", 0)) for x in c_data],
+                            "l": [float(x.get("low", 0)) for x in c_data],
+                            "c": [float(x.get("close", 0)) for x in c_data],
+                            "v": [float(x.get("volume", 0)) for x in c_data],
+                            "t": [int(x.get("time", 0)) for x in c_data],
+                        }
+                        if cur_mark <= 0 and candles_15m.get("c"):
+                            cur_mark = float(candles_15m["c"][-1])
 
-            pos_match = None
+            if cur_mark <= 0:
+                reason = f"Could not fetch live market price for {symbol} from Delta Exchange."
+                code = "INVALID_PRICE"
+                self.notify_telegram_rejection(symbol, reason, code, chat_id=chat_id)
+                return {"status": "FAILED", "code": code, "reason": reason, "notified": True}
+
             if is_scale_in:
                 pos_match = next((p for p in raw_positions if str(p.get("symbol") or p.get("product_symbol") or "").upper() == symbol), None)
                 if pos_match:
                     existing_size = float(pos_match.get("size", 0))
                     side = "buy" if existing_size > 0 else "sell"
 
-            if not side:
-                if locals().get("direction_bias") == "SHORTS_ONLY":
-                    side = "sell"
-                elif locals().get("direction_bias") == "LONGS_ONLY":
-                    side = "buy"
-                else:
-                    side = "buy" if cur_mark >= vwap else "sell"
-            side = side.lower()
+                # Guard against scaling in if HTF trend reversed against existing position
+                h1_b = str(analysis.get("directional_bias") or analysis.get("regime") or "").upper()
+                h4_r = str((analysis.get("macro_4h") or {}).get("regime") or "").upper()
+                if (side == "buy" and "BEARISH" in h1_b and "BEARISH" in h4_r) or (
+                    side == "sell" and "BULLISH" in h1_b and "BULLISH" in h4_r
+                ):
+                    reason = f"Scale-in {symbol} {side.upper()} blocked: higher timeframe trend reversed against open trade (1H={h1_b}, 4H={h4_r})."
+                    self.notify_telegram_rejection(symbol, reason, "COUNTER_TREND_VETO", chat_id=chat_id)
+                    return {"status": "REJECTED", "code": "COUNTER_TREND_VETO", "reason": reason, "notified": True}
 
-            # Stop loss and Take profit (1:2.5 R:R)
-            from src.technical_analysis import round_price
-            if side == "buy":
+                atr = float((analysis.get("macro_15m") or {}).get("atr_14") or analysis.get("atr_14") or (cur_mark * 0.006))
+                vwap = float(analysis.get("vwap") or cur_mark)
+                from src.technical_analysis import round_price
                 sl_dist = atr * 1.5
-                sl = round_price(cur_mark - sl_dist)
-                tp = round_price(cur_mark + (sl_dist * 2.5))
-            else:
-                sl_dist = atr * 1.5
-                sl = round_price(cur_mark + sl_dist)
-                tp = round_price(cur_mark - (sl_dist * 2.5))
-
-            rr = 2.5
-
-            candidate = {
-                "symbol": symbol,
-                "side": side,
-                "entry_price": cur_mark,
-                "stop_loss_price": sl,
-                "take_profit_price": tp,
-                "planned_rr_ratio": rr,
-                "strategy_name": f"ScaleIn_Pyramid_{side.upper()}" if is_scale_in else f"OnDemand_SMC_{side.upper()}_Scalp",
-                "thesis": f"🔥 [SCALE-IN: ADDING TO WINNER] 15m {side.upper()} @ VWAP ${vwap:,.2f}" if is_scale_in else f"🎯 On-Demand Scalp: 15m {side.upper()} @ VWAP ${vwap:,.2f} with {asset_lev}x Isolated Risk Sizing",
-                "score": 92 if is_scale_in else 90,
-                "conviction_tier": "SCALE_IN_WINNER" if is_scale_in else "ON_DEMAND_SCALP",
-                "atr_14": atr,
-                "spread_pct": 0.02,
-                "is_scale_in": is_scale_in,
-                "scale_in_parent": {
-                    "existing_size": abs(float(pos_match.get("size", 0))),
-                    "entry_price": float(pos_match.get("entry_price", cur_mark)),
-                    "unrealized_pnl": float(pos_match.get("unrealized_pnl", 0.0)),
-                    "side": side
-                } if (is_scale_in and pos_match) else {},
-                "confluence": {
-                    "vwap_detail": f"Mark: ${cur_mark:,.2f} | 15m VWAP: ${vwap:,.2f} | ATR: ${atr:,.2f}",
-                    "liquidity_detail": f"Targeting 1:{rr:.1f} R:R Risk-Engineered Scalp",
-                    "macd_detail": f"15m {side.upper()} Momentum Trigger"
-                },
-                "time_machine": {
-                    "sample_size": 32,
-                    "wins": 24,
-                    "losses": 8,
-                    "win_rate_pct": 75.0,
-                    "expected_value_r": 0.44
+                sl = round_price(cur_mark - sl_dist) if side == "buy" else round_price(cur_mark + sl_dist)
+                tp = round_price(cur_mark + (sl_dist * 2.5)) if side == "buy" else round_price(cur_mark - (sl_dist * 2.5))
+                rr = 2.5
+                candidate = {
+                    "symbol": symbol,
+                    "side": side,
+                    "entry_price": cur_mark,
+                    "stop_loss_price": sl,
+                    "take_profit_price": tp,
+                    "planned_rr_ratio": rr,
+                    "strategy_name": f"ScaleIn_Pyramid_{side.upper()}",
+                    "thesis": f"🔥 [SCALE-IN: ADDING TO WINNER] 15m {side.upper()} @ VWAP ${vwap:,.2f}",
+                    "score": 92,
+                    "conviction_tier": "SCALE_IN_WINNER",
+                    "atr_14": atr,
+                    "spread_pct": float(analysis.get("spread_pct") or 0.02),
+                    "is_scale_in": True,
+                    "scale_in_parent": {
+                        "existing_size": abs(float(pos_match.get("size", 0))),
+                        "entry_price": float(pos_match.get("entry_price", cur_mark)),
+                        "unrealized_pnl": float(pos_match.get("unrealized_pnl", 0.0)),
+                        "side": side
+                    } if pos_match else {},
+                    "confluence": {
+                        "vwap_detail": f"Mark: ${cur_mark:,.2f} | 15m VWAP: ${vwap:,.2f} | ATR: ${atr:,.2f}",
+                        "liquidity_detail": f"Targeting 1:{rr:.1f} R:R Scale-In",
+                        "macd_detail": f"15m {side.upper()} Continuation"
+                    },
                 }
-            }
+                tm_res = self.time_machine.simulate_setup(candidate, candles_15m=candles_15m, candles_1h=candles_1h)
+                candidate["time_machine"] = tm_res
+            else:
+                # Fresh trade: MUST pass StrategyAgent (trend alignment + confluence) AND TimeMachine (win rate >= 60%)
+                if side:
+                    req_side = side.lower()
+                    h1_b = str(analysis.get("directional_bias") or analysis.get("regime") or "").upper()
+                    h4_r = str((analysis.get("macro_4h") or {}).get("regime") or "").upper()
+                    d1_r = str((analysis.get("macro_daily") or {}).get("regime") or "").upper()
+                    ct_conflict = (
+                        (req_side == "buy" and ("BEARISH" in h1_b or "BEARISH" in h4_r or "TRENDING_DOWN" in h1_b or ("BEARISH" in d1_r and "BULLISH" not in h4_r)))
+                        or (req_side == "sell" and ("BULLISH" in h1_b or "BULLISH" in h4_r or "TRENDING_UP" in h1_b or ("BULLISH" in d1_r and "BEARISH" not in h4_r)))
+                    )
+                    if ct_conflict:
+                        reason = f"Counter-trend {symbol} {req_side.upper()} rejected against market trend (1H={h1_b or 'N/A'}, 4H={h4_r or 'N/A'}, Daily={d1_r or 'N/A'})."
+                        self.notify_telegram_rejection(symbol, reason, "COUNTER_TREND_VETO", chat_id=chat_id)
+                        return {"status": "REJECTED", "code": "COUNTER_TREND_VETO", "reason": reason, "notified": True}
+
+                candidate = self.strategy_agent.evaluate_setup(analysis)
+                if not candidate:
+                    rej = self.strategy_agent.get_last_rejection(symbol) or {}
+                    code = rej.get("gate") or "STRATEGY_VETO"
+                    reason = rej.get("reason") or f"No high-probability trend-aligned setup found on {symbol}."
+                    self.notify_telegram_rejection(symbol, reason, code, chat_id=chat_id)
+                    return {"status": "REJECTED", "code": code, "reason": reason, "notified": True}
+
+                if side and candidate.get("side", "").lower() != side.lower():
+                    reason = (
+                        f"Requested {symbol} {side.upper()} conflicts with Strategy & Market Trend direction "
+                        f"({candidate.get('side', '').upper()})."
+                    )
+                    self.notify_telegram_rejection(symbol, reason, "COUNTER_TREND_VETO", chat_id=chat_id)
+                    return {"status": "REJECTED", "code": "COUNTER_TREND_VETO", "reason": reason, "notified": True}
+
+                side = candidate["side"]
+                tm_res = self.time_machine.simulate_setup(candidate, candles_15m=candles_15m, candles_1h=candles_1h)
+                candidate["time_machine"] = tm_res
+                if not tm_res.get("passed") or float(tm_res.get("win_rate_pct", 0.0) or 0.0) < self.time_machine.min_win_rate_pct:
+                    reason = tm_res.get("reason") or (
+                        f"Time Machine rejected {symbol} {side.upper()}: win rate "
+                        f"{tm_res.get('win_rate_pct', 0.0)}% below required {self.time_machine.min_win_rate_pct:.0f}%."
+                    )
+                    self.notify_telegram_rejection(symbol, reason, "TIME_MACHINE_VETO", chat_id=chat_id)
+                    return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": reason, "notified": True}
         else:
+            if cur_mark <= 0 and candles_15m.get("c"):
+                cur_mark = float(candles_15m["c"][-1])
+            if cur_mark <= 0:
+                reason = f"Could not fetch live market price for {symbol} from Delta Exchange."
+                code = "INVALID_PRICE"
+                self.notify_telegram_rejection(symbol, reason, code, chat_id=chat_id)
+                return {"status": "FAILED", "code": code, "reason": reason, "notified": True}
             if is_scale_in:
                 candidate["is_scale_in"] = True
                 pos_match = next((p for p in raw_positions if str(p.get("symbol") or p.get("product_symbol") or "").upper() == symbol), None)
@@ -1436,14 +1527,6 @@ class MultiAgentTradingOrchestrator:
                         "unrealized_pnl": float(pos_match.get("unrealized_pnl", 0.0)),
                         "side": side
                     }
-            if "time_machine" not in candidate or not candidate["time_machine"]:
-                candidate["time_machine"] = {
-                    "sample_size": 28,
-                    "wins": 21,
-                    "losses": 7,
-                    "win_rate_pct": 75.0,
-                    "expected_value_r": 0.45
-                }
 
         # 4. Risk Gatekeeper evaluation
         candidate["is_scale_in"] = is_scale_in
@@ -1478,8 +1561,9 @@ class MultiAgentTradingOrchestrator:
         liq_price = float(decision.get("estimated_liquidation_price") or 0.0)
         stop_dist = abs(cur_mark - sl_price)
         needed_liq_buffer = stop_dist * 3.5
+        cur_side = str(decision.get("side") or side or "buy").lower()
         if liq_price <= 0 or abs(cur_mark - liq_price) < needed_liq_buffer:
-            liq_price = round(cur_mark - needed_liq_buffer, 2) if side == "buy" else round(cur_mark + needed_liq_buffer, 2)
+            liq_price = round(cur_mark - needed_liq_buffer, 2) if cur_side == "buy" else round(cur_mark + needed_liq_buffer, 2)
             decision["estimated_liquidation_price"] = liq_price
         decision["liq_distance_pct"] = round(abs(cur_mark - liq_price) / cur_mark * 100.0, 2)
 

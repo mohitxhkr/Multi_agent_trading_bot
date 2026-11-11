@@ -427,22 +427,77 @@ class StrategyAgent:
             "structure_type": "NORMAL", "recent_swing_high": 0.0, "recent_swing_low": 0.0
         }
 
+        macro_4h_reg = str((analysis.get("macro_4h") or {}).get("regime") or "").upper()
+        macro_daily_reg = str((analysis.get("macro_daily") or {}).get("regime") or "").upper()
+        reg_label = str(analysis.get("regime") or "").upper()
+        dir_bias = str(analysis.get("directional_bias") or "").upper()
+
         # Resolve Trade Side (from hp_setup or structural signals)
         side = hp_setup.get("side")
         if not side:
             if smc_15m["choch_detected"]:
-                side = "buy" if "BULLISH" in smc_15m["structure_type"] else "sell"
-            elif smc_15m["trend"] == "BULLISH":
-                side = "buy"
-            elif smc_15m["trend"] == "BEARISH":
-                side = "sell"
-            elif h1_dir == "BULLISH":
-                side = "buy"
-            elif h1_dir == "BEARISH":
-                side = "sell"
-            else:
-                self._record_rejection(symbol, "Unclear directional regime (1H & 15M Neutral without trigger).", "REGIME_VETO")
-                return None
+                cand_side = "buy" if "BULLISH" in smc_15m["structure_type"] else "sell"
+                if (cand_side == "buy" and h1_dir != "BEARISH" and "BEARISH" not in macro_4h_reg) or (
+                    cand_side == "sell" and h1_dir != "BULLISH" and "BULLISH" not in macro_4h_reg
+                ):
+                    side = cand_side
+            if not side:
+                if smc_15m["trend"] == "BULLISH" and h1_dir != "BEARISH" and "BEARISH" not in macro_4h_reg:
+                    side = "buy"
+                elif smc_15m["trend"] == "BEARISH" and h1_dir != "BULLISH" and "BULLISH" not in macro_4h_reg:
+                    side = "sell"
+                elif h1_dir == "BULLISH":
+                    side = "buy"
+                elif h1_dir == "BEARISH":
+                    side = "sell"
+                else:
+                    self._record_rejection(symbol, "Unclear directional regime (1H & 15M Neutral without trigger).", "REGIME_VETO")
+                    return None
+
+        # Hard Veto C2: Strict Trend Alignment (NEVER trade against 1H, 4H, Daily, or Regime Analyst trend)
+        bull_conflict = (
+            h1_dir == "BEARISH"
+            or "BEARISH" in macro_4h_reg
+            or "BEARISH" in dir_bias
+            or "BEARISH" in reg_label
+            or "TRENDING_DOWN" in reg_label
+            or "BREAKDOWN" in reg_label
+            or ("BEARISH" in macro_daily_reg and "BULLISH" not in macro_4h_reg and h1_dir != "BULLISH")
+        )
+        bear_conflict = (
+            h1_dir == "BULLISH"
+            or "BULLISH" in macro_4h_reg
+            or "BULLISH" in dir_bias
+            or "BULLISH" in reg_label
+            or "TRENDING_UP" in reg_label
+            or "BREAKOUT" in reg_label
+            or ("BULLISH" in macro_daily_reg and "BEARISH" not in macro_4h_reg and h1_dir != "BEARISH")
+        )
+        if side == "buy" and bull_conflict:
+            reason = (
+                f"Counter-trend LONG vetoed against market trend "
+                f"(1H={h1_dir}, 4H={macro_4h_reg or 'N/A'}, Daily={macro_daily_reg or 'N/A'}, Regime={reg_label or 'N/A'})."
+            )
+            self._record_rejection(symbol, reason, "COUNTER_TREND_VETO")
+            return None
+        if side == "sell" and bear_conflict:
+            reason = (
+                f"Counter-trend SHORT vetoed against market trend "
+                f"(1H={h1_dir}, 4H={macro_4h_reg or 'N/A'}, Daily={macro_daily_reg or 'N/A'}, Regime={reg_label or 'N/A'})."
+            )
+            self._record_rejection(symbol, reason, "COUNTER_TREND_VETO")
+            return None
+
+        # Hard Veto C3: Avoid directionless chop when 1H & 4H have no trend bias
+        if (
+            reg_label in ("RANGE_BOUND", "RANGING_CHOP", "CHOPPY_NOISE", "VOLATILITY_COMPRESSION")
+            and h1_dir == "NEUTRAL"
+            and "BULLISH" not in macro_4h_reg
+            and "BEARISH" not in macro_4h_reg
+        ):
+            reason = f"Choppy/rangebound regime ({reg_label}) with no 1H/4H directional trend."
+            self._record_rejection(symbol, reason, "CHOP_REGIME_VETO")
+            return None
 
         # Setup entry, stop loss, and take profit calculation
         entry = float(hp_setup.get("entry_price") or current_price)

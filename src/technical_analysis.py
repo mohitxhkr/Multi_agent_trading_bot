@@ -2054,6 +2054,26 @@ def analyze_multi_timeframe(
 
     max_vol_ratio = max(vol_ratio_15m, vol_ratio_1h)
 
+    regime_1h = str(analysis_1h.get("regime", "NEUTRAL") or "NEUTRAL").upper()
+    h4_reg_upper = str(macro_4h_regime or "").upper()
+    d1_reg_upper = str(daily_regime or "").upper()
+
+    def _is_htf_trend_aligned(trade_side: str) -> bool:
+        """Strictly forbid counter-trend setups against 1H, 4H, or unflipped Daily market trends."""
+        if trade_side == "buy":
+            if "BEARISH" in regime_1h or "BEARISH" in h4_reg_upper:
+                return False
+            if "BEARISH" in d1_reg_upper and "BULLISH" not in h4_reg_upper:
+                return False
+            return True
+        if trade_side == "sell":
+            if "BULLISH" in regime_1h or "BULLISH" in h4_reg_upper:
+                return False
+            if "BULLISH" in d1_reg_upper and "BEARISH" not in h4_reg_upper:
+                return False
+            return True
+        return False
+
     setup_qualified = False
     setup_side = None
     setup_score = 0
@@ -2069,16 +2089,14 @@ def analyze_multi_timeframe(
     # Priority B: High-Volume Momentum Impulse Scalp (Pro Fast Scalp)
     # Triggers when volume expands aggressively in volatile markets and no liquidity sweep is present
     if not setup_qualified and not sweep_detected and max_vol_ratio >= 1.25:
-        regime_1h = analysis_1h.get("regime", "NEUTRAL")
         vwap_val = float(analysis_1h.get("vwap") or current_price)
 
         # Bullish Momentum Impulse Scalp
         if (
-            current_price >= ema21_15m * 0.998
+            _is_htf_trend_aligned("buy")
+            and current_price >= ema21_15m * 0.998
             and (vwap_val == 0 or current_price >= vwap_val * 0.998)
-            and macro_4h_regime != "MACRO_BEARISH"
             and 42.0 <= rsi_15m <= 80.0
-            and ("BEARISH" not in regime_1h or macro_4h_regime == "MACRO_BULLISH")
         ):
             c15_c = [float(x) for x in candles_15m.get('c', [])] if candles_15m else []
             c15_o = [float(x) for x in candles_15m.get('o', [])] if candles_15m else []
@@ -2124,11 +2142,10 @@ def analyze_multi_timeframe(
 
         # Bearish Momentum Impulse Scalp
         elif (
-            current_price <= ema21_15m * 1.002
+            _is_htf_trend_aligned("sell")
+            and current_price <= ema21_15m * 1.002
             and (vwap_val == 0 or current_price <= vwap_val * 1.002)
-            and macro_4h_regime != "MACRO_BULLISH"
             and 16.0 <= rsi_15m <= 55.0
-            and ("BULLISH" not in regime_1h or macro_4h_regime == "MACRO_BEARISH")
         ):
             c15_c = [float(x) for x in candles_15m.get('c', [])] if candles_15m else []
             c15_o = [float(x) for x in candles_15m.get('o', [])] if candles_15m else []
@@ -2180,9 +2197,9 @@ def analyze_multi_timeframe(
     # 4. Strict Confluence: High precision setup targeting 80-90% win rate.
     if sweep_detected:
         if sweep_type == "BULLISH_SSL_SWEEP":
-            # STRICT VETO 1: Cannot go long if 1H or 4H is strongly bearish
-            if macro_4h_regime == "MACRO_BEARISH" or (daily_regime == "DAILY_BEARISH" and weekly_regime == "WEEKLY_BEARISH" and rsi_1d >= 32.0):
-                long_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily Bearish)."
+            # STRICT VETO 1: Cannot go long against 1H, 4H, or unflipped Daily trend
+            if not _is_htf_trend_aligned("buy"):
+                long_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 1H/4H/Daily Bearish)."
             elif not mss_confirmed:
                 long_rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
             else:
@@ -2226,9 +2243,9 @@ def analyze_multi_timeframe(
                     )
 
         elif sweep_type == "BEARISH_BSL_SWEEP":
-            # STRICT VETO 1: Cannot short if 1H or 4H is strongly bullish
-            if macro_4h_regime == "MACRO_BULLISH" or (daily_regime == "DAILY_BULLISH" and weekly_regime == "WEEKLY_BULLISH" and rsi_1d <= 68.0):
-                short_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily Bullish expansion)."
+            # STRICT VETO 1: Cannot short against 1H, 4H, or unflipped Daily trend
+            if not _is_htf_trend_aligned("sell"):
+                short_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 1H/4H/Daily Bullish expansion)."
             elif not mss_confirmed:
                 short_rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
             else:
@@ -2273,13 +2290,12 @@ def analyze_multi_timeframe(
 
     # Priority B: 15m High-Momentum Trend Pullback / EMA Re-test Scalp
     if not setup_qualified:
-        regime_1h = analysis_1h.get("regime", "NEUTRAL")
         vwap_val = float(analysis_1h.get("vwap") or current_price)
         
         # Bullish Pullback: 1H & 4H Bullish, 15m testing EMA dynamic support
         if (
             "BULLISH" in regime_1h
-            and macro_4h_regime != "MACRO_BEARISH"
+            and _is_htf_trend_aligned("buy")
             and current_price >= ema21_15m * 0.995
             and 40.0 <= rsi_15m <= 75.0
         ):
@@ -2325,7 +2341,7 @@ def analyze_multi_timeframe(
         # Bearish Pullback: 1H & 4H Bearish, 15m capped by EMA dynamic resistance
         elif (
             "BEARISH" in regime_1h
-            and macro_4h_regime != "MACRO_BULLISH"
+            and _is_htf_trend_aligned("sell")
             and current_price <= ema21_15m * 1.005
             and 18.0 <= rsi_15m <= 58.0
         ):
@@ -2370,10 +2386,9 @@ def analyze_multi_timeframe(
 
     # Priority C: Institutional Bearish Breakdown Short (Trend continuation during sell-offs / market dumps)
     if not setup_qualified:
-        regime_1h = analysis_1h.get("regime", "NEUTRAL")
         vwap_val = float(analysis_1h.get("vwap") or current_price)
 
-        is_bearish_regime = ("BEARISH" in regime_1h) or (macro_4h_regime in ["MACRO_BEARISH", "MACRO_NEUTRAL"] and "BEARISH" in regime_1h)
+        is_bearish_regime = ("BEARISH" in regime_1h) and _is_htf_trend_aligned("sell")
         is_below_ema = current_price <= ema21_15m * 1.003
         has_bearish_momentum = 16.0 <= rsi_15m <= 50.0
 
@@ -2434,8 +2449,8 @@ def analyze_multi_timeframe(
         fvg_wick_rej = active_fvg_ctx.get("wick_rejection", False)
 
         if retest_type == "BULLISH_FVG_RETEST" and retest_fvg:
-            if macro_4h_regime == "MACRO_BEARISH" or (daily_regime == "DAILY_BEARISH" and weekly_regime == "WEEKLY_BEARISH"):
-                long_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily Bearish against Bullish FVG)."
+            if not _is_htf_trend_aligned("buy"):
+                long_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 1H/4H/Daily Bearish against Bullish FVG)."
             else:
                 fvg_score = 65 + (10 if is_primary else 0)
                 if fvg_ce_tested:
@@ -2478,8 +2493,8 @@ def analyze_multi_timeframe(
                     )
 
         elif retest_type == "BEARISH_FVG_RETEST" and retest_fvg:
-            if macro_4h_regime == "MACRO_BULLISH" or (daily_regime == "DAILY_BULLISH" and weekly_regime == "WEEKLY_BULLISH"):
-                short_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily Bullish against Bearish FVG)."
+            if not _is_htf_trend_aligned("sell"):
+                short_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 1H/4H/Daily Bullish against Bearish FVG)."
             else:
                 fvg_score = 65 + (10 if is_primary else 0)
                 if fvg_ce_tested:

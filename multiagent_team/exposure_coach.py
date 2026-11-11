@@ -130,10 +130,19 @@ class ExposureCoachAgent:
         
         # 2. BTC Anchor Health (35 pts max) & Directional Trend Detection
         btc_h4 = btc_data.get("macro_4h", {}).get("regime", "MACRO_NEUTRAL")
+        btc_1h_bias = str(btc_data.get("directional_bias", "")).upper()
         is_macro_bearish = "BEARISH" in btc_h4 or (macro_bear_count >= macro_bull_count and macro_bear_count >= total_symbols * 0.5)
+        is_macro_bullish = "BULLISH" in btc_h4 or (macro_bull_count > macro_bear_count and macro_bull_count >= total_symbols * 0.5)
 
         # Detect Unified Bearish Trend Expansion (Sell-off / Dump regime)
         is_bearish_expansion = is_macro_bearish and (bearish_breadth_pct >= 60.0 or (macd_breadth_pct <= 35.0 and vwap_breadth_pct <= 35.0))
+
+        if is_bearish_expansion or "BEARISH" in btc_h4 or (btc_1h_bias == "BEARISH" and bearish_breadth_pct >= 55.0):
+            macro_direction_bias = "SHORTS_ONLY"
+        elif "BULLISH" in btc_h4 or (is_macro_bullish and composite_breadth >= 55.0) or (btc_1h_bias == "BULLISH" and breadth_pct >= 55.0):
+            macro_direction_bias = "LONGS_ONLY"
+        else:
+            macro_direction_bias = "BOTH"
 
         if is_bearish_expansion:
             direction_bias = "SHORTS_ONLY"
@@ -141,7 +150,7 @@ class ExposureCoachAgent:
             btc_trend_score = 35
             breadth_score = ((100.0 - composite_breadth) / 100.0) * 45.0
         else:
-            direction_bias = "LONGS_ONLY" if ("BULLISH" in btc_h4 and composite_breadth >= 60.0) else "BOTH"
+            direction_bias = macro_direction_bias
             btc_trend_score = 35 if "BULLISH" in btc_h4 else (10 if "BEARISH" in btc_h4 else 20)
             breadth_score = (composite_breadth / 100.0) * 45.0
 
@@ -177,17 +186,17 @@ class ExposureCoachAgent:
         consecutive_losses = self._check_consecutive_losses()
         in_recovery_mode = consecutive_losses >= 2
 
-        # Classify Market Posture
+        # Classify Market Posture (preserving strict macro directional alignment)
         if in_recovery_mode:
             posture = "RECOVERY_POSTURE"
             cash_priority = False
-            direction_bias = "BOTH"
+            direction_bias = macro_direction_bias
             exposure_ceiling_pct = 15.0
             max_positions = 1
             risk_mult = 0.50
             rationale = (
                 f"RECOVERY POSTURE ENGAGED after {consecutive_losses} consecutive stop losses. "
-                f"Risk slashed to 50% ($2.00 max risk) and concurrency clamped to 1 position until win confirmed."
+                f"Risk slashed to 50% ($2.00 max risk), concurrency clamped to 1 position, trend bias: {direction_bias}."
             )
         elif is_bearish_expansion and health_score >= 50:
             posture = "BEARISH_TREND_EXPANSION"
@@ -203,7 +212,7 @@ class ExposureCoachAgent:
         elif health_score >= 75:
             posture = "AGGRESSIVE_EXPANSION"
             cash_priority = False
-            direction_bias = "LONGS_ONLY" if breadth_pct >= 65.0 else "BOTH"
+            direction_bias = "LONGS_ONLY" if breadth_pct >= 65.0 else macro_direction_bias
             exposure_ceiling_pct = 30.0
             max_positions = 2
             risk_mult = 1.0
@@ -211,19 +220,19 @@ class ExposureCoachAgent:
         elif health_score >= 50:
             posture = "MODERATE_SELECTIVE"
             cash_priority = False
-            direction_bias = "BOTH"
+            direction_bias = macro_direction_bias
             exposure_ceiling_pct = 25.0
             max_positions = 2
             risk_mult = 0.85
-            rationale = f"Selective market structure ({breadth_pct:.0f}% breadth). Tier-1 core focus (BTC/ETH/XAU) with standard risk."
+            rationale = f"Selective market structure ({breadth_pct:.0f}% breadth, Bias: {direction_bias}). Tier-1 core focus with trend alignment."
         elif health_score >= 32:
             posture = "DEFENSIVE_CAUTION"
             cash_priority = False
-            direction_bias = "BOTH"
+            direction_bias = macro_direction_bias
             exposure_ceiling_pct = 15.0
             max_positions = 1
             risk_mult = 0.65
-            rationale = f"Deteriorating market participation ({breadth_pct:.0f}% breadth). Capital defense engaged; max 1 position with tighter stops."
+            rationale = f"Deteriorating market participation ({breadth_pct:.0f}% breadth, Bias: {direction_bias}). Capital defense engaged; max 1 trend-aligned position."
         else:
             posture = "CASH_PRIORITY"
             cash_priority = True

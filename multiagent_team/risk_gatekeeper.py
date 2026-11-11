@@ -162,6 +162,29 @@ class RiskGatekeeperAgent:
                 "reason": "Account USD/USDT balance is zero or depleted."
             }
 
+        is_scale_in = bool(setup.get("is_scale_in", False))
+
+        # 1.4. Time Machine Win-Rate & Expectancy Gate (Never pass low win-rate trades)
+        tm_meta = setup.get("time_machine")
+        if isinstance(tm_meta, dict) and tm_meta and not is_scale_in:
+            if tm_meta.get("passed") is False:
+                return {
+                    "gate_decision": "REJECTED",
+                    "reason": f"Time Machine Veto: {tm_meta.get('reason') or 'Historical edge / win rate below threshold.'}"
+                }
+            tm_wr = float(tm_meta.get("win_rate_pct", 0.0) or 0.0)
+            tm_ev = float(tm_meta.get("expected_value_r", 0.0) or 0.0)
+            if tm_wr < 60.0:
+                return {
+                    "gate_decision": "REJECTED",
+                    "reason": f"Low Win Rate Veto: {tm_wr:.1f}% historical win rate is below the mandatory 60.0% minimum."
+                }
+            if tm_ev < 0.20:
+                return {
+                    "gate_decision": "REJECTED",
+                    "reason": f"Low Expectancy Veto: Net EV {tm_ev:+.2f}R is below the mandatory +0.20R minimum."
+                }
+
         # 1.5. Selective Post-Trade Cooldown Check (Prevents overtrading the same symbol)
         import time
         last_t = self.last_trade_time.get(symbol, 0.0)

@@ -474,11 +474,27 @@ class TelegramConfirmationBot:
             f"• <b>New Combined Size:</b> <code>{int(existing_size + contracts)} contracts</code>\n"
         ) if is_scale_in else ""
 
+        import html
+        dd_warnings = (
+            trade_spec.get("drawdown_warnings")
+            or (trade_spec.get("circuit_breaker") or {}).get("drawdown_warnings")
+            or []
+        )
+        dd_warning_block = ""
+        if dd_warnings:
+            warn_lines = "\n".join(f"• {html.escape(str(w))}" for w in dd_warnings)
+            dd_warning_block = (
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⚠️ <b>DRAWDOWN LIMIT NOTE:</b>\n"
+                f"{warn_lines}\n"
+            )
+
         proposal_text = (
             f"{title}\n"
             f"⭐ <b>QUALITY SCORE:</b> <b><u>{score}/100</u> ({score_badge})</b>{boost_tag}\n"
             f"💎 <b>PROFILE:</b> <b>{rr_badge}</b> <i>({rr_desc})</i>\n"
             f"{boost_line}"
+            f"{dd_warning_block}"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"• <b>Asset:</b> <code>{symbol}</code> {emoji_dir}\n"
             f"• <b>Setup:</b> <i>{clean_strat}</i>\n"

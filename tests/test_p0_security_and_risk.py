@@ -163,25 +163,77 @@ class TestPriorityZeroRiskAndSecurity(unittest.TestCase):
     # -------------------------------------------------------------------------
     # 2. Multi-Horizon Circuit Breaker & Fail-Closed State
     # -------------------------------------------------------------------------
-    def test_circuit_breaker_daily_drawdown_halt(self):
-        """Daily drawdown >= 3% trips circuit breaker and halts trading."""
-        risk_mgr = RiskManager(max_daily_drawdown_pct=0.03)
+    def test_circuit_breaker_drawdown_advisory_not_halting(self):
+        """Daily (>=3%), Weekly (>=5%), and Monthly (>=8%) drawdowns issue advisory notes without rejecting trades."""
+        risk_mgr = RiskManager(
+            max_daily_drawdown_pct=0.03,
+            max_weekly_drawdown_pct=0.05,
+            max_monthly_drawdown_pct=0.08
+        )
 
         # Baseline equity $1,000
         cb_init = risk_mgr.check_circuit_breaker(current_equity=1000.0, open_positions_count=0)
         self.assertTrue(cb_init["can_trade"])
         self.assertEqual(cb_init["decision"], "TRADING_ALLOWED")
+        self.assertEqual(cb_init["drawdown_warnings"], [])
 
-        # Equity drops to $960 (4% drawdown > 3% threshold)
-        cb_trip = risk_mgr.check_circuit_breaker(current_equity=960.0, open_positions_count=0)
-        self.assertFalse(cb_trip["can_trade"])
-        self.assertEqual(cb_trip["decision"], "HALT_CIRCUIT_BREAKER")
-        self.assertEqual(cb_trip["state"], "HALTED")
+        # Equity drops to $960 (4% drawdown > 3% daily threshold, < 5% weekly) -> trade STILL allowed with note!
+        cb_daily = risk_mgr.check_circuit_breaker(current_equity=960.0, open_positions_count=0)
+        self.assertTrue(cb_daily["can_trade"])
+        self.assertEqual(cb_daily["decision"], "TRADING_ALLOWED_WITH_WARNING")
+        self.assertTrue(cb_daily["daily_limit_reached"])
+        self.assertFalse(cb_daily["weekly_limit_reached"])
+        self.assertTrue(any("daily drawdown limit is reached" in w.lower() for w in cb_daily["drawdown_warnings"]))
 
-        # Even if equity bounces back up to $990, persistent halt must remain until manual reset!
-        cb_rebound = risk_mgr.check_circuit_breaker(current_equity=990.0, open_positions_count=0)
-        self.assertFalse(cb_rebound["can_trade"])
-        self.assertEqual(cb_rebound["decision"], "HALT_CIRCUIT_BREAKER")
+        # Equity drops to $910 (9% drawdown > 3% daily, 5% weekly, 8% monthly) -> trade STILL allowed with all 3 notes!
+        cb_all = risk_mgr.check_circuit_breaker(current_equity=910.0, open_positions_count=0)
+        self.assertTrue(cb_all["can_trade"])
+        self.assertEqual(cb_all["decision"], "TRADING_ALLOWED_WITH_WARNING")
+        self.assertTrue(cb_all["daily_limit_reached"])
+        self.assertTrue(cb_all["weekly_limit_reached"])
+        self.assertTrue(cb_all["monthly_limit_reached"])
+        self.assertEqual(len(cb_all["drawdown_warnings"]), 3)
+
+    def test_circuit_breaker_daily_auto_renew_utc_midnight(self):
+        """Daily drawdown baseline automatically renews when the UTC day rolls over (00:00 UTC / 05:30 AM IST)."""
+        from unittest.mock import patch
+        risk_mgr = RiskManager(max_daily_drawdown_pct=0.03)
+
+        with patch("src.risk_manager._get_current_timestamps", return_value=("2026-11-11", "2026-W46", "2026-11", "2026-11-11T10:00:00Z")):
+            risk_mgr.check_circuit_breaker(current_equity=1000.0, open_positions_count=0)
+            cb_breach = risk_mgr.check_circuit_breaker(current_equity=960.0, open_positions_count=0)
+            self.assertTrue(cb_breach["daily_limit_reached"])
+            self.assertTrue(cb_breach["can_trade"])
+
+        # Simulate day rollover at 00:00 UTC (05:30 AM IST) -> new baseline equity = $960, warning cleared!
+        with patch("src.risk_manager._get_current_timestamps", return_value=("2026-11-12", "2026-W46", "2026-11", "2026-11-12T00:00:05Z")):
+            cb_renewed = risk_mgr.check_circuit_breaker(current_equity=960.0, open_positions_count=0)
+            self.assertTrue(cb_renewed["can_trade"])
+            self.assertFalse(cb_renewed["daily_limit_reached"])
+            self.assertEqual(cb_renewed["daily_drawdown_pct"], 0.0)
+
+    def test_telegram_proposal_card_displays_drawdown_note(self):
+        """Trade proposal card displays drawdown warning note without rejecting the trade."""
+        from src.telegram_bot import TelegramConfirmationBot
+        bot = TelegramConfirmationBot(bot_token="test_token", chat_id="123456")
+        trade_spec = {
+            "symbol": "BTCUSD",
+            "side": "BUY",
+            "entry_price": 75000.0,
+            "stop_loss_price": 74500.0,
+            "take_profit_price": 76250.0,
+            "reward_to_risk_ratio": 2.5,
+            "contracts": 1,
+            "leverage": 25,
+            "required_margin_usd": 30.0,
+            "dollar_risk_usd": 2.5,
+            "drawdown_warnings": [
+                "Your daily drawdown limit is reached (3.45% / 3.0% max). Renews at 00:00 UTC (05:30 AM IST)."
+            ]
+        }
+        card_html = bot.format_trade_proposal_card(trade_spec)
+        self.assertIn("DRAWDOWN LIMIT NOTE", card_html)
+        self.assertIn("Your daily drawdown limit is reached", card_html)
 
     def test_circuit_breaker_fail_closed_on_corrupt_state(self):
         """If the circuit breaker state file is corrupted, system fails closed."""

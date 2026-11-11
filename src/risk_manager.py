@@ -220,34 +220,42 @@ class RiskManager:
         open_positions_count: int = 0
     ) -> Dict[str, Any]:
         """
-        Evaluate multi-horizon drawdown and system state with strict persistence.
-        States:
-          - TRADING_ALLOWED
-          - COOLDOWN
-          - HALTED
-          - EMERGENCY
+        Evaluate multi-horizon drawdown and system state.
+        Daily, weekly, and monthly drawdown limits act as advisory warning notes (never rejecting trades),
+        and renew automatically on calendar rollover (Daily resets at 00:00 UTC / 05:30 AM IST).
+        Fail-closed corruption halts and explicit manual halts remain enforced.
         """
         day_str, week_str, month_str, iso_now = _get_current_timestamps()
         state = load_circuit_breaker_state()
         now_ts = time.time()
 
-        # Check existing persistent halt or emergency
+        # Check existing persistent halt (only enforce for FAIL_CLOSED corruption or manual administrative halt)
         current_system_state = state.get("state", "TRADING_ALLOWED")
+        halt_reason_str = str(state.get("halt_reason", "") or "")
         is_halted = state.get("halted", False) or current_system_state in ["HALTED", "EMERGENCY"]
 
-        # If already halted or emergency, DO NOT auto-resume even if day or week changed!
+        # Automatically clear any legacy drawdown-based halts (drawdown limits now warn without rejecting)
+        is_drawdown_halt = "drawdown" in halt_reason_str.lower()
+        if is_halted and is_drawdown_halt and "FAIL_CLOSED" not in halt_reason_str:
+            state["state"] = "TRADING_ALLOWED"
+            state["halted"] = False
+            state["halt_reason"] = ""
+            state["halt_timestamp"] = None
+            is_halted = False
+
         if is_halted:
             return {
                 "decision": "HALT_CIRCUIT_BREAKER",
                 "state": current_system_state if current_system_state in ["HALTED", "EMERGENCY"] else "HALTED",
                 "can_trade": False,
-                "reason": state.get("halt_reason", "Persistent circuit breaker halt active. Manual reset required."),
+                "reason": halt_reason_str or "Persistent circuit breaker halt active. Manual reset required.",
                 "halt_timestamp": state.get("halt_timestamp"),
                 "current_equity": current_equity,
                 "open_positions": open_positions_count
             }
 
-        # Handle chronological baseline resets (ONLY if NOT halted)
+        # Chronological baseline auto-resets:
+        # Daily drawdown window automatically renews at 00:00 UTC (05:30 AM IST)
         if state.get("day") != day_str or state.get("daily_starting_equity", 0.0) <= 0.0:
             state["day"] = day_str
             state["daily_starting_equity"] = current_equity
@@ -280,71 +288,29 @@ class RiskManager:
         monthly_dd_pct = (monthly_start - current_equity) / monthly_start if monthly_start > 0 else 0.0
         peak_dd_pct = (peak_equity - current_equity) / peak_equity if peak_equity > 0 else 0.0
 
-        # 1. Monthly Emergency Drawdown Breach (Hardest stop)
-        if monthly_dd_pct >= self.max_monthly_drawdown_pct:
-            state["state"] = "EMERGENCY"
-            state["halted"] = True
-            state["halt_reason"] = (
-                f"EMERGENCY: Monthly drawdown {monthly_dd_pct * 100:.2f}% breached maximum allowed "
-                f"limit of {self.max_monthly_drawdown_pct * 100:.1f}%."
-            )
-            state["halt_timestamp"] = iso_now
-            save_circuit_breaker_state(state)
-            return {
-                "decision": "HALT_CIRCUIT_BREAKER",
-                "state": "EMERGENCY",
-                "can_trade": False,
-                "reason": state["halt_reason"],
-                "daily_drawdown_pct": round(daily_dd_pct * 100, 2),
-                "weekly_drawdown_pct": round(weekly_dd_pct * 100, 2),
-                "monthly_drawdown_pct": round(monthly_dd_pct * 100, 2),
-                "peak_drawdown_pct": round(peak_dd_pct * 100, 2),
-                "current_equity": current_equity
-            }
+        # Advisory Drawdown Limit Checks (DO NOT reject or halt trades; attach warning notes)
+        drawdown_warnings = []
+        daily_limit_reached = daily_dd_pct >= self.max_daily_drawdown_pct
+        weekly_limit_reached = weekly_dd_pct >= self.max_weekly_drawdown_pct
+        monthly_limit_reached = monthly_dd_pct >= self.max_monthly_drawdown_pct
 
-        # 2. Weekly Drawdown Breach
-        if weekly_dd_pct >= self.max_weekly_drawdown_pct:
-            state["state"] = "HALTED"
-            state["halted"] = True
-            state["halt_reason"] = (
-                f"HALTED: Weekly drawdown {weekly_dd_pct * 100:.2f}% breached maximum allowed "
-                f"limit of {self.max_weekly_drawdown_pct * 100:.1f}%."
+        if daily_limit_reached:
+            drawdown_warnings.append(
+                f"Your daily drawdown limit is reached ({daily_dd_pct * 100:.2f}% / "
+                f"{self.max_daily_drawdown_pct * 100:.1f}% max). Renews at 00:00 UTC (05:30 AM IST)."
             )
-            state["halt_timestamp"] = iso_now
-            save_circuit_breaker_state(state)
-            return {
-                "decision": "HALT_CIRCUIT_BREAKER",
-                "state": "HALTED",
-                "can_trade": False,
-                "reason": state["halt_reason"],
-                "daily_drawdown_pct": round(daily_dd_pct * 100, 2),
-                "weekly_drawdown_pct": round(weekly_dd_pct * 100, 2),
-                "monthly_drawdown_pct": round(monthly_dd_pct * 100, 2),
-                "peak_drawdown_pct": round(peak_dd_pct * 100, 2),
-                "current_equity": current_equity
-            }
+        if weekly_limit_reached:
+            drawdown_warnings.append(
+                f"Your weekly drawdown limit is reached ({weekly_dd_pct * 100:.2f}% / "
+                f"{self.max_weekly_drawdown_pct * 100:.1f}% max)."
+            )
+        if monthly_limit_reached:
+            drawdown_warnings.append(
+                f"Your monthly drawdown limit is reached ({monthly_dd_pct * 100:.2f}% / "
+                f"{self.max_monthly_drawdown_pct * 100:.1f}% max)."
+            )
 
-        # 3. Daily Drawdown Breach
-        if daily_dd_pct >= self.max_daily_drawdown_pct:
-            state["state"] = "HALTED"
-            state["halted"] = True
-            state["halt_reason"] = (
-                f"HALTED: Daily drawdown {daily_dd_pct * 100:.2f}% breached maximum allowed "
-                f"limit of {self.max_daily_drawdown_pct * 100:.1f}%."
-            )
-            state["halt_timestamp"] = iso_now
-            save_circuit_breaker_state(state)
-            return {
-                "decision": "HALT_CIRCUIT_BREAKER",
-                "state": "HALTED",
-                "can_trade": False,
-                "reason": state["halt_reason"],
-                "daily_drawdown_pct": round(daily_dd_pct * 100, 2),
-                "weekly_drawdown_pct": round(weekly_dd_pct * 100, 2),
-                "monthly_drawdown_pct": round(monthly_dd_pct * 100, 2),
-                "peak_drawdown_pct": round(peak_dd_pct * 100, 2),
-                "current_equity": current_equity
-            }
+        state["drawdown_warnings"] = drawdown_warnings
 
         # 4. Cooldown Period Check
         cooldown_until = state.get("cooldown_until", 0.0)
@@ -358,6 +324,10 @@ class RiskManager:
                 "can_trade": False,
                 "reason": f"Active cooldown period: {rem_sec}s remaining after loss threshold.",
                 "cooldown_remaining_seconds": rem_sec,
+                "drawdown_warnings": drawdown_warnings,
+                "daily_limit_reached": daily_limit_reached,
+                "weekly_limit_reached": weekly_limit_reached,
+                "monthly_limit_reached": monthly_limit_reached,
                 "daily_drawdown_pct": round(daily_dd_pct * 100, 2),
                 "weekly_drawdown_pct": round(weekly_dd_pct * 100, 2),
                 "monthly_drawdown_pct": round(monthly_dd_pct * 100, 2),
@@ -376,6 +346,10 @@ class RiskManager:
                 "state": state.get("state", "TRADING_ALLOWED"),
                 "can_trade": False,
                 "reason": f"Active positions count ({open_positions_count}) has reached maximum limit ({self.max_concurrent_positions}).",
+                "drawdown_warnings": drawdown_warnings,
+                "daily_limit_reached": daily_limit_reached,
+                "weekly_limit_reached": weekly_limit_reached,
+                "monthly_limit_reached": monthly_limit_reached,
                 "daily_drawdown_pct": round(daily_dd_pct * 100, 2),
                 "weekly_drawdown_pct": round(weekly_dd_pct * 100, 2),
                 "monthly_drawdown_pct": round(monthly_dd_pct * 100, 2),
@@ -385,16 +359,25 @@ class RiskManager:
             }
 
         state["state"] = "TRADING_ALLOWED"
+        state["halted"] = False
         save_circuit_breaker_state(state)
+
+        decision_label = "TRADING_ALLOWED_WITH_WARNING" if drawdown_warnings else "TRADING_ALLOWED"
+        reason_text = " | ".join(drawdown_warnings) if drawdown_warnings else "Account health verified within risk tolerances across all horizons."
         return {
-            "decision": "TRADING_ALLOWED",
+            "decision": decision_label,
             "state": "TRADING_ALLOWED",
             "can_trade": True,
-            "reason": "Account health verified within risk tolerances across all horizons.",
+            "reason": reason_text,
+            "drawdown_warnings": drawdown_warnings,
+            "daily_limit_reached": daily_limit_reached,
+            "weekly_limit_reached": weekly_limit_reached,
+            "monthly_limit_reached": monthly_limit_reached,
             "daily_drawdown_pct": round(daily_dd_pct * 100, 2),
             "weekly_drawdown_pct": round(weekly_dd_pct * 100, 2),
             "monthly_drawdown_pct": round(monthly_dd_pct * 100, 2),
             "peak_drawdown_pct": round(peak_dd_pct * 100, 2),
+            "current_drawdown_pct": round(max(daily_dd_pct, weekly_dd_pct, monthly_dd_pct), 4),
             "current_equity": current_equity,
             "open_positions": open_positions_count,
             "max_concurrent_positions": self.max_concurrent_positions

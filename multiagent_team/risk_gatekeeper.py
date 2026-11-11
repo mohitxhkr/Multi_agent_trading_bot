@@ -561,5 +561,6 @@ class RiskGatekeeperAgent:
             "leverage": leverage,
             "account_equity": total_usdt,
             "available_usdt": available_usdt,
+            "drawdown_warnings": cb_res.get("drawdown_warnings", []),
             "circuit_breaker": cb_res
         }

@@ -223,6 +223,24 @@ class TestNewsSentimentAgent(unittest.TestCase):
             self.assertTrue(res)
             self.assertEqual(len(notifier.messages), 1)
             self.assertIn("DAILY CRYPTO MORNING BRIEFING", notifier.messages[0])
+
+            # Test duplicate check blocks second non-forced dispatch on same day even during 11:30 AM catch-up
+            from unittest.mock import patch
+            from datetime import datetime, timezone, timedelta
+            ist = timezone(timedelta(hours=5, minutes=30))
+            late_morning = datetime(2026, 11, 11, 11, 30, 0, tzinfo=ist)
+            # Clear temp file to simulate not yet sent today
+            with open(temp_state_path, "w", encoding="utf-8") as f:
+                f.write("{}")
+            with patch("datetime.datetime") as mock_dt:
+                mock_dt.now.return_value = late_morning
+                res_catchup = self.agent.check_and_dispatch_morning_briefing(notifier, force=False)
+                self.assertTrue(res_catchup)
+                self.assertEqual(len(notifier.messages), 2)
+                # Second call same day should return False (no spam)
+                res_dup = self.agent.check_and_dispatch_morning_briefing(notifier, force=False)
+                self.assertFalse(res_dup)
+                self.assertEqual(len(notifier.messages), 2)
         finally:
             nsa_mod.MORNING_NEWS_STATE_FILE = old_state_file
             if os.path.exists(temp_state_path):

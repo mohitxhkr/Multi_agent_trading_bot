@@ -68,9 +68,17 @@ class TelegramConfirmationBot:
 
         try:
             from src.telegram_subscriber_manager import TelegramSubscriberManager
-            self.subscriber_manager = TelegramSubscriberManager()
-            if self.chat_id:
-                self.subscriber_manager.register_subscriber(self.chat_id, {"first_name": "Admin"}, role="admin")
+            is_mock_token = (
+                not self.bot_token
+                or self.bot_token.startswith(("test", "TEST", "MOCK", "mock", "123:"))
+                or ":" not in self.bot_token
+            )
+            if not is_mock_token:
+                self.subscriber_manager = TelegramSubscriberManager()
+                if self.chat_id:
+                    self.subscriber_manager.register_subscriber(self.chat_id, {"first_name": "Admin"}, role="admin")
+            else:
+                self.subscriber_manager = None
         except Exception:
             self.subscriber_manager = None
 

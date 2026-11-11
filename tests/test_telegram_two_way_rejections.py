@@ -3,20 +3,30 @@ Unit tests for Telegram Two-Way Communication & Rejection Notifications.
 Ensures no commands or proposed trades are silently suppressed in the background.
 """
 
+import os
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
 from src.telegram_bot import TelegramConfirmationBot
+from src.telegram_subscriber_manager import TelegramSubscriberManager
 from multiagent_team.orchestrator import MultiAgentTradingOrchestrator
 
 
 class TestTelegramTwoWayRejections(unittest.TestCase):
     def setUp(self):
+        self._sub_tmp = tempfile.TemporaryDirectory()
         self.bot = TelegramConfirmationBot(
             bot_token="TEST_BOT_TOKEN",
             chat_id="123456789",
             authorized_users=[123456789]
         )
+        self.bot.subscriber_manager = TelegramSubscriberManager(
+            subscribers_file=os.path.join(self._sub_tmp.name, "subs.json")
+        )
+
+    def tearDown(self):
+        self._sub_tmp.cleanup()
 
     def test_normalize_natural_language_and_typos(self):
         """Verify natural language trade commands and typos are normalized to /trade."""

@@ -271,9 +271,9 @@ class MultiAgentTradingOrchestrator:
         current_minute = now_ist.minute
 
         session_key = None
-        if (current_hour == 9 and current_minute >= 30) or (current_hour == 10 and current_minute <= 30):
+        if (current_hour == 9 and current_minute >= 30) or (10 <= current_hour <= 13):
             session_key = "morning"
-        elif (current_hour == 18 and current_minute >= 30) or (current_hour == 19 and current_minute <= 30):
+        elif (current_hour == 18 and current_minute >= 30) or (19 <= current_hour <= 23):
             session_key = "evening"
 
         if not force and not session_key:
@@ -684,17 +684,17 @@ class MultiAgentTradingOrchestrator:
         cycle_start = time.time()
         self.system_monitor.increment_cycle()
 
-        # Check and dispatch Daily Morning Crypto Briefing between 10:00 and 11:00 AM IST
+        # Check and dispatch Daily Morning Crypto Briefing (10:00 AM IST target, auto catch-up if server wakes later)
         try:
             self.check_and_dispatch_daily_morning_briefing()
         except Exception as me:
-            logger.debug(f"Daily morning briefing check skipped: {me}")
+            logger.warning(f"Daily morning briefing check encountered an error: {me}")
 
         # Check and dispatch Daily Key Levels Breakout/Breakdown Radar (Morning & Evening sessions)
         try:
             self.check_and_dispatch_daily_market_levels()
         except Exception as ke:
-            logger.debug(f"Daily key levels radar check skipped: {ke}")
+            logger.warning(f"Daily key levels radar check encountered an error: {ke}")
 
         active_symbols = symbols or self.symbols
 

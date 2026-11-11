@@ -41,6 +41,7 @@ scanner_status = {
     "last_scan_time": "Never",
     "last_result": None
 }
+_active_orchestrator = None
 
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -116,6 +117,28 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 "positions_error": pos_error
             }
             self.wfile.write(json.dumps(response_data, indent=2).encode("utf-8"))
+        elif self.path == "/trigger-morning-news":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            ok = False
+            try:
+                if _active_orchestrator:
+                    ok = _active_orchestrator.check_and_dispatch_daily_morning_briefing(force=True)
+            except Exception as ex:
+                logger.error(f"/trigger-morning-news error: {ex}")
+            self.wfile.write(json.dumps({"triggered": True, "dispatched": bool(ok)}).encode("utf-8"))
+        elif self.path == "/trigger-levels":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            ok = False
+            try:
+                if _active_orchestrator:
+                    ok = _active_orchestrator.check_and_dispatch_daily_market_levels(force=True)
+            except Exception as ex:
+                logger.error(f"/trigger-levels error: {ex}")
+            self.wfile.write(json.dumps({"triggered": True, "dispatched": bool(ok)}).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
@@ -140,12 +163,26 @@ def run_telegram_command_listener(orchestrator):
         time.sleep(1.0)
 
 
+def _check_scheduled_broadcasts(orchestrator):
+    """Check and dispatch Daily Morning News (10:00 AM IST + catch-up) and Daily Key Levels Radar."""
+    try:
+        orchestrator.check_and_dispatch_daily_morning_briefing()
+    except Exception as me:
+        logger.warning(f"Scheduled morning news check error: {me}")
+    try:
+        orchestrator.check_and_dispatch_daily_market_levels()
+    except Exception as ke:
+        logger.warning(f"Scheduled key levels check error: {ke}")
+
+
 def run_scanner_loop():
     """Background scanner thread that runs the 24/7 multi-agent trading loop."""
+    global _active_orchestrator
     time.sleep(3)  # Wait for server to bind port
     client = DeltaExchangeClient()
     telegram = TelegramNotifier()
     orchestrator = MultiAgentTradingOrchestrator(client=client, interactive=False)
+    _active_orchestrator = orchestrator
 
     # Start dedicated Telegram command listener thread so slash commands (/chart, /status, etc.)
     # are handled instantaneously even while trading cycles or order proposals are active.
@@ -167,11 +204,14 @@ def run_scanner_loop():
         "• <b>Trailing Stop Loss:</b> 🛡️ <b>ACTIVE (10s Loop)</b>\n"
         "  <i>(1:1 -> Breakeven, 1:2 -> Lock +1R & trail to 1:3, 1:5)</i>\n"
         "• <b>Interactive Commands Active:</b>\n"
-        "  Type <code>/trade</code>, <code>/radar</code>, <code>/chart</code>, <code>/levels</code>, <code>/news</code>, <code>/scan</code>, <code>/status</code>, <code>/positions</code> anytime!\n"
+        "  Type <code>/trade</code>, <code>/levels</code>, <code>/chart</code>, <code>/news</code>, <code>/status</code>, <code>/positions</code> anytime!\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "⚡ <i>Actively scanning charts 24/7. Capital is protected.</i>"
     )
     telegram.send_message(startup_msg)
+
+    # Immediately verify scheduled daily news / levels broadcasts on startup
+    _check_scheduled_broadcasts(orchestrator)
 
     logger.info("Silent 24/7 background scanner engaged. Push notifications sent ONLY on trade proposals & execution exits.")
 
@@ -186,19 +226,24 @@ def run_scanner_loop():
         except Exception as e:
             logger.error(f"Scanner exception: {e}", exc_info=True)
 
-        # Monitor trailing stops every 2 seconds (Telegram commands handled continuously by dedicated tg_thread)
+        # Monitor trailing stops (10s) & scheduled news/levels broadcasts (30s)
         elapsed = 0
         trailing_tick = 0
+        broadcast_tick = 0
         while elapsed < interval:
             time.sleep(2)
             elapsed += 2
             trailing_tick += 2
+            broadcast_tick += 2
             try:
                 if trailing_tick >= 10:
                     orchestrator.trailing_stop_manager.check_and_update_trailing_stops()
                     trailing_tick = 0
+                if broadcast_tick >= 30:
+                    _check_scheduled_broadcasts(orchestrator)
+                    broadcast_tick = 0
             except Exception as e:
-                logger.error(f"Trailing stop background tick error: {e}")
+                logger.error(f"Background tick error: {e}")
 
 
 def main():

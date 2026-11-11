@@ -736,7 +736,8 @@ class NewsSentimentAgent:
             safe_title = html.escape(art.title)
             safe_summary = html.escape(art.summary) if art.summary else "Key market catalyst impacting broader crypto liquidity."
             safe_source = html.escape(art.source)
-            link_html = f"<a href=\"{art.link}\">Read Full Story</a>" if art.link else ""
+            safe_link = html.escape(art.link, quote=True) if art.link else ""
+            link_html = f"<a href=\"{safe_link}\">Read Full Story</a>" if safe_link else ""
 
             card_item = (
                 f"{idx}. {s_icon} <b>{cat_tag} {safe_title}</b>\n"
@@ -751,7 +752,8 @@ class NewsSentimentAgent:
         news_text = "\n\n".join(news_section_lines)
 
         # Format Guidance & Session Gameplan
-        posture_summary = target_report.trading_posture_recommendation.split(":")[0] if ":" in target_report.trading_posture_recommendation else target_report.trading_posture_recommendation
+        raw_posture = target_report.trading_posture_recommendation.split(":")[0] if ":" in target_report.trading_posture_recommendation else target_report.trading_posture_recommendation
+        posture_summary = html.escape(str(raw_posture))
 
         lines = [
             "🌅 <b>[DAILY CRYPTO MORNING BRIEFING]</b>",
@@ -774,7 +776,7 @@ class NewsSentimentAgent:
             f"• <b>Institutional Posture:</b> <b>{posture_summary}</b>",
             f"• <b>Risk Sizing Multiplier:</b> <code>{target_report.leverage_risk_multiplier:.2f}x</code>",
             "• <b>Asset Focus:</b> <b>BTC, ETH &amp; Gold (XAU)</b>",
-            "• <b>Discipline Rule:</b> Capital safety first. Only trade when historical win rate >= 65% and R:R >= 2.2:1.",
+            "• <b>Discipline Rule:</b> Capital safety first. Only trade when historical win rate &gt;= 65% and R:R &gt;= 2.2:1.",
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
             "⚡ <i>Automated Daily Morning Intelligence · Delta Multi-Agent Engine</i>"
         ]
@@ -786,20 +788,20 @@ class NewsSentimentAgent:
         notifier: Any,
         force: bool = False,
         min_hour: int = 10,
-        max_hour: int = 11
+        max_hour: int = 23
     ) -> bool:
         """
-        Check if current time is within morning window (10:00 to 11:00 AM IST)
-        and dispatch the Daily Morning Crypto News Briefing if not already sent today.
+        Check if current time is >= 10:00 AM IST (10:00 AM target window with same-day catch-up up to 11 PM IST)
+        and dispatch the Daily Morning Crypto News Briefing once per day if not already sent today.
 
         Args:
             notifier: TelegramNotifier or TelegramConfirmationBot instance
             force: If True, bypass time and duplicate date checks (e.g. for testing or /news command)
-            min_hour: Start of morning window in IST (default 10)
-            max_hour: End of morning window in IST (default 11, meaning up to 10:59:59 AM)
+            min_hour: Start of morning window in IST (default 10 for 10:00 AM IST)
+            max_hour: End of catch-up window in IST (default 23 so missed wakes after 11 AM still deliver once)
         """
         if not notifier or not getattr(notifier, "enabled", True):
-            logger.debug("NewsSentimentAgent: TelegramNotifier disabled. Skipping morning briefing.")
+            logger.warning("NewsSentimentAgent: TelegramNotifier disabled. Skipping morning briefing.")
             return False
 
         from datetime import datetime, timezone, timedelta
@@ -844,6 +846,7 @@ class NewsSentimentAgent:
                 state["fear_greed_index"] = report.fear_greed_index
                 state["top_headlines"] = [a.title for a in (report.critical_market_movers or report.top_high_impact_news)[:3]]
                 try:
+                    os.makedirs(os.path.dirname(MORNING_NEWS_STATE_FILE), exist_ok=True)
                     with open(MORNING_NEWS_STATE_FILE, "w", encoding="utf-8") as f:
                         json.dump(state, f, indent=2)
                 except Exception as we:

@@ -10,7 +10,8 @@ import os
 import time
 import threading
 import logging
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 import json
 
 # Ensure UTF-8 output
@@ -39,66 +40,135 @@ scanner_status = {
     "uptime_started": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
     "cycle_count": 0,
     "last_scan_time": "Never",
-    "last_result": None
+    "last_result": None,
+    "exchange_diag": {
+        "authenticated": None,
+        "auth_message": "Initializing background diagnostics",
+        "positions_success": None,
+        "active_positions_count": 0,
+        "active_symbols": [],
+        "positions_error": None,
+        "updated_at": None,
+    },
 }
 _active_orchestrator = None
 
+_HEALTH_PATHS = frozenset(["/", "/health", "/status", "/ping", "/healthz"])
+
+
+def _fetch_exchange_diagnostics(client=None) -> dict:
+    """Query Delta Exchange API for authentication and active positions diagnostics."""
+    conn_auth = False
+    conn_msg = "Not tested"
+    pos_success = False
+    active = []
+    pos_error = None
+
+    try:
+        api_client = client or DeltaExchangeClient()
+        conn = api_client.test_connection()
+        conn_auth = conn.get("authenticated", False)
+        conn_msg = conn.get("message", "")
+
+        pos = api_client.get_positions()
+        pos_success = pos.get("success", False)
+        if pos_success:
+            raw_pos = pos.get("result", [])
+            active = [p for p in raw_pos if abs(float(p.get("size", 0.0) or 0.0)) > 0]
+        else:
+            pos_error = str(pos.get("error"))
+    except Exception as e:
+        conn_msg = f"Diagnostics error: {str(e)}"
+        pos_error = str(e)
+
+    return {
+        "authenticated": conn_auth,
+        "auth_message": conn_msg,
+        "positions_success": pos_success,
+        "active_positions_count": len(active),
+        "active_symbols": [p.get("product_symbol") or p.get("symbol") for p in active],
+        "positions_error": pos_error,
+        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+    }
+
+
+def _read_cached_sentiment():
+    """Read locally cached market sentiment state without making network calls."""
+    try:
+        sentiment_file = os.path.join(BASE_DIR, "state", "market_sentiment_state.json")
+        if os.path.exists(sentiment_file):
+            with open(sentiment_file, "r", encoding="utf-8") as sf:
+                s_raw = json.load(sf)
+                return {
+                    "composite_score": s_raw.get("composite_score"),
+                    "regime": s_raw.get("sentiment_regime"),
+                    "fear_greed_index": s_raw.get("fear_greed_index"),
+                    "fear_greed_classification": s_raw.get("fear_greed_classification"),
+                    "articles_analyzed": s_raw.get("total_articles_analyzed"),
+                    "posture_recommendation": s_raw.get("trading_posture_recommendation", "").split(":")[0],
+                }
+    except Exception:
+        pass
+    return None
+
+
+class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+    """Non-blocking concurrent HTTP server safe for frequent uptime monitor pings."""
+    allow_reuse_address = True
+    daemon_threads = True
+
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_HEAD(self):
-        if self.path in ["/", "/health", "/status", "/ping"]:
-            self.send_response(200)
+    def _parse_request(self):
+        parsed = urlparse(self.path)
+        clean_path = parsed.path.rstrip("/") or "/"
+        query = parse_qs(parsed.query)
+        return clean_path, query
+
+    def _send_json(self, status_code: int, payload: dict):
+        body = json.dumps(payload, indent=2).encode("utf-8")
+        try:
+            self.send_response(status_code)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
             self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def do_HEAD(self):
+        clean_path, _ = self._parse_request()
+        if clean_path in _HEALTH_PATHS:
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+                self.end_headers()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
         else:
-            self.send_response(404)
-            self.end_headers()
+            try:
+                self.send_response(404)
+                self.end_headers()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     def do_GET(self):
-        if self.path in ["/", "/health", "/status", "/ping"]:
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-
-            conn_auth = False
-            conn_msg = "Not tested"
-            pos_success = False
-            active = []
-            pos_error = None
-
-            try:
-                client = DeltaExchangeClient()
-                conn = client.test_connection()
-                conn_auth = conn.get("authenticated", False)
-                conn_msg = conn.get("message", "")
-                
-                pos = client.get_positions()
-                pos_success = pos.get("success", False)
-                if pos_success:
-                    raw_pos = pos.get("result", [])
-                    active = [p for p in raw_pos if abs(float(p.get("size", 0.0) or 0.0)) > 0]
-                else:
-                    pos_error = str(pos.get("error"))
-            except Exception as e:
-                conn_msg = f"Diagnostics error: {str(e)}"
-                pos_error = str(e)
-
-            sentiment_data = None
-            try:
-                sentiment_file = os.path.join(BASE_DIR, "state", "market_sentiment_state.json")
-                if os.path.exists(sentiment_file):
-                    with open(sentiment_file, "r", encoding="utf-8") as sf:
-                        s_raw = json.load(sf)
-                        sentiment_data = {
-                            "composite_score": s_raw.get("composite_score"),
-                            "regime": s_raw.get("sentiment_regime"),
-                            "fear_greed_index": s_raw.get("fear_greed_index"),
-                            "fear_greed_classification": s_raw.get("fear_greed_classification"),
-                            "articles_analyzed": s_raw.get("total_articles_analyzed"),
-                            "posture_recommendation": s_raw.get("trading_posture_recommendation", "").split(":")[0]
-                        }
-            except Exception:
-                pass
+        clean_path, query = self._parse_request()
+        if clean_path in _HEALTH_PATHS:
+            live_flag = any(
+                val.lower() in ("1", "true", "yes")
+                for key in ("live", "diag", "full")
+                for val in query.get(key, [])
+            )
+            if live_flag:
+                diag = _fetch_exchange_diagnostics()
+                scanner_status["exchange_diag"] = diag
+                diag_mode = "live"
+            else:
+                diag = scanner_status.get("exchange_diag") or {}
+                diag_mode = "cached"
 
             response_data = {
                 "bot": "Delta Exchange Multi-Agent 24/7 Trading Bot",
@@ -108,40 +178,35 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 "cycles_completed": scanner_status["cycle_count"],
                 "last_scan": scanner_status["last_scan_time"],
                 "uptime_started": scanner_status["uptime_started"],
-                "authenticated": conn_auth,
-                "auth_message": conn_msg,
-                "news_sentiment": sentiment_data,
-                "positions_success": pos_success,
-                "active_positions_count": len(active),
-                "active_symbols": [p.get("product_symbol") or p.get("symbol") for p in active],
-                "positions_error": pos_error
+                "diagnostics_mode": diag_mode,
+                "diagnostics_updated_at": diag.get("updated_at"),
+                "authenticated": diag.get("authenticated"),
+                "auth_message": diag.get("auth_message"),
+                "news_sentiment": _read_cached_sentiment(),
+                "positions_success": diag.get("positions_success"),
+                "active_positions_count": diag.get("active_positions_count", 0),
+                "active_symbols": diag.get("active_symbols", []),
+                "positions_error": diag.get("positions_error"),
             }
-            self.wfile.write(json.dumps(response_data, indent=2).encode("utf-8"))
-        elif self.path == "/trigger-morning-news":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
+            self._send_json(200, response_data)
+        elif clean_path == "/trigger-morning-news":
             ok = False
             try:
                 if _active_orchestrator:
                     ok = _active_orchestrator.check_and_dispatch_daily_morning_briefing(force=True)
             except Exception as ex:
                 logger.error(f"/trigger-morning-news error: {ex}")
-            self.wfile.write(json.dumps({"triggered": True, "dispatched": bool(ok)}).encode("utf-8"))
-        elif self.path == "/trigger-levels":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
+            self._send_json(200, {"triggered": True, "dispatched": bool(ok)})
+        elif clean_path == "/trigger-levels":
             ok = False
             try:
                 if _active_orchestrator:
                     ok = _active_orchestrator.check_and_dispatch_daily_market_levels(force=True)
             except Exception as ex:
                 logger.error(f"/trigger-levels error: {ex}")
-            self.wfile.write(json.dumps({"triggered": True, "dispatched": bool(ok)}).encode("utf-8"))
+            self._send_json(200, {"triggered": True, "dispatched": bool(ok)})
         else:
-            self.send_response(404)
-            self.end_headers()
+            self._send_json(404, {"error": "Not found", "path": clean_path})
 
     def log_message(self, format, *args):
         # Silence routine healthcheck logs to keep console clean
@@ -212,6 +277,7 @@ def run_scanner_loop():
 
     # Immediately verify scheduled daily news / levels broadcasts on startup
     _check_scheduled_broadcasts(orchestrator)
+    scanner_status["exchange_diag"] = _fetch_exchange_diagnostics(client)
 
     logger.info("Silent 24/7 background scanner engaged. Push notifications sent ONLY on trade proposals & execution exits.")
 
@@ -223,6 +289,7 @@ def run_scanner_loop():
             # Runs market cycle: only alerts Telegram when a qualified setup (score >= 75) is found!
             result = orchestrator.run_trading_cycle()
             scanner_status["last_result"] = result
+            scanner_status["exchange_diag"] = _fetch_exchange_diagnostics(client)
         except Exception as e:
             logger.error(f"Scanner exception: {e}", exc_info=True)
 
@@ -250,13 +317,14 @@ def main():
     port = int(os.getenv("PORT", "8080"))
     logger.info(f"Starting cloud web server on port {port}...")
 
+    # Bind HTTP server immediately for Render / UptimeRobot health pings
+    httpd = ReusableThreadingHTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    logger.info(f"Healthcheck server listening on http://0.0.0.0:{port}/health")
+
     # Start background scanner thread
     scanner_thread = threading.Thread(target=run_scanner_loop, daemon=True)
     scanner_thread.start()
 
-    # Start HTTP server for health pings
-    httpd = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    logger.info(f"Healthcheck server listening on http://0.0.0.0:{port}/health")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

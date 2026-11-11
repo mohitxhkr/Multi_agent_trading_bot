@@ -27,6 +27,125 @@ def round_price(val: float, ref_price: Optional[float] = None) -> float:
         return round(val, 2)
 
 
+def evaluate_htf_trend(
+    candles: Optional[Dict[str, Any]],
+    prefix: str = "MACRO",
+    default_price: float = 0.0
+) -> Dict[str, Any]:
+    """
+    Evaluate higher-timeframe (4H / 1D) directional bias using EMA alignment (21/50/200),
+    ADX directional strength (+DI/-DI), RSI momentum, and HH/HL vs LH/LL swing structure.
+    Tolerates healthy pullbacks inside established trends instead of collapsing immediately to NEUTRAL.
+    """
+    closes = [float(x) for x in candles.get('c', [])] if candles else []
+    highs = [float(x) for x in candles.get('h', [])] if candles else []
+    lows = [float(x) for x in candles.get('l', [])] if candles else []
+
+    if len(closes) < 20:
+        ref = closes[-1] if closes else default_price
+        return {
+            "available": False,
+            "direction": "NEUTRAL",
+            "regime": f"{prefix}_NEUTRAL",
+            "rsi_14": 50.0,
+            "ema_21": ref,
+            "ema_50": ref,
+            "ema_200": ref,
+            "adx": 20.0,
+            "plus_di": 20.0,
+            "minus_di": 20.0,
+            "structure": "CONSOLIDATION",
+        }
+
+    p = closes[-1]
+    rsi_14 = calculate_rsi(closes, 14)[-1]
+    ema_21 = calculate_ema(closes, 21)[-1]
+    ema_50 = calculate_ema(closes, 50)[-1] if len(closes) >= 50 else ema_21
+    ema_200 = calculate_ema(closes, 200)[-1] if len(closes) >= 200 else ema_50
+
+    has_hl = len(highs) == len(closes) and len(lows) == len(closes)
+    adx_data = calculate_adx(highs, lows, closes, 14) if (has_hl and len(closes) >= 28) else {
+        "adx": 20.0, "plus_di": 20.0, "minus_di": 20.0
+    }
+    adx_val = float(adx_data.get("adx", 20.0))
+    plus_di = float(adx_data.get("plus_di", 20.0))
+    minus_di = float(adx_data.get("minus_di", 20.0))
+
+    structure = "CONSOLIDATION"
+    hh = hl = lh = ll = False
+    if has_hl:
+        recent_h = highs[-10:]
+        prior_h = highs[-20:-10]
+        recent_l = lows[-10:]
+        prior_l = lows[-20:-10]
+        hh = max(recent_h) > max(prior_h)
+        hl = min(recent_l) > min(prior_l)
+        lh = max(recent_h) < max(prior_h)
+        ll = min(recent_l) < min(prior_l)
+        if hh and hl:
+            structure = "HIGHER_HIGHS_AND_LOWS"
+        elif lh and ll:
+            structure = "LOWER_HIGHS_AND_LOWS"
+
+    has_ema200 = len(closes) >= 200
+    bull_score = 0
+    bear_score = 0
+
+    # EMA stack & trend anchor
+    if p > ema_21 > ema_50 and (not has_ema200 or (ema_50 >= ema_200 and p > ema_200)):
+        bull_score += 3
+    elif p > ema_50 and ema_21 >= ema_50 and (not has_ema200 or p > ema_200):
+        bull_score += 2
+    elif has_ema200 and p > ema_200 and ema_50 > ema_200 and hl:
+        bull_score += 1
+
+    if p < ema_21 < ema_50 and (not has_ema200 or (ema_50 <= ema_200 and p < ema_200)):
+        bear_score += 3
+    elif p < ema_50 and ema_21 <= ema_50 and (not has_ema200 or p < ema_200):
+        bear_score += 2
+    elif has_ema200 and p < ema_200 and ema_50 < ema_200 and lh:
+        bear_score += 1
+
+    # ADX + DI directional confirmation
+    if adx_val >= 20.0:
+        if plus_di > minus_di:
+            bull_score += 2 if (adx_val >= 28.0 and (plus_di - minus_di) >= 3.0) else 1
+        elif minus_di > plus_di:
+            bear_score += 2 if (adx_val >= 28.0 and (minus_di - plus_di) >= 3.0) else 1
+
+    # Swing structure & RSI confirmation
+    if hh and hl and p >= ema_50 * 0.99:
+        bull_score += 1
+    if lh and ll and p <= ema_50 * 1.01:
+        bear_score += 1
+
+    if rsi_14 >= 55.0:
+        bull_score += 1
+    elif rsi_14 <= 45.0:
+        bear_score += 1
+
+    if bull_score >= 3 and bull_score >= bear_score + 2 and p >= ema_50 * 0.995:
+        direction = "BULLISH"
+    elif bear_score >= 3 and bear_score >= bull_score + 2 and p <= ema_50 * 1.005:
+        direction = "BEARISH"
+    else:
+        direction = "NEUTRAL"
+
+    return {
+        "available": True,
+        "direction": direction,
+        "regime": f"{prefix}_{direction}",
+        "rsi_14": round(rsi_14, 2),
+        "ema_21": round_price(ema_21, p),
+        "ema_50": round_price(ema_50, p),
+        "ema_200": round_price(ema_200, p),
+        "adx": round(adx_val, 2),
+        "plus_di": round(plus_di, 2),
+        "minus_di": round(minus_di, 2),
+        "structure": structure,
+    }
+
+
 
 def aggregate_monthly_candles(daily_candles: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -1852,75 +1971,57 @@ def analyze_multi_timeframe(
     analysis_1h["macro_15m"] = macro_15m
 
     # -------------------------------------------------------------
-    # 1. 4-Hour (4H) Cycle Momentum
+    # 1. 4-Hour (4H) Cycle Momentum & Structure
     # -------------------------------------------------------------
-    macro_4h_regime = "NEUTRAL"
-    rsi_4h = 50.0
-    ema21_4h = current_price
-    ema50_4h = current_price
-    ema200_4h = current_price
-
-    if candles_4h and len(candles_4h.get('c', [])) >= 20:
-        c4_closes = [float(x) for x in candles_4h.get('c', [])]
-        rsi_4h = calculate_rsi(c4_closes, 14)[-1]
-        ema21_4h = calculate_ema(c4_closes, 21)[-1]
-        ema50_4h = calculate_ema(c4_closes, 50)[-1] if len(c4_closes) >= 50 else ema21_4h
-        ema200_4h = calculate_ema(c4_closes, 200)[-1] if len(c4_closes) >= 200 else ema50_4h
-
-        p4 = c4_closes[-1]
-        if p4 > ema21_4h and ema21_4h > ema50_4h and (len(c4_closes) < 200 or p4 > ema200_4h):
-            macro_4h_regime = "MACRO_BULLISH"
-        elif p4 < ema21_4h and ema21_4h < ema50_4h and (len(c4_closes) < 200 or p4 < ema200_4h):
-            macro_4h_regime = "MACRO_BEARISH"
-        else:
-            macro_4h_regime = "MACRO_NEUTRAL"
+    htf_4h = evaluate_htf_trend(candles_4h, prefix="MACRO", default_price=current_price)
+    macro_4h_regime = htf_4h["regime"] if htf_4h["available"] else "NEUTRAL"
+    rsi_4h = htf_4h["rsi_14"]
+    ema21_4h = htf_4h["ema_21"]
+    ema50_4h = htf_4h["ema_50"]
+    ema200_4h = htf_4h["ema_200"]
 
     analysis_1h["macro_4h"] = {
         "regime": macro_4h_regime,
+        "direction": htf_4h["direction"],
         "rsi_14": round(rsi_4h, 2),
         "ema_21": round(ema21_4h, 2),
         "ema_50": round(ema50_4h, 2),
         "ema_200": round(ema200_4h, 2),
+        "adx": htf_4h["adx"],
+        "plus_di": htf_4h["plus_di"],
+        "minus_di": htf_4h["minus_di"],
+        "structure": htf_4h["structure"],
     }
 
     # -------------------------------------------------------------
-    # 2. 1-Day (Daily) Intermediate Swing Anchor
+    # 2. 1-Day (Daily) Intermediate Swing Anchor & Structure
     # -------------------------------------------------------------
-    daily_regime = "DAILY_NEUTRAL"
-    rsi_1d = 50.0
-    ema21_1d = current_price
-    ema50_1d = current_price
-    ema200_1d = current_price
+    htf_1d = evaluate_htf_trend(candles_1d, prefix="DAILY", default_price=current_price)
+    daily_regime = htf_1d["regime"]
+    rsi_1d = htf_1d["rsi_14"]
+    ema21_1d = htf_1d["ema_21"]
+    ema50_1d = htf_1d["ema_50"]
+    ema200_1d = htf_1d["ema_200"]
     pdh = 0.0
     pdl = 0.0
 
-    if candles_1d and len(candles_1d.get('c', [])) >= 20:
-        c1d_closes = [float(x) for x in candles_1d.get('c', [])]
+    if candles_1d and len(candles_1d.get('h', [])) >= 2 and len(candles_1d.get('l', [])) >= 2:
         c1d_highs = [float(x) for x in candles_1d.get('h', [])]
         c1d_lows = [float(x) for x in candles_1d.get('l', [])]
-        rsi_1d = calculate_rsi(c1d_closes, 14)[-1]
-        ema21_1d = calculate_ema(c1d_closes, 21)[-1]
-        ema50_1d = calculate_ema(c1d_closes, 50)[-1] if len(c1d_closes) >= 50 else ema21_1d
-        ema200_1d = calculate_ema(c1d_closes, 200)[-1] if len(c1d_closes) >= 200 else ema50_1d
-
-        if len(c1d_highs) >= 2:
-            pdh = round(c1d_highs[-2], 2)
-            pdl = round(c1d_lows[-2], 2)
-
-        p1d = c1d_closes[-1]
-        if p1d > ema21_1d and ema21_1d > ema50_1d and (len(c1d_closes) < 200 or p1d > ema200_1d):
-            daily_regime = "DAILY_BULLISH"
-        elif p1d < ema21_1d and ema21_1d < ema50_1d and (len(c1d_closes) < 200 or p1d < ema200_1d):
-            daily_regime = "DAILY_BEARISH"
-        else:
-            daily_regime = "DAILY_NEUTRAL"
+        pdh = round(c1d_highs[-2], 2)
+        pdl = round(c1d_lows[-2], 2)
 
     analysis_1h["macro_daily"] = {
         "regime": daily_regime,
+        "direction": htf_1d["direction"],
         "rsi_14": round(rsi_1d, 2),
         "ema_21": round(ema21_1d, 2),
         "ema_50": round(ema50_1d, 2),
         "ema_200": round(ema200_1d, 2),
+        "adx": htf_1d["adx"],
+        "plus_di": htf_1d["plus_di"],
+        "minus_di": htf_1d["minus_di"],
+        "structure": htf_1d["structure"],
         "pdh": pdh,
         "pdl": pdl
     }

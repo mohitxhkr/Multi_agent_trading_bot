@@ -400,6 +400,109 @@ class TestRegimeAnalystUpgrade(unittest.TestCase):
         self.assertEqual(scan["breadth_pct"], 100.0)
         self.assertEqual(scan["analyzed_count"], 2)
 
+    def test_4h_and_1d_aligned_confirmation_and_fields(self):
+        """Scenario 17: 1D + 4H + 1H bullish alignment boosts confidence and populates 4h/1d fields."""
+        c_1h = make_trending_candles(n_bars=70, base_price=60000.0, slope=120.0, spread=80.0)
+        c_15m = make_trending_candles(n_bars=30, base_price=64000.0, slope=40.0, spread=30.0)
+        c_5m = make_trending_candles(n_bars=25, base_price=65000.0, slope=15.0, spread=10.0)
+        c_4h = make_trending_candles(n_bars=220, base_price=48000.0, slope=80.0, spread=120.0)
+        c_1d = make_trending_candles(n_bars=220, base_price=40000.0, slope=115.0, spread=200.0)
+
+        res_no_htf = classify_market_regime(c_1h, c_15m, c_5m, symbol="BTCUSD")
+        res_with_htf = classify_market_regime(
+            c_1h, c_15m, c_5m, symbol="BTCUSD", candles_4h=c_4h, candles_1d=c_1d
+        )
+
+        self.assertEqual(res_with_htf["regime"], "STRONG_UPTREND")
+        self.assertEqual(res_with_htf["directional_bias"], "BULLISH")
+        self.assertGreaterEqual(res_with_htf["confidence_score"], res_no_htf["confidence_score"])
+        self.assertTrue(res_with_htf["timeframe_analysis"]["4h"]["available"])
+        self.assertEqual(res_with_htf["timeframe_analysis"]["4h"]["direction"], "BULLISH")
+        self.assertTrue(res_with_htf["timeframe_analysis"]["1d"]["available"])
+        self.assertEqual(res_with_htf["timeframe_analysis"]["1d"]["direction"], "BULLISH")
+        self.assertTrue(any("4H confirms BULLISH" in s for s in res_with_htf["supporting_evidence"]))
+        self.assertTrue(any("1D confirms BULLISH" in s for s in res_with_htf["supporting_evidence"]))
+
+    def test_4h_and_1d_conflict_suppresses_1h_bull_trap(self):
+        """Scenario 18: Bearish 4H & 1D anchor demotes a counter-trend 1H rally to TRANSITIONAL/NEUTRAL."""
+        c_1h = make_trending_candles(n_bars=70, base_price=60000.0, slope=120.0, spread=80.0)
+        c_15m = make_trending_candles(n_bars=30, base_price=64000.0, slope=40.0, spread=30.0)
+        c_5m = make_trending_candles(n_bars=25, base_price=65000.0, slope=15.0, spread=10.0)
+        c_4h_bear = make_trending_candles(n_bars=220, base_price=90000.0, slope=-100.0, spread=100.0)
+        c_1d_bear = make_trending_candles(n_bars=220, base_price=95000.0, slope=-120.0, spread=150.0)
+
+        res = classify_market_regime(
+            c_1h, c_15m, c_5m, symbol="BTCUSD", candles_4h=c_4h_bear, candles_1d=c_1d_bear
+        )
+
+        self.assertEqual(res["regime"], "TRANSITIONAL")
+        self.assertEqual(res["directional_bias"], "NEUTRAL")
+        self.assertTrue(res["is_provisional"])
+        self.assertEqual(res["regime_transition"]["transition_type"], "HTF_MACRO_CONFLICT")
+        self.assertTrue(any("HTF" in c or "macro trends" in c for c in res["conflicting_evidence"]))
+
+    def test_analyze_symbol_fetches_240_4h_bars_and_passes_htf(self):
+        """Scenario 19: analyze_symbol fetches 240+ bars window for 4H and populates 4h/1d in timeframe_analysis."""
+        import time as _time
+        now = int(_time.time())
+
+        def with_timestamps(candles, step_sec):
+            n = len(candles["c"])
+            candles["t"] = [now - ((n - 1 - i) * step_sec) for i in range(n)]
+            return candles
+
+        c_1h = with_timestamps(make_trending_candles(n_bars=70, base_price=60000.0, slope=100.0, spread=80.0), 3600)
+        c_15m = with_timestamps(make_trending_candles(n_bars=30, base_price=64000.0, slope=35.0, spread=30.0), 900)
+        c_5m = with_timestamps(make_trending_candles(n_bars=25, base_price=65000.0, slope=10.0, spread=10.0), 300)
+        c_4h = with_timestamps(make_trending_candles(n_bars=240, base_price=42000.0, slope=90.0, spread=110.0), 14400)
+        c_1d = with_timestamps(make_trending_candles(n_bars=240, base_price=35000.0, slope=110.0, spread=160.0), 86400)
+        c_1w = with_timestamps(make_trending_candles(n_bars=30, base_price=30000.0, slope=800.0, spread=500.0), 604800)
+
+        calls = []
+
+        def fake_get_candles(symbol, resolution="60", from_time=None, to_time=None):
+            calls.append((resolution, from_time, to_time))
+            mapping = {
+                "60": c_1h,
+                "15": c_15m,
+                "5": c_5m,
+                "240": c_4h,
+                "D": c_1d,
+                "W": c_1w,
+            }
+            return {"success": True, "result": mapping.get(resolution, c_1h)}
+
+        mock_client = MagicMock()
+        mock_client.get_candles.side_effect = fake_get_candles
+        mock_client.get_orderbook.return_value = {"success": False}
+        mock_client.get_ticker.return_value = {"success": False}
+
+        agent = RegimeAnalystAgent(client=mock_client)
+        result = agent.analyze_symbol("BTCUSD", resolution="60")
+
+        call_240 = [c for c in calls if c[0] == "240"][0]
+        self.assertIsNotNone(call_240[1])
+        self.assertGreaterEqual(call_240[2] - call_240[1], 14400 * 200)
+        self.assertTrue(result["timeframe_analysis"]["4h"]["available"])
+        self.assertTrue(result["timeframe_analysis"]["1d"]["available"])
+        self.assertEqual(result["macro_4h"]["regime"], "MACRO_BULLISH")
+        self.assertEqual(result["macro_daily"]["regime"], "DAILY_BULLISH")
+
+    def test_htf_pullback_tolerance_keeps_macro_trend(self):
+        """Scenario 20: evaluate_htf_trend maintains BULLISH on shallow 1-bar pullback below EMA21 when structure/ADX stay bullish."""
+        from src.technical_analysis import evaluate_htf_trend
+
+        c_up = make_trending_candles(n_bars=220, base_price=40000.0, slope=100.0, spread=120.0)
+        # Simulate a minor 1-candle pullback slightly below EMA21 but well above EMA50 & EMA200
+        c_up["c"][-1] = c_up["c"][-8]
+        c_up["l"][-1] = c_up["c"][-1] - 40.0
+
+        htf = evaluate_htf_trend(c_up, prefix="MACRO")
+        self.assertTrue(htf["available"])
+        self.assertEqual(htf["direction"], "BULLISH")
+        self.assertEqual(htf["regime"], "MACRO_BULLISH")
+        self.assertEqual(htf["structure"], "HIGHER_HIGHS_AND_LOWS")
+
 
 if __name__ == "__main__":
     unittest.main()

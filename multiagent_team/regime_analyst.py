@@ -27,6 +27,7 @@ from src.technical_analysis import (
     calculate_atr,
     calculate_adx,
     calculate_vwap,
+    evaluate_htf_trend,
     analyze_multi_timeframe
 )
 from multiagent_team.data_validator import MarketDataValidator
@@ -128,15 +129,18 @@ def classify_market_regime(
     candles_15m: Optional[Dict[str, Any]] = None,
     candles_5m: Optional[Dict[str, Any]] = None,
     symbol: str = "BTCUSD",
-    regime_history: Optional[List[str]] = None
+    regime_history: Optional[List[str]] = None,
+    candles_4h: Optional[Dict[str, Any]] = None,
+    candles_1d: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Deterministic 9-Regime Market Classification & Multi-Timeframe Engine.
     Evaluates:
-      1H: Macro trend (EMA 50/200), ADX strength, ATR volatility state
+      1D & 4H: Higher-timeframe macro anchor (EMA 21/50/200, ADX, swing structure)
+      1H: Intermediate trend (EMA 50/200), ADX strength, ATR volatility state
       15M: Structural confirmation, local trend, range conditions
-      5M: Short-term momentum (cannot independently reverse 1H bias)
-      Regime Transitions: Trend weakening, Range breakout, Volatility expansion/compression
+      5M: Short-term momentum (cannot independently reverse 1H/4H/1D bias)
+      Regime Transitions: Trend weakening, Range breakout, HTF macro conflict, Volatility changes
       Anti-whipsaw hysteresis tracking.
     """
     cfg = get_asset_regime_config(symbol)
@@ -318,6 +322,14 @@ def classify_market_regime(
             m5_momentum = "PULLBACK_OR_CHOP"
 
     # -------------------------------------------------------------------------
+    # 3.5 Higher Timeframe Macro Context (4H & 1D)
+    # -------------------------------------------------------------------------
+    htf_4h = evaluate_htf_trend(candles_4h, prefix="MACRO", default_price=current_price)
+    htf_1d = evaluate_htf_trend(candles_1d, prefix="DAILY", default_price=current_price)
+    h4_direction = htf_4h["direction"] if htf_4h["available"] else "UNKNOWN"
+    d1_direction = htf_1d["direction"] if htf_1d["available"] else "UNKNOWN"
+
+    # -------------------------------------------------------------------------
     # 4. Canonical 9-Regime State Machine Classification
     # -------------------------------------------------------------------------
     adx_trend_th = cfg["adx_trend_threshold"]
@@ -411,6 +423,32 @@ def classify_market_regime(
             final_regime = "WEAK_DOWNTREND"
             final_bias = "BEARISH"
 
+    # Higher-Timeframe (4H + 1D) Macro Alignment Anchor
+    htf_conflict_demoted = False
+    if htf_4h["available"] or htf_1d["available"]:
+        if final_bias == "BULLISH":
+            if h4_direction == "BEARISH" and d1_direction == "BEARISH":
+                final_regime = "TRANSITIONAL"
+                final_bias = "NEUTRAL"
+                is_provisional = True
+                transition_detected = True
+                transition_type = "HTF_MACRO_CONFLICT"
+                htf_conflict_demoted = True
+            elif (h4_direction == "BEARISH" or d1_direction == "BEARISH") and h4_direction != "BULLISH" and d1_direction != "BULLISH":
+                if final_regime == "STRONG_UPTREND":
+                    final_regime = "WEAK_UPTREND"
+        elif final_bias == "BEARISH":
+            if h4_direction == "BULLISH" and d1_direction == "BULLISH":
+                final_regime = "TRANSITIONAL"
+                final_bias = "NEUTRAL"
+                is_provisional = True
+                transition_detected = True
+                transition_type = "HTF_MACRO_CONFLICT"
+                htf_conflict_demoted = True
+            elif (h4_direction == "BULLISH" or d1_direction == "BULLISH") and h4_direction != "BEARISH" and d1_direction != "BEARISH":
+                if final_regime == "STRONG_DOWNTREND":
+                    final_regime = "WEAK_DOWNTREND"
+
     # -------------------------------------------------------------------------
     # 6. Explainable Confidence Calibration Model
     # -------------------------------------------------------------------------
@@ -485,6 +523,38 @@ def classify_market_regime(
     elif volatility_state == "LOW_VOLATILITY":
         supporting.append(f"Volatility compression active (ATR {atr_pct:.2f}%)")
 
+    # Higher-Timeframe (4H & 1D) Confidence & Evidence Integration
+    if htf_conflict_demoted:
+        conf_score -= 20
+        conflicting.append(
+            f"1H {h1_direction} move opposes both 4H ({h4_direction}) and 1D ({d1_direction}) macro trends — demoted to TRANSITIONAL"
+        )
+    else:
+        for tf_label, htf_meta in (("4H", htf_4h), ("1D", htf_1d)):
+            if not htf_meta["available"]:
+                continue
+            tf_dir = htf_meta["direction"]
+            if final_bias in ("BULLISH", "BEARISH"):
+                if tf_dir == final_bias:
+                    conf_score += 10
+                    supporting.append(
+                        f"{tf_label} confirms {tf_dir} ({htf_meta['structure']}, ADX {htf_meta['adx']:.1f})"
+                    )
+                elif tf_dir in ("BULLISH", "BEARISH"):
+                    conf_score -= 15
+                    conflicting.append(
+                        f"{tf_label} is {tf_dir} (ADX {htf_meta['adx']:.1f}), opposing {final_bias} regime"
+                    )
+                else:
+                    conf_score -= 5
+                    conflicting.append(
+                        f"{tf_label} is NEUTRAL (ADX {htf_meta['adx']:.1f}), lacking higher-timeframe confirmation"
+                    )
+            else:
+                supporting.append(
+                    f"{tf_label} context: {tf_dir} ({htf_meta['structure']}, ADX {htf_meta['adx']:.1f})"
+                )
+
     if is_provisional:
         conf_score -= 15
         conflicting.append("Regime in provisional state pending multi-bar confirmation")
@@ -492,8 +562,17 @@ def classify_market_regime(
     calibrated_conf = max(10, min(100, conf_score))
 
     # Construct Narrative Reason
+    htf_summary = ""
+    if htf_4h["available"] or htf_1d["available"]:
+        parts = []
+        if htf_4h["available"]:
+            parts.append(f"4H {h4_direction}")
+        if htf_1d["available"]:
+            parts.append(f"1D {d1_direction}")
+        htf_summary = f", {' / '.join(parts)}"
+
     reason = (
-        f"{final_regime} confirmed on {symbol}: 1H {h1_direction} bias (ADX {adx_val:.1f}, Vol {volatility_state}) "
+        f"{final_regime} confirmed on {symbol}: 1H {h1_direction} bias (ADX {adx_val:.1f}, Vol {volatility_state}){htf_summary} "
         f"with 15M {h15_trend} structure ({h15_structure}). Confidence: {calibrated_conf}/100."
     )
 
@@ -505,6 +584,32 @@ def classify_market_regime(
         "volatility_state": volatility_state,
         "confidence_score": calibrated_conf,
         "timeframe_analysis": {
+            "1d": {
+                "available": htf_1d["available"],
+                "direction": d1_direction,
+                "regime": htf_1d["regime"],
+                "adx": htf_1d["adx"],
+                "plus_di": htf_1d["plus_di"],
+                "minus_di": htf_1d["minus_di"],
+                "rsi_14": htf_1d["rsi_14"],
+                "ema_21": htf_1d["ema_21"],
+                "ema_50": htf_1d["ema_50"],
+                "ema_200": htf_1d["ema_200"],
+                "structure": htf_1d["structure"]
+            },
+            "4h": {
+                "available": htf_4h["available"],
+                "direction": h4_direction,
+                "regime": htf_4h["regime"],
+                "adx": htf_4h["adx"],
+                "plus_di": htf_4h["plus_di"],
+                "minus_di": htf_4h["minus_di"],
+                "rsi_14": htf_4h["rsi_14"],
+                "ema_21": htf_4h["ema_21"],
+                "ema_50": htf_4h["ema_50"],
+                "ema_200": htf_4h["ema_200"],
+                "structure": htf_4h["structure"]
+            },
             "1h": {
                 "direction": h1_direction,
                 "adx": adx_val,
@@ -565,7 +670,9 @@ class RegimeAnalystAgent:
         candles_1h: Optional[Dict[str, Any]],
         candles_15m: Optional[Dict[str, Any]] = None,
         candles_5m: Optional[Dict[str, Any]] = None,
-        symbol: str = "BTCUSD"
+        symbol: str = "BTCUSD",
+        candles_4h: Optional[Dict[str, Any]] = None,
+        candles_1d: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Public deterministic classification method.
@@ -577,7 +684,9 @@ class RegimeAnalystAgent:
             candles_15m=candles_15m,
             candles_5m=candles_5m,
             symbol=symbol,
-            regime_history=history
+            regime_history=history,
+            candles_4h=candles_4h,
+            candles_1d=candles_1d
         )
         # Update rolling regime history
         if result.get("regime") and result["regime"] != "UNKNOWN":
@@ -667,7 +776,7 @@ class RegimeAnalystAgent:
                 candles_5m = None
 
         # 4. Higher Timeframes (4H, Daily, Weekly)
-        candles_4h_res = self.client.get_candles(symbol, resolution="240")
+        candles_4h_res = self.client.get_candles(symbol, resolution="240", from_time=now - (14400 * 240), to_time=now)
         candles_4h = candles_4h_res.get("result", {}) if candles_4h_res.get("success") else None
 
         candles_1d_res = self.client.get_candles(symbol, resolution="D", from_time=now - (86400 * 365), to_time=now)
@@ -716,7 +825,9 @@ class RegimeAnalystAgent:
             candles_1h=candles_1h,
             candles_15m=candles_15m,
             candles_5m=candles_5m,
-            symbol=symbol
+            symbol=symbol,
+            candles_4h=candles_4h,
+            candles_1d=candles_1d
         )
 
         # Merge new canonical fields into analysis dictionary

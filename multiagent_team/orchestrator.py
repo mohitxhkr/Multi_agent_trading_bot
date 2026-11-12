@@ -98,6 +98,39 @@ class MultiAgentTradingOrchestrator:
         self.symbols = symbols or [s.strip().upper() for s in raw_symbols.split(",") if s.strip()]
         self.interactive = interactive
         self.leverage = leverage
+        self._recent_proposals = self._get_proposal_cooldowns()
+
+    def _get_proposal_cooldowns(self) -> Dict[str, float]:
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "proposal_cooldowns.json")
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.debug(f"Could not load proposal cooldowns: {e}")
+        return getattr(self, "_recent_proposals", {})
+
+    def _set_proposal_cooldown(self, symbol: str, timestamp: Optional[float] = None) -> None:
+        ts = timestamp or time.time()
+        if not hasattr(self, "_recent_proposals"):
+            self._recent_proposals = {}
+        self._recent_proposals[symbol] = ts
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "proposal_cooldowns.json")
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            data = {}
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            data[symbol] = ts
+            now = time.time()
+            data = {k: v for k, v in data.items() if now - v < 86400}
+            tmp_path = path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, path)
+        except Exception as e:
+            logger.debug(f"Could not save proposal cooldowns: {e}")
 
     def get_market_digest_text(self, scan_results: Optional[Dict[str, Any]] = None, symbols: Optional[List[str]] = None) -> str:
         """Generate a clean Telegram-ready summary of market regimes for primary assets."""
@@ -1063,13 +1096,12 @@ class MultiAgentTradingOrchestrator:
 
         # Check proposal cooldown to avoid repeating identical proposals every cycle
         now_ts = time.time()
-        if not hasattr(self, "_recent_proposals"):
-            self._recent_proposals = {}
+        cooldowns = self._get_proposal_cooldowns()
 
         eligible_trades = []
         for t in approved_trades:
             sym_t = t.get("symbol", "")
-            last_p = self._recent_proposals.get(sym_t, 0)
+            last_p = cooldowns.get(sym_t, 0)
             if now_ts - last_p >= 1800:  # 30-minute proposal cooldown per symbol
                 eligible_trades.append(t)
             else:
@@ -1106,7 +1138,7 @@ class MultiAgentTradingOrchestrator:
                 continue
 
             # 2. ONLY IF 100% PERFECT -> Dispatch proposal card to user
-            self._recent_proposals[trade.get("symbol", "")] = now_ts
+            self._set_proposal_cooldown(trade.get("symbol", ""), now_ts)
             print("\n📱 [Layer 3: Telegram Confirmation Gate] Candidate 100% verified in background! Sending proposal card to user...")
 
             # Generate directional candlestick chart with UP/DOWN indication
@@ -1167,6 +1199,7 @@ class MultiAgentTradingOrchestrator:
 
             if not execute_now:
                 print("   ⏭️ Trade declined or timed out. Capital protected.")
+                self._set_proposal_cooldown(trade.get("symbol", ""), time.time())
                 return {"status": "TIMEOUT", "code": "USER_REJECTED_OR_EXPIRED", "trade": trade}
 
             # -------------------------------------------------------------
@@ -1256,6 +1289,7 @@ class MultiAgentTradingOrchestrator:
                 }
             else:
                 print(f"   ⚠️ Order execution failed on Delta Exchange: {exec_res.get('error')}")
+                self._set_proposal_cooldown(trade.get("symbol", ""), time.time())
                 if self.telegram_bot and self.telegram_bot.is_configured:
                     tid = trade.get("trade_id") or exec_res.get("trade_id")
                     if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
@@ -1403,8 +1437,14 @@ class MultiAgentTradingOrchestrator:
                         "notified": True
                     }
 
-                logger.info(f"Orchestrator: Running full multi-agent trend & edge scan across {available} for /trade...")
-                scan_results = self.regime_analyst.scan_universe(available, resolution="15")
+                cooldowns = self._get_proposal_cooldowns()
+                now_t = time.time()
+                # Prioritize symbols not proposed or rejected in the last 15 minutes (900s)
+                fresh_available = [s for s in available if (now_t - cooldowns.get(s, 0)) >= 900]
+                scan_targets = fresh_available if fresh_available else available
+
+                logger.info(f"Orchestrator: Running full multi-agent trend & edge scan across {scan_targets} for /trade...")
+                scan_results = self.regime_analyst.scan_universe(scan_targets, resolution="15")
                 if hasattr(self, "exposure_coach"):
                     try:
                         posture_data = self.exposure_coach.evaluate_market_posture(
@@ -1824,6 +1864,7 @@ class MultiAgentTradingOrchestrator:
             execute_now = False
 
         if not execute_now:
+            self._set_proposal_cooldown(decision.get("symbol", ""), time.time())
             return {"status": "TIMEOUT", "code": "USER_REJECTED_OR_EXPIRED", "trade": decision}
 
         # 7. Post-Approval Final Token Issuance & Execution on Delta Exchange
@@ -1913,6 +1954,7 @@ class MultiAgentTradingOrchestrator:
             }
         else:
             err_msg = exec_res.get("error")
+            self._set_proposal_cooldown(decision.get("symbol", ""), time.time())
             if self.telegram_bot and self.telegram_bot.is_configured:
                 tid = decision.get("trade_id") or exec_res.get("trade_id")
                 if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):

@@ -404,6 +404,105 @@ class TestTrendAndWinRateGates(unittest.TestCase):
         self.assertEqual(res["code"], "TIME_MACHINE_VETO")
         self.assertFalse(orch.telegram_bot.request_trade_confirmation.called)
 
+    def test_scale_in_rejects_choppy_regime_and_htf_opposition(self):
+        """Scale-in ('adding more quantity') enforces same choppy-regime & HTF trend checks as automatic & /trade."""
+        mock_client = MagicMock()
+        mock_client.get_positions.return_value = {
+            "success": True,
+            "result": [{"symbol": "BTCUSD", "size": 5, "entry_price": 69000.0, "unrealized_pnl": 25.0}],
+        }
+        mock_client.get_ticker.return_value = {"success": True, "result": {"mark_price": 70000.0}}
+        orch = MultiAgentTradingOrchestrator(client=mock_client, symbols=["BTCUSD"], interactive=False)
+        orch.emergency_controller.is_halted = MagicMock(return_value=(False, ""))
+        orch.notify_telegram_rejection = MagicMock()
+
+        # 1. Choppy / RANGING regime must block scale-in
+        orch.regime_analyst.analyze_symbol = MagicMock(
+            return_value={
+                "symbol": "BTCUSD",
+                "regime": "RANGING",
+                "directional_bias": "NEUTRAL",
+                "macro_4h": {"regime": "MACRO_BULLISH"},
+                "macro_daily": {"regime": "DAILY_BULLISH"},
+                "current_price": 70000.0,
+                "mark_price": 70000.0,
+            }
+        )
+        res_chop = orch.propose_on_demand_trade(symbol="BTCUSD", chat_id="123")
+        self.assertEqual(res_chop["status"], "REJECTED")
+        self.assertEqual(res_chop["code"], "REGIME_VETO")
+
+        # 2. Opposing 4H macro trend must block scale-in even if 1H bounced
+        orch.regime_analyst.analyze_symbol = MagicMock(
+            return_value={
+                "symbol": "BTCUSD",
+                "regime": "WEAK_UPTREND",
+                "directional_bias": "BULLISH",
+                "macro_4h": {"regime": "MACRO_BEARISH"},
+                "macro_daily": {"regime": "DAILY_NEUTRAL"},
+                "current_price": 70000.0,
+                "mark_price": 70000.0,
+            }
+        )
+        res_htf = orch.propose_on_demand_trade(symbol="BTCUSD", chat_id="123")
+        self.assertEqual(res_htf["status"], "REJECTED")
+        self.assertEqual(res_htf["code"], "COUNTER_TREND_VETO")
+
+    def test_on_demand_trade_enforces_exposure_coach_posture_parity(self):
+        """Manual /trade enforces ExposureCoach cash_priority, direction_bias, and DEFENSIVE_CAUTION Tier-1 filter."""
+        mock_client = MagicMock()
+        mock_client.get_positions.return_value = {"success": True, "result": []}
+        mock_client.get_ticker.return_value = {"success": True, "result": {"mark_price": 150.0}}
+        orch = MultiAgentTradingOrchestrator(
+            client=mock_client,
+            symbols=["BTCUSD", "ETHUSD", "XAUUSD", "SOLUSD"],
+            interactive=False,
+        )
+        orch.emergency_controller.is_halted = MagicMock(return_value=(False, ""))
+        orch.notify_telegram_rejection = MagicMock()
+        orch.regime_analyst.analyze_symbol = MagicMock(
+            return_value={
+                "symbol": "SOLUSD",
+                "regime": "STRONG_UPTREND",
+                "directional_bias": "BULLISH",
+                "macro_4h": {"regime": "MACRO_BULLISH"},
+                "macro_daily": {"regime": "DAILY_BULLISH"},
+                "current_price": 150.0,
+                "mark_price": 150.0,
+            }
+        )
+        orch.regime_analyst.scan_universe = MagicMock(
+            return_value={"symbols_data": {"BTCUSD": {"current_price": 70000.0}, "SOLUSD": {"current_price": 150.0}}}
+        )
+
+        # DEFENSIVE_CAUTION blocks altcoin SOLUSD on /trade SOLUSD just like run_trading_cycle
+        orch.exposure_coach.evaluate_market_posture = MagicMock(
+            return_value={"posture": "DEFENSIVE_CAUTION", "cash_priority": False, "direction_bias": "BOTH"}
+        )
+        res_def = orch.propose_on_demand_trade(symbol="SOLUSD", side="buy", chat_id="123")
+        self.assertEqual(res_def["status"], "REJECTED")
+        self.assertEqual(res_def["code"], "DEFENSIVE_TIER1_VETO")
+
+        # SHORTS_ONLY blocks LONG on BTCUSD
+        orch.exposure_coach.evaluate_market_posture = MagicMock(
+            return_value={"posture": "MODERATE_SELECTIVE", "cash_priority": False, "direction_bias": "SHORTS_ONLY"}
+        )
+        orch.regime_analyst.analyze_symbol = MagicMock(
+            return_value={
+                "symbol": "BTCUSD",
+                "regime": "STRONG_UPTREND",
+                "directional_bias": "BULLISH",
+                "macro_4h": {"regime": "MACRO_BULLISH"},
+                "macro_daily": {"regime": "DAILY_BULLISH"},
+                "current_price": 70000.0,
+                "mark_price": 70000.0,
+            }
+        )
+        mock_client.get_ticker.return_value = {"success": True, "result": {"mark_price": 70000.0}}
+        res_dir = orch.propose_on_demand_trade(symbol="BTCUSD", side="buy", chat_id="123")
+        self.assertEqual(res_dir["status"], "REJECTED")
+        self.assertEqual(res_dir["code"], "DIRECTION_BIAS_VETO")
+
 
 if __name__ == "__main__":
     unittest.main()

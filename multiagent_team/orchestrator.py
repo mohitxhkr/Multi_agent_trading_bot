@@ -4,7 +4,7 @@ Coordinates 11 autonomous agents and shared infrastructure across 6 institutiona
 with standardized responses (SUCCESS, REJECTED, FAILED, TIMEOUT, SKIPPED).
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import sys
 import os
 import time
@@ -347,7 +347,79 @@ class MultiAgentTradingOrchestrator:
             logger.error(f"Failed to broadcast daily market levels: {e}")
             return False
 
-    def check_and_dispatch_level_breakout_alerts(self, symbols_data: Optional[Dict[str, Any]] = None) -> int:
+    def _collect_news_sentiment_safe(self) -> Optional[Any]:
+        """Collect news sentiment safely without interrupting trading or /trade flows."""
+        if not hasattr(self, "news_sentiment"):
+            return None
+        try:
+            return self.news_sentiment.generate_sentiment_report()
+        except Exception as ne:
+            logger.warning(f"News sentiment collection skipped: {ne}")
+            return None
+
+    @staticmethod
+    def _is_counter_trend_direction(side: str, analysis: Dict[str, Any]) -> bool:
+        """Unified 1H + 4H + 1D counter-trend check shared across automatic, /trade, and scale-in flows."""
+        req_side = str(side or "").lower()
+        if req_side not in ("buy", "sell") or not isinstance(analysis, dict):
+            return False
+        h1_b = str(analysis.get("directional_bias") or analysis.get("regime") or "").upper()
+        h4_r = str((analysis.get("macro_4h") or {}).get("regime") or "").upper()
+        d1_r = str((analysis.get("macro_daily") or {}).get("regime") or "").upper()
+        if req_side == "buy":
+            return (
+                "BEARISH" in h1_b
+                or "BEARISH" in h4_r
+                or "TRENDING_DOWN" in h1_b
+                or ("BEARISH" in d1_r and "BULLISH" not in h4_r)
+            )
+        return (
+            "BULLISH" in h1_b
+            or "BULLISH" in h4_r
+            or "TRENDING_UP" in h1_b
+            or ("BULLISH" in d1_r and "BEARISH" not in h4_r)
+        )
+
+    @staticmethod
+    def _check_exposure_posture_gate(
+        posture_data: Optional[Dict[str, Any]],
+        symbol: Optional[str] = None,
+        side: Optional[str] = None,
+    ) -> Optional[Tuple[str, str]]:
+        """Apply ExposureCoach cash_priority, direction_bias, and defensive Tier-1 gates uniformly."""
+        if not isinstance(posture_data, dict) or not posture_data:
+            return None
+        if posture_data.get("cash_priority"):
+            return (
+                "CASH_PRIORITY",
+                posture_data.get("rationale") or "Market breadth broken / choppy (Cash Priority active).",
+            )
+        direction_bias = posture_data.get("direction_bias", "BOTH")
+        req_side = str(side or "").lower()
+        if req_side == "buy" and direction_bias == "SHORTS_ONLY":
+            return (
+                "DIRECTION_BIAS_VETO",
+                f"Exposure Coach enforces SHORTS_ONLY posture ({posture_data.get('posture', 'DEFENSIVE')}); LONG blocked.",
+            )
+        if req_side == "sell" and direction_bias == "LONGS_ONLY":
+            return (
+                "DIRECTION_BIAS_VETO",
+                f"Exposure Coach enforces LONGS_ONLY posture ({posture_data.get('posture', 'BULLISH')}); SHORT blocked.",
+            )
+        if symbol and posture_data.get("posture") in ["DEFENSIVE_CAUTION", "RECOVERY_POSTURE"]:
+            if symbol.upper() not in ["BTCUSD", "ETHUSD", "XAUUSD"]:
+                return (
+                    "DEFENSIVE_TIER1_VETO",
+                    f"{posture_data.get('posture')} posture active: altcoin {symbol.upper()} blocked; strictly Tier-1 Core (BTC/ETH/XAU) permitted.",
+                )
+        return None
+
+    def check_and_dispatch_level_breakout_alerts(
+        self,
+        symbols_data: Optional[Dict[str, Any]] = None,
+        posture_data: Optional[Dict[str, Any]] = None,
+        sentiment_report: Optional[Any] = None,
+    ) -> int:
         """
         Detect if any primary asset is within <= 0.35% of a critical breakout or breakdown level,
         and dispatch an immediate proactive Pre-Trade Radar Alert to Telegram.
@@ -482,15 +554,15 @@ class MultiAgentTradingOrchestrator:
                             planned_rr = float(plan.get("planned_rr", 2.3))
 
                             sym_ctx = d if isinstance(d, dict) else {}
-                            h1_bias = str(sym_ctx.get("directional_bias") or sym_ctx.get("regime") or "").upper()
-                            h4_reg = str((sym_ctx.get("macro_4h") or {}).get("regime") or "").upper()
-                            d1_reg = str((sym_ctx.get("macro_daily") or {}).get("regime") or "").upper()
-                            counter_trend_breakout = (
-                                (side_val == "buy" and ("BEARISH" in h1_bias or "BEARISH" in h4_reg or "TRENDING_DOWN" in h1_bias or ("BEARISH" in d1_reg and "BULLISH" not in h4_reg)))
-                                or (side_val == "sell" and ("BULLISH" in h1_bias or "BULLISH" in h4_reg or "TRENDING_UP" in h1_bias or ("BULLISH" in d1_reg and "BEARISH" not in h4_reg)))
-                            )
-                            if counter_trend_breakout:
+                            if self._is_counter_trend_direction(side_val, sym_ctx):
+                                h1_bias = str(sym_ctx.get("directional_bias") or sym_ctx.get("regime") or "").upper()
+                                h4_reg = str((sym_ctx.get("macro_4h") or {}).get("regime") or "").upper()
                                 logger.info(f"Level breakout proposal {sym} {side_val.upper()} vetoed: counter-trend against HTF regime (1H={h1_bias}, 4H={h4_reg}).")
+                                continue
+
+                            posture_veto = self._check_exposure_posture_gate(posture_data, symbol=sym, side=side_val)
+                            if posture_veto:
+                                logger.info(f"Level breakout proposal {sym} {side_val.upper()} vetoed by Exposure Coach ({posture_veto[0]}): {posture_veto[1]}")
                                 continue
 
                             if sl_p > 0 and tp_p > 0 and price > 0:
@@ -527,6 +599,14 @@ class MultiAgentTradingOrchestrator:
                                 if decision.get("gate_decision") != "APPROVED":
                                     logger.info(f"Level candidate {sym} vetoed in background by Risk Gatekeeper: {decision.get('reason')}")
                                     continue
+
+                                # Attach sentiment_report to level breakout proposal if available
+                                if sentiment_report:
+                                    decision["sentiment_report"] = (
+                                        sentiment_report.model_dump()
+                                        if hasattr(sentiment_report, "model_dump")
+                                        else sentiment_report.dict()
+                                    )
 
                                 stop_dist = abs(price - sl_p)
                                 needed_liq_buffer = stop_dist * 3.5
@@ -779,12 +859,6 @@ class MultiAgentTradingOrchestrator:
 
         self.system_monitor.record_agent_duration("Agent1_RegimeAnalyst", (time.time() - t1) * 1000)
 
-        # Check and dispatch pre-trade key level breakout/breakdown radar alerts
-        try:
-            self.check_and_dispatch_level_breakout_alerts(scan_results.get("symbols_data", {}))
-        except Exception as le:
-            logger.debug(f"Pre-trade level alert check skipped: {le}")
-
         # Layer 1: News Sentiment Intelligence Engine
         t_news = time.time()
         print("\n📰 [Layer 1: News Sentiment Intelligence] Ingesting global headlines & Fear/Greed index...")
@@ -828,6 +902,16 @@ class MultiAgentTradingOrchestrator:
             logger.debug(f"Operating rules audit skipped: {pe}")
 
         self.system_monitor.record_agent_duration("Agent2_ExposureCoach", (time.time() - t2) * 1000)
+
+        # Check and dispatch pre-trade key level breakout/breakdown radar alerts with full posture & sentiment context
+        try:
+            self.check_and_dispatch_level_breakout_alerts(
+                scan_results.get("symbols_data", {}),
+                posture_data=posture_data,
+                sentiment_report=sentiment_report,
+            )
+        except Exception as le:
+            logger.debug(f"Pre-trade level alert check skipped: {le}")
 
         if posture_data.get("cash_priority"):
             print(f"\n   🛑 [CASH PRIORITY ACTIVE] Market breadth broken ({posture_data['breadth_pct']}%). All new trades blocked.")
@@ -1244,6 +1328,9 @@ class MultiAgentTradingOrchestrator:
         except Exception:
             pass
 
+        sentiment_report = self._collect_news_sentiment_safe()
+        posture_data = {}
+
         # Target Asset & Scale-In Selection:
         if symbol and symbol.upper() not in ["ALL", "AUTO", "ANY", "SCAN"]:
             clean_sym = symbol.upper()
@@ -1296,12 +1383,12 @@ class MultiAgentTradingOrchestrator:
 
                 logger.info(f"Orchestrator: Running full multi-agent trend & edge scan across {available} for /trade...")
                 scan_results = self.regime_analyst.scan_universe(available, resolution="15")
-                posture_data = {}
                 if hasattr(self, "exposure_coach"):
                     try:
                         posture_data = self.exposure_coach.evaluate_market_posture(
                             scan_results=scan_results,
-                            active_positions_count=len(active_pos_symbols)
+                            active_positions_count=len(active_pos_symbols),
+                            sentiment_report=sentiment_report,
                         )
                         direction_bias = posture_data.get("direction_bias", "BOTH")
                     except Exception:
@@ -1315,10 +1402,11 @@ class MultiAgentTradingOrchestrator:
                 candidates = self.strategy_agent.find_best_candidates(scan_results)
                 if side:
                     candidates = [c for c in candidates if c.get("side") == side.lower()]
-                elif direction_bias == "SHORTS_ONLY":
-                    candidates = [c for c in candidates if c.get("side") == "sell"]
-                elif direction_bias == "LONGS_ONLY":
-                    candidates = [c for c in candidates if c.get("side") == "buy"]
+                if candidates and posture_data:
+                    candidates = [
+                        c for c in candidates
+                        if self._check_exposure_posture_gate(posture_data, symbol=c.get("symbol"), side=c.get("side")) is None
+                    ]
 
                 if not candidates:
                     rej_notes = []
@@ -1424,21 +1512,43 @@ class MultiAgentTradingOrchestrator:
                 self.notify_telegram_rejection(symbol, reason, code, chat_id=chat_id)
                 return {"status": "FAILED", "code": code, "reason": reason, "notified": True}
 
+            if not posture_data and hasattr(self, "exposure_coach") and len(self.symbols) >= 2:
+                try:
+                    uni_scan = self.regime_analyst.scan_universe(self.symbols, resolution="15")
+                    if isinstance(uni_scan, dict) and uni_scan.get("symbols_data"):
+                        posture_data = self.exposure_coach.evaluate_market_posture(
+                            scan_results=uni_scan,
+                            active_positions_count=len(active_pos_symbols),
+                            sentiment_report=sentiment_report,
+                        )
+                except Exception:
+                    pass
+
             if is_scale_in:
                 pos_match = next((p for p in raw_positions if str(p.get("symbol") or p.get("product_symbol") or "").upper() == symbol), None)
                 if pos_match:
                     existing_size = float(pos_match.get("size", 0))
                     side = "buy" if existing_size > 0 else "sell"
 
-                # Guard against scaling in if HTF trend reversed against existing position
-                h1_b = str(analysis.get("directional_bias") or analysis.get("regime") or "").upper()
-                h4_r = str((analysis.get("macro_4h") or {}).get("regime") or "").upper()
-                if (side == "buy" and "BEARISH" in h1_b and "BEARISH" in h4_r) or (
-                    side == "sell" and "BULLISH" in h1_b and "BULLISH" in h4_r
-                ):
-                    reason = f"Scale-in {symbol} {side.upper()} blocked: higher timeframe trend reversed against open trade (1H={h1_b}, 4H={h4_r})."
+                # Enforce same regime, 1H/4H/1D trend, and Exposure Coach gates as automatic & /trade
+                regime_upper = str(analysis.get("regime") or "").upper()
+                if regime_upper in ("RANGING", "LOW_VOLATILITY", "TRANSITIONAL", "UNKNOWN", "RANGING_CHOP"):
+                    reason = f"Scale-in {symbol} {side.upper()} blocked: unclear/choppy regime ({regime_upper})."
+                    self.notify_telegram_rejection(symbol, reason, "REGIME_VETO", chat_id=chat_id)
+                    return {"status": "REJECTED", "code": "REGIME_VETO", "reason": reason, "notified": True}
+
+                if self._is_counter_trend_direction(side, analysis):
+                    h1_b = str(analysis.get("directional_bias") or analysis.get("regime") or "").upper()
+                    h4_r = str((analysis.get("macro_4h") or {}).get("regime") or "").upper()
+                    d1_r = str((analysis.get("macro_daily") or {}).get("regime") or "").upper()
+                    reason = f"Scale-in {symbol} {side.upper()} blocked: trend/HTF opposed open trade (1H={h1_b}, 4H={h4_r}, Daily={d1_r})."
                     self.notify_telegram_rejection(symbol, reason, "COUNTER_TREND_VETO", chat_id=chat_id)
                     return {"status": "REJECTED", "code": "COUNTER_TREND_VETO", "reason": reason, "notified": True}
+
+                posture_veto = self._check_exposure_posture_gate(posture_data, symbol=symbol, side=side)
+                if posture_veto:
+                    self.notify_telegram_rejection(symbol, posture_veto[1], posture_veto[0], chat_id=chat_id)
+                    return {"status": "REJECTED", "code": posture_veto[0], "reason": posture_veto[1], "notified": True}
 
                 atr = float((analysis.get("macro_15m") or {}).get("atr_14") or analysis.get("atr_14") or (cur_mark * 0.006))
                 vwap = float(analysis.get("vwap") or cur_mark)
@@ -1484,20 +1594,19 @@ class MultiAgentTradingOrchestrator:
                     self.notify_telegram_rejection(symbol, reason, "TIME_MACHINE_VETO", chat_id=chat_id)
                     return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": reason, "notified": True}
             else:
-                # Fresh trade: MUST pass StrategyAgent (trend alignment + confluence) AND TimeMachine (win rate >= 60%)
-                if side:
-                    req_side = side.lower()
+                # Fresh trade: MUST pass ExposureCoach, StrategyAgent (trend + confluence), and TimeMachine (>= 60%)
+                if side and self._is_counter_trend_direction(side, analysis):
                     h1_b = str(analysis.get("directional_bias") or analysis.get("regime") or "").upper()
                     h4_r = str((analysis.get("macro_4h") or {}).get("regime") or "").upper()
                     d1_r = str((analysis.get("macro_daily") or {}).get("regime") or "").upper()
-                    ct_conflict = (
-                        (req_side == "buy" and ("BEARISH" in h1_b or "BEARISH" in h4_r or "TRENDING_DOWN" in h1_b or ("BEARISH" in d1_r and "BULLISH" not in h4_r)))
-                        or (req_side == "sell" and ("BULLISH" in h1_b or "BULLISH" in h4_r or "TRENDING_UP" in h1_b or ("BULLISH" in d1_r and "BEARISH" not in h4_r)))
-                    )
-                    if ct_conflict:
-                        reason = f"Counter-trend {symbol} {req_side.upper()} rejected against market trend (1H={h1_b or 'N/A'}, 4H={h4_r or 'N/A'}, Daily={d1_r or 'N/A'})."
-                        self.notify_telegram_rejection(symbol, reason, "COUNTER_TREND_VETO", chat_id=chat_id)
-                        return {"status": "REJECTED", "code": "COUNTER_TREND_VETO", "reason": reason, "notified": True}
+                    reason = f"Counter-trend {symbol} {side.upper()} rejected against market trend (1H={h1_b or 'N/A'}, 4H={h4_r or 'N/A'}, Daily={d1_r or 'N/A'})."
+                    self.notify_telegram_rejection(symbol, reason, "COUNTER_TREND_VETO", chat_id=chat_id)
+                    return {"status": "REJECTED", "code": "COUNTER_TREND_VETO", "reason": reason, "notified": True}
+
+                pre_posture_veto = self._check_exposure_posture_gate(posture_data, symbol=symbol, side=side)
+                if pre_posture_veto:
+                    self.notify_telegram_rejection(symbol, pre_posture_veto[1], pre_posture_veto[0], chat_id=chat_id)
+                    return {"status": "REJECTED", "code": pre_posture_veto[0], "reason": pre_posture_veto[1], "notified": True}
 
                 candidate = self.strategy_agent.evaluate_setup(analysis)
                 if not candidate:
@@ -1516,6 +1625,10 @@ class MultiAgentTradingOrchestrator:
                     return {"status": "REJECTED", "code": "COUNTER_TREND_VETO", "reason": reason, "notified": True}
 
                 side = candidate["side"]
+                post_posture_veto = self._check_exposure_posture_gate(posture_data, symbol=symbol, side=side)
+                if post_posture_veto:
+                    self.notify_telegram_rejection(symbol, post_posture_veto[1], post_posture_veto[0], chat_id=chat_id)
+                    return {"status": "REJECTED", "code": post_posture_veto[0], "reason": post_posture_veto[1], "notified": True}
                 tm_res = self.time_machine.simulate_setup(candidate, candles_15m=candles_15m, candles_1h=candles_1h)
                 candidate["time_machine"] = tm_res
                 if not tm_res.get("passed") or float(tm_res.get("win_rate_pct", 0.0) or 0.0) < self.time_machine.min_win_rate_pct:
@@ -1586,6 +1699,12 @@ class MultiAgentTradingOrchestrator:
         decision["take_profit_price"] = float(decision.get("take_profit_price") or candidate["take_profit_price"])
         decision["confluence"] = candidate["confluence"]
         decision["time_machine"] = candidate["time_machine"]
+        if sentiment_report:
+            decision["sentiment_report"] = (
+                sentiment_report.model_dump()
+                if hasattr(sentiment_report, "model_dump")
+                else sentiment_report.dict()
+            )
         if is_scale_in:
             decision["is_scale_in"] = True
 

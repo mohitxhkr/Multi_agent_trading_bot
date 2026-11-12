@@ -198,6 +198,12 @@ class DeltaExchangeClient:
                 return "XAUTUSD"
             if "PAXGUSD" in self._products_cache:
                 return "PAXGUSD"
+        if sym in ["PAXG", "PAXGUSD"]:
+            if "PAXGUSD" in self._products_cache:
+                return "PAXGUSD"
+        if sym in ["XAUT", "XAUTUSD"]:
+            if "XAUTUSD" in self._products_cache:
+                return "XAUTUSD"
 
         if sym in self._products_cache:
             return sym
@@ -245,6 +251,58 @@ class DeltaExchangeClient:
         steps = round(price / tick)
         rounded = steps * tick
         return round(rounded, decimals)
+
+    def get_max_leverage(self, symbol: str) -> int:
+        """
+        Get maximum permissible leverage for a contract product.
+        Authoritatively inspects ui_config leverage slider values, initial_margin, and default_leverage.
+        Defaults defensively to 20 for metals/alts or 50 for BTC.
+        """
+        pinfo = self.get_product_info(symbol)
+        resolved = self.resolve_symbol(symbol).upper()
+        default_fallback = 50 if "BTC" in resolved else 20
+        if not pinfo:
+            return default_fallback
+
+        # 1. Authoritative: ui_config leverage slider values (exact exchange max)
+        ui_config = pinfo.get("ui_config") or {}
+        slider_vals = ui_config.get("leverage_slider_values")
+        if slider_vals and isinstance(slider_vals, list) and len(slider_vals) > 0:
+            try:
+                val = int(float(slider_vals[-1]))
+                if val > 0:
+                    return val
+            except (ValueError, TypeError):
+                pass
+
+        # 2. Check max_leverage field if explicitly provided
+        if pinfo.get("max_leverage"):
+            try:
+                val = int(float(pinfo["max_leverage"]))
+                if val > 0:
+                    return val
+            except (ValueError, TypeError):
+                pass
+
+        # 3. Check initial_margin: 100 / initial_margin
+        if pinfo.get("initial_margin"):
+            try:
+                im = float(pinfo["initial_margin"])
+                if im > 0:
+                    return int(100.0 / im)
+            except (ValueError, TypeError):
+                pass
+
+        # 4. Check default_leverage
+        if pinfo.get("default_leverage"):
+            try:
+                val = int(float(pinfo["default_leverage"]))
+                if val > 0:
+                    return val
+            except (ValueError, TypeError):
+                pass
+
+        return default_fallback
 
     # -------------------------------------------------------------------------
     # Diagnostics & Connectivity
@@ -378,12 +436,20 @@ class DeltaExchangeClient:
     # Trading & Execution Endpoints
     # -------------------------------------------------------------------------
     def set_leverage(self, symbol: str, leverage: int) -> Dict[str, Any]:
-        """Set leverage for a contract product (e.g. 5 for 5x)."""
+        """
+        Set leverage for a contract product (e.g. 5 for 5x).
+        Clamps requested leverage to product maximum so Delta Exchange never rejects
+        the call with 'max_leverage_exceeded'.
+        """
         pid = self.get_product_id(symbol)
         if not pid:
             return {"success": False, "error": f"Symbol {symbol} not found in product cache"}
 
-        payload = {"leverage": str(leverage)}
+        max_lev = self.get_max_leverage(symbol)
+        clamped_lev = min(int(leverage), max_lev) if max_lev > 0 else int(leverage)
+        clamped_lev = max(1, clamped_lev)
+
+        payload = {"leverage": str(clamped_lev)}
         return self._request("POST", f"/v2/products/{pid}/orders/leverage", payload=payload, authenticated=True)
 
     def get_order_by_client_id(self, client_order_id: str, symbol: Optional[str] = None) -> Dict[str, Any]:

@@ -708,6 +708,9 @@ class MultiAgentTradingOrchestrator:
                 reason = safety_res.get("reason", "Safety check failed")
                 logger.warning(f"🚨 [SAFETY CONTROLLER VETO] {code}: {reason}")
                 if self.telegram_bot and self.telegram_bot.is_configured:
+                    tid = trade.get("trade_id")
+                    if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
+                        self.telegram_bot.update_proposal_card_status(tid, "BLOCKED", f"{code}: {reason}", chat_id=chat_id)
                     self.telegram_bot.send_message(f"🛑 <b>Execution Blocked by Safety Controller:</b>\nReason: <code>{reason}</code> (Code: <code>{code}</code>)\nCapital protected.", chat_id=chat_id)
                 return {"status": "REJECTED", "code": code, "reason": reason}
 
@@ -721,6 +724,10 @@ class MultiAgentTradingOrchestrator:
 
             if exec_res.get("success"):
                 logger.info(f"🎉 Order placed! Trade ID: {exec_res.get('trade_id')} | Order ID: #{exec_res.get('order_id')}")
+                if self.telegram_bot and self.telegram_bot.is_configured:
+                    tid = trade.get("trade_id") or exec_res.get("trade_id")
+                    if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
+                        self.telegram_bot.update_proposal_card_status(tid, "EXECUTED", f"Order #{exec_res.get('order_id')} placed successfully", chat_id=chat_id)
                 trade_atr = trade.get("atr_profile", {}).get("atr_14") or trade.get("atr_14") or 0.0
                 try:
                     if exec_res.get("is_scale_in"):
@@ -774,6 +781,9 @@ class MultiAgentTradingOrchestrator:
                 err_msg = exec_res.get("error")
                 logger.error(f"⚠️ Order execution failed on Delta Exchange: {err_msg}")
                 if self.telegram_bot and self.telegram_bot.is_configured:
+                    tid = trade.get("trade_id") or exec_res.get("trade_id")
+                    if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
+                        self.telegram_bot.update_proposal_card_status(tid, "FAILED", f"{err_msg}", chat_id=chat_id)
                     self.telegram_bot.send_message(f"⚠️ <b>Order Execution Failed on Delta Exchange:</b>\n<code>{err_msg}</code>", chat_id=chat_id)
                 return {"status": "FAILED", "code": "EXCHANGE_ORDER_ERROR", "error": err_msg}
         except Exception as e:
@@ -1176,6 +1186,10 @@ class MultiAgentTradingOrchestrator:
                 failure_code = safety_token_res.get("failure_code", "SAFETY_VETO")
                 reason = safety_token_res.get("reason", "Safety check failed")
                 print(f"   🚨 [SAFETY CONTROLLER VETO] {failure_code}: {reason}. Trade aborted!")
+                if self.telegram_bot and self.telegram_bot.is_configured:
+                    tid = trade.get("trade_id")
+                    if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
+                        self.telegram_bot.update_proposal_card_status(tid, "BLOCKED", f"{failure_code}: {reason}")
                 self.system_monitor.record_trade_rejection(failure_code, trade["symbol"], reason)
                 return {"status": "REJECTED", "code": failure_code, "reason": reason}
 
@@ -1190,6 +1204,10 @@ class MultiAgentTradingOrchestrator:
 
             if exec_res.get("success"):
                 print(f"   🎉 Order successfully placed! Trade ID: {exec_res['trade_id']} | Order ID: #{exec_res.get('order_id')}")
+                if self.telegram_bot and self.telegram_bot.is_configured:
+                    tid = trade.get("trade_id") or exec_res.get("trade_id")
+                    if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
+                        self.telegram_bot.update_proposal_card_status(tid, "EXECUTED", f"Order #{exec_res.get('order_id')} placed successfully")
                 
                 # Register into TrailingStopManager with Volatility Buffer
                 is_high_vol = (
@@ -1238,6 +1256,10 @@ class MultiAgentTradingOrchestrator:
                 }
             else:
                 print(f"   ⚠️ Order execution failed on Delta Exchange: {exec_res.get('error')}")
+                if self.telegram_bot and self.telegram_bot.is_configured:
+                    tid = trade.get("trade_id") or exec_res.get("trade_id")
+                    if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
+                        self.telegram_bot.update_proposal_card_status(tid, "FAILED", f"{exec_res.get('error')}")
                 self.system_monitor.save_metrics()
                 return {
                     "status": "FAILED",
@@ -1816,6 +1838,9 @@ class MultiAgentTradingOrchestrator:
             code = safety_res.get("failure_code", "SAFETY_VETO")
             reason = safety_res.get("reason", "Safety check failed")
             if self.telegram_bot and self.telegram_bot.is_configured:
+                tid = decision.get("trade_id")
+                if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
+                    self.telegram_bot.update_proposal_card_status(tid, "BLOCKED", f"{code}: {reason}", chat_id=chat_id)
                 self.telegram_bot.send_message(f"🛑 <b>Execution Blocked by Safety Controller:</b>\nReason: <code>{reason}</code> (Code: <code>{code}</code>)\nCapital protected.", chat_id=chat_id)
             return {"status": "REJECTED", "code": code, "reason": reason}
 
@@ -1828,6 +1853,10 @@ class MultiAgentTradingOrchestrator:
         )
 
         if exec_res.get("success"):
+            if self.telegram_bot and self.telegram_bot.is_configured:
+                tid = decision.get("trade_id") or exec_res.get("trade_id")
+                if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
+                    self.telegram_bot.update_proposal_card_status(tid, "EXECUTED", f"Order #{exec_res.get('order_id')} placed successfully", chat_id=chat_id)
             trade_atr = decision.get("atr_profile", {}).get("atr_14") or decision.get("atr_14") or 0.0
             if trade_atr <= 0 and candidate:
                 trade_atr = candidate.get("atr_profile", {}).get("atr_14") or candidate.get("atr_14") or 0.0
@@ -1885,6 +1914,9 @@ class MultiAgentTradingOrchestrator:
         else:
             err_msg = exec_res.get("error")
             if self.telegram_bot and self.telegram_bot.is_configured:
+                tid = decision.get("trade_id") or exec_res.get("trade_id")
+                if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
+                    self.telegram_bot.update_proposal_card_status(tid, "FAILED", f"{err_msg}", chat_id=chat_id)
                 self.telegram_bot.send_message(f"⚠️ <b>Order Execution Failed on Delta Exchange:</b>\n<code>{err_msg}</code>", chat_id=chat_id)
             return {
                 "status": "FAILED",

@@ -224,7 +224,15 @@ class DeterministicSafetyController:
         # ---------------------------------------------------------------------
         # 9. Symbol is on approved instrument list
         # ---------------------------------------------------------------------
-        if symbol not in system_config.approved_symbols:
+        approved_set = set(system_config.approved_symbols)
+        gold_symbols = {"XAUUSD", "XAUTUSD", "PAXGUSD", "GOLD", "GOLDUSD"}
+        symbol_is_approved = (
+            symbol in approved_set
+            or (symbol in gold_symbols and any(g in approved_set for g in gold_symbols))
+            or (symbol.replace("USDT", "USD") in approved_set)
+            or (symbol.replace("USD", "USDT") in approved_set)
+        )
+        if not symbol_is_approved:
             failures.append((
                 "CRITERION_9_UNAPPROVED_SYMBOL",
                 f"Symbol {symbol} is not on the approved whitelist ({system_config.approved_symbols})"

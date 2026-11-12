@@ -404,8 +404,18 @@ class RiskGatekeeperAgent:
         contracts = aligned_contracts
 
         # 6. Instrument-Specific Liquidation Buffer Calculation
-        # Enforce maximum leverage ceiling from config and risk manager
-        max_lev_ceiling = min(config.max_allowed_leverage, self.risk_manager.max_allowed_leverage)
+        # Enforce maximum leverage ceiling from config, risk manager, and exchange product specifications
+        prod_max_lev = 20
+        if self.client and hasattr(self.client, "get_max_leverage"):
+            try:
+                raw_max = self.client.get_max_leverage(symbol)
+                if isinstance(raw_max, (int, float)):
+                    prod_max_lev = int(raw_max)
+                elif isinstance(raw_max, str) and raw_max.isdigit():
+                    prod_max_lev = int(raw_max)
+            except Exception:
+                prod_max_lev = 20
+        max_lev_ceiling = min(config.max_allowed_leverage, self.risk_manager.max_allowed_leverage, prod_max_lev)
         leverage = min(leverage, max_lev_ceiling)
         
         # Query authoritative maintenance margin rate (MMR) from product info

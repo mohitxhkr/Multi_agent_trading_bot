@@ -73,6 +73,28 @@ ASSET_REGIME_CONFIGS: Dict[str, Dict[str, Any]] = {
         "hysteresis_bars": 2,
         "is_primary": True
     },
+    "PAXGUSD": {
+        "symbol": "PAXGUSD",
+        "adx_trend_threshold": 20.0,
+        "adx_strong_trend_threshold": 28.0,
+        "volatility_high_atr_pct": 1.8,
+        "volatility_low_atr_pct": 0.6,
+        "ema_fast": 50,
+        "ema_slow": 200,
+        "hysteresis_bars": 2,
+        "is_primary": True
+    },
+    "XAUTUSD": {
+        "symbol": "XAUTUSD",
+        "adx_trend_threshold": 20.0,
+        "adx_strong_trend_threshold": 28.0,
+        "volatility_high_atr_pct": 1.8,
+        "volatility_low_atr_pct": 0.6,
+        "ema_fast": 50,
+        "ema_slow": 200,
+        "hysteresis_bars": 2,
+        "is_primary": True
+    },
     "SOLUSD": {
         "symbol": "SOLUSD",
         "adx_trend_threshold": 25.0,      # High-volatility altcoin

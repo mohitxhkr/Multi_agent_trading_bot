@@ -62,6 +62,7 @@ class TelegramConfirmationBot:
         self._confirmed_trade_ids = set()
         self._processed_nonces = set()
         self._active_trade_confirmations: Dict[str, Dict[str, Any]] = {}
+        self._proposal_cards: Dict[str, Dict[str, Any]] = {}
         self.max_price_drift_pct = config.max_price_drift_pct
         self.audit_log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "telegram_approvals_audit.json")
         self._poller_last_seen = 0.0
@@ -833,6 +834,11 @@ class TelegramConfirmationBot:
             "symbol": trade_spec.get("symbol", "BTCUSD"),
             "entry": float(trade_spec.get("entry_price") or trade_spec.get("entry") or 0.0),
         }
+        self._proposal_cards[trade_id] = {
+            "msg_id": msg_id,
+            "target_chat": target_chat,
+            "proposal_text": proposal_text
+        }
 
         try:
             start_time = time.time()
@@ -867,6 +873,55 @@ class TelegramConfirmationBot:
             return False
         finally:
             self._active_trade_confirmations.pop(trade_id, None)
+
+    def update_proposal_card_status(
+        self,
+        trade_id: str,
+        status: str,
+        detail: str = "",
+        chat_id: Optional[str] = None
+    ) -> bool:
+        """
+        Update a previously displayed Telegram proposal card to reflect the final execution outcome.
+        Status can be: 'EXECUTED', 'FAILED', 'BLOCKED', 'CANCELLED'.
+        """
+        card_info = self._proposal_cards.get(trade_id)
+        if not card_info:
+            return False
+
+        msg_id = card_info.get("msg_id")
+        target_chat = chat_id or card_info.get("target_chat") or self.chat_id
+        base_text = card_info.get("proposal_text", "")
+
+        if not msg_id or not base_text:
+            return False
+
+        import re
+        prompt_pattern = r"<i>Tap below to approve or decline.*?</i>"
+        executing_pattern = r"⚡ <b>CONFIRMED BY AUTHORIZED USER! EXECUTING ON DELTA EXCHANGE...</b>"
+
+        if status == "EXECUTED":
+            status_text = f"✅ <b>ORDER EXECUTED ON DELTA EXCHANGE!</b>\n<i>{detail}</i>"
+        elif status == "BLOCKED":
+            status_text = f"🛑 <b>EXECUTION BLOCKED BY SAFETY GATE:</b>\n<code>{detail}</code>\n<i>Capital protected.</i>"
+        elif status in ["FAILED", "ERROR"]:
+            status_text = f"🛑 <b>EXECUTION FAILED ON DELTA EXCHANGE:</b>\n<code>{detail}</code>\n<i>Capital protected.</i>"
+        else:
+            status_text = f"ℹ️ <b>STATUS: {status}</b>\n<i>{detail}</i>"
+
+        new_text = base_text
+        if re.search(executing_pattern, new_text):
+            new_text = re.sub(executing_pattern, status_text, new_text)
+        elif re.search(prompt_pattern, new_text):
+            new_text = re.sub(prompt_pattern, status_text, new_text)
+        else:
+            new_text = new_text + "\n\n" + status_text
+
+        try:
+            return self.edit_message_text(msg_id, new_text, reply_markup={"inline_keyboard": []}, chat_id=target_chat)
+        except Exception as e:
+            logger.warning(f"Failed to update proposal card status for trade {trade_id}: {e}")
+            return False
 
     def _normalize_incoming_command(self, text: str) -> Tuple[str, str]:
         """

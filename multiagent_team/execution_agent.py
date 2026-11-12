@@ -61,6 +61,21 @@ class ExecutionAgent:
         take_profit = float(decision["take_profit_price"])
         leverage = int(decision.get("leverage", 25))
 
+        # Respect Delta Exchange maximum leverage for the specific instrument
+        product_max_lev = 20
+        if self.client and hasattr(self.client, "get_max_leverage"):
+            try:
+                raw_lev = self.client.get_max_leverage(symbol)
+                if isinstance(raw_lev, (int, float)):
+                    product_max_lev = int(raw_lev)
+                elif isinstance(raw_lev, str) and raw_lev.isdigit():
+                    product_max_lev = int(raw_lev)
+            except Exception:
+                product_max_lev = 20
+        if product_max_lev > 0 and leverage > product_max_lev:
+            logger.info(f"ExecutionAgent: Clamping requested leverage {leverage}x down to exchange product max {product_max_lev}x for {symbol}.")
+            leverage = product_max_lev
+
         if contracts <= 0:
             return {
                 "success": False,
@@ -283,6 +298,46 @@ class ExecutionAgent:
                     order_res = {"success": True, "result": reconcile_res["result"]}
             except Exception:
                 pass
+
+        # Defensive Execution Fallback:
+        # If bracket order submission was rejected by Delta Exchange (e.g. products where bracket orders
+        # are disabled in UI config or strict bracket validation), fallback to submitting a direct market
+        # order and immediately attaching a dedicated protective stop-loss.
+        if not order_res.get("success") and order_type == "market_order" and "bracket_order_position_exists" not in last_error:
+            logger.warning(
+                f"ExecutionAgent: Bracket order rejected ({last_error}). Attempting defensive fallback: "
+                f"Placing direct market order with standalone protective stop for {symbol}..."
+            )
+            fallback_cid = f"fb_{client_order_id[-18:]}"
+            try:
+                fb_market_res = self.client.place_order(
+                    symbol=symbol,
+                    size=contracts,
+                    side=side,
+                    order_type="market_order",
+                    client_order_id=fallback_cid
+                )
+                if fb_market_res.get("success"):
+                    logger.info(f"ExecutionAgent: Defensive fallback market order placed successfully on {symbol}!")
+                    order_res = fb_market_res
+                    client_order_id = fallback_cid
+                    # Immediately attach protective stop-loss order
+                    try:
+                        sl_res = self.client.place_protective_stop(
+                            symbol=symbol,
+                            size=contracts,
+                            side=side,
+                            stop_price=stop_loss,
+                            client_order_id=f"sl_{fallback_cid}"
+                        )
+                        if sl_res.get("success"):
+                            logger.info(f"ExecutionAgent: Protective stop attached for {symbol} @ ${stop_loss}")
+                    except Exception as sl_err:
+                        logger.error(f"ExecutionAgent: Failed to attach protective stop during fallback: {sl_err}")
+                else:
+                    last_error = f"{last_error} | Fallback market order failed: {fb_market_res.get('error')}"
+            except Exception as fb_err:
+                last_error = f"{last_error} | Fallback market order exception: {fb_err}"
 
         if not order_res.get("success"):
             return {

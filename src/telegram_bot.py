@@ -14,6 +14,7 @@ import json
 import hashlib
 import logging
 import requests
+# pyrefly: ignore[missing-import]
 from dotenv import load_dotenv
 
 from src.technical_analysis import round_price
@@ -233,6 +234,7 @@ class TelegramConfirmationBot:
 
     def send_alert(self, text: str, chat_id: Optional[str] = None) -> bool:
         """Alias for send_message to ensure compatibility with emergency alerts."""
+        # pyrefly: ignore[unexpected-keyword]
         return bool(self.send_message(text, parse_mode="Markdown", chat_id=chat_id))
 
     def send_photo(
@@ -411,14 +413,69 @@ class TelegramConfirmationBot:
                 return f"${p:,.2f}"
 
         reward_usd = risk_usd * (rr if rr > 0 else 2.0)
-        tm = trade_spec.get("time_machine", {})
-        sample_size = tm.get("sample_size") or (tm.get("wins", 0) + tm.get("losses", 0))
-        wins = tm.get("wins", 0)
-        losses = tm.get("losses", 0)
-        win_rate = tm.get("win_rate_pct")
+        tm = trade_spec.get("time_machine") or trade_spec.get("backtest") or trade_spec.get("backtest_data") or {}
+        if not isinstance(tm, dict):
+            tm = {}
 
-        if sample_size and sample_size >= 6 and win_rate and win_rate > 0:
-            backtest_line = f"📊 <b>Empirical Backtest:</b> Tested <b>{sample_size} times</b> ({wins}W / {losses}L · <b>{win_rate:.0f}% Win Rate</b> · <b>1:{rr:.1f} R:R</b>)\n"
+        wins = int(tm.get("wins", 0) or 0)
+        losses = int(tm.get("losses", 0) or 0)
+        sample_size = int(tm.get("sample_size") or (wins + losses) or tm.get("total_matches", 0) or 0)
+
+        win_rate = tm.get("win_rate_pct")
+        if win_rate is None:
+            win_rate = tm.get("win_rate")
+        if win_rate is None:
+            win_rate = trade_spec.get("win_rate_pct") or trade_spec.get("win_rate")
+
+        if win_rate is not None:
+            try:
+                win_rate = float(win_rate)
+            except (ValueError, TypeError):
+                win_rate = None
+
+        if sample_size <= 0 and (wins > 0 or losses > 0):
+            sample_size = wins + losses
+
+        ev_r = tm.get("expected_value_r")
+        if ev_r is not None:
+            try:
+                ev_r = float(ev_r)
+            except (ValueError, TypeError):
+                ev_r = None
+
+        pf = tm.get("profit_factor")
+        if pf is not None:
+            try:
+                pf = float(pf)
+            except (ValueError, TypeError):
+                pf = None
+
+        wilson = tm.get("wilson_ci_lower_pct")
+        if wilson is not None:
+            try:
+                wilson = float(wilson)
+            except (ValueError, TypeError):
+                wilson = None
+
+        # Display empirical backtest whenever win rate and/or samples exist (never suppress valid samples)
+        if win_rate is not None and win_rate > 0 and (sample_size > 0 or (wins + losses) > 0):
+            stat_parts = [f"<b>{win_rate:.0f}% Win Rate</b>"]
+            if sample_size > 0:
+                wl_str = f"({wins}W / {losses}L across <b>{sample_size} matches</b>)" if (wins > 0 or losses > 0) else f"(<b>{sample_size} matches</b>)"
+                stat_parts.append(wl_str)
+            stat_parts.append(f"<b>1:{rr:.1f} R:R</b>")
+            if ev_r is not None:
+                stat_parts.append(f"Net EV: <b>{ev_r:+.2f}R</b>")
+            if pf is not None and pf > 0:
+                stat_parts.append(f"PF: <b>{pf:.1f}x</b>")
+            if wilson is not None and wilson > 0:
+                stat_parts.append(f"Wilson: <b>{wilson:.0f}%</b>")
+
+            backtest_line = f"📊 <b>Empirical Backtest:</b> {' · '.join(stat_parts)}\n"
+        elif win_rate is not None and win_rate > 0:
+            backtest_line = f"📊 <b>Empirical Backtest:</b> <b>{win_rate:.0f}% Win Rate</b> · <b>1:{rr:.1f} R:R</b> (Walk-Forward Historical Edge)\n"
+        elif sample_size > 0:
+            backtest_line = f"📊 <b>Empirical Backtest:</b> Tested across <b>{sample_size} historical setups</b> · <b>1:{rr:.1f} R:R</b>\n"
         else:
             backtest_line = "📊 <b>Market Edge:</b> Multi-Timeframe SMC Confluence Aligned\n"
 

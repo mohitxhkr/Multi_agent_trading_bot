@@ -208,6 +208,58 @@ class TestPaxgAndExecutionReliability(unittest.TestCase):
         called_args_blocked = bot.edit_message_text.call_args[0]
         self.assertIn("EXECUTION BLOCKED BY SAFETY GATE", called_args_blocked[1])
 
+    def test_proposal_card_shows_backtest_data_for_all_samples(self):
+        bot = TelegramConfirmationBot.__new__(TelegramConfirmationBot)
+        
+        # Test case 1: 4 samples (previously suppressed because sample_size < 6)
+        spec_4_samples = {
+            "symbol": "PAXGUSD",
+            "side": "BUY",
+            "entry_price": 3870.0,
+            "stop_loss_price": 3840.0,
+            "take_profit_price": 3950.0,
+            "reward_to_risk_ratio": 2.7,
+            "contracts": 1,
+            "leverage": 20,
+            "required_margin_usd": 19.35,
+            "dollar_risk_usd": 3.0,
+            "strategy": "Institutional_SSL_Sweep",
+            "score": 88,
+            "time_machine": {
+                "sample_size": 4,
+                "wins": 3,
+                "losses": 1,
+                "win_rate_pct": 75.0,
+                "expected_value_r": 1.25,
+                "profit_factor": 2.5
+            }
+        }
+        card_text = bot.format_trade_proposal_card(spec_4_samples)
+        self.assertIn("Empirical Backtest", card_text)
+        self.assertIn("75% Win Rate", card_text)
+        self.assertIn("3W / 1L across <b>4 matches</b>", card_text)
+        self.assertIn("Net EV: <b>+1.25R</b>", card_text)
+        self.assertIn("PF: <b>2.5x</b>", card_text)
+        self.assertNotIn("Market Edge: Multi-Timeframe SMC Confluence Aligned", card_text)
+
+        # Test case 2: top-level win_rate_pct without nested dict
+        spec_top_level = {
+            "symbol": "BTCUSD",
+            "side": "BUY",
+            "entry_price": 75000.0,
+            "stop_loss_price": 74500.0,
+            "take_profit_price": 76500.0,
+            "win_rate_pct": 68.0,
+            "reward_to_risk_ratio": 3.0,
+            "contracts": 1,
+            "leverage": 50,
+            "dollar_risk_usd": 2.0,
+            "strategy": "FVG_Sweep"
+        }
+        card_text_top = bot.format_trade_proposal_card(spec_top_level)
+        self.assertIn("Empirical Backtest", card_text_top)
+        self.assertIn("68% Win Rate", card_text_top)
+
 
 if __name__ == "__main__":
     unittest.main()

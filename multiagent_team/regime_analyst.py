@@ -745,8 +745,8 @@ class RegimeAnalystAgent:
                 "status": "INVALID"
             }
 
-        # 1. 15-Minute Candles (Structural Timeframe)
-        candles_15m_res = self.client.get_candles(symbol, resolution="15")
+        # 1. 15-Minute Candles (Structural Timeframe - 400 bars for statistical stability)
+        candles_15m_res = self.client.get_candles(symbol, resolution="15", from_time=now - (900 * 400), to_time=now)
         candles_15m = candles_15m_res.get("result", {}) if candles_15m_res.get("success") else None
 
         if candles_15m:
@@ -755,8 +755,8 @@ class RegimeAnalystAgent:
                 logger.warning(f"RegimeAnalyst: 15m candles failed validation for {symbol}: {val_15['issues']}")
                 candles_15m = None
 
-        # 2. 1-Hour Candles (Macro Direction & Volatility Timeframe)
-        candles_1h_res = self.client.get_candles(symbol, resolution="60")
+        # 2. 1-Hour Candles (Macro Direction & Volatility Timeframe - 200 bars)
+        candles_1h_res = self.client.get_candles(symbol, resolution="60", from_time=now - (3600 * 200), to_time=now)
         if not candles_1h_res.get("success"):
             err_msg = str(candles_1h_res.get("error", "Failed to fetch 1H candlestick data"))
             return {

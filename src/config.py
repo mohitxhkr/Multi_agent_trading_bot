@@ -6,7 +6,9 @@ safe defaults, and zero hardcoded secrets.
 
 import os
 from typing import List, Optional
+# pyrefly: ignore[missing-import]
 from pydantic import BaseModel, Field, field_validator
+# pyrefly: ignore[missing-import]
 from dotenv import load_dotenv
 
 load_dotenv()

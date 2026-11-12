@@ -1163,6 +1163,7 @@ class TelegramConfirmationBot:
 
                 if cb_data.startswith("confirm_") or cb_data.startswith("reject_"):
                     if not is_admin:
+                        # pyrefly: ignore[unexpected-keyword]
                         self.answer_callback(cb_id, "🔒 Access Restricted: Live trade execution is restricted to the administrator.", show_alert=True)
                         continue
                     self._process_trade_confirmation_callback(
@@ -1175,6 +1176,7 @@ class TelegramConfirmationBot:
 
                 if cb_data == "execute_emergency_closeall":
                     if not is_admin:
+                        # pyrefly: ignore[unexpected-keyword]
                         self.answer_callback(cb_id, "⛔ Security Veto: Emergency closeall is restricted to the administrator.", show_alert=True)
                         continue
                     self.answer_callback(cb_id, "🚨 Flattening all positions now...")
@@ -1192,6 +1194,7 @@ class TelegramConfirmationBot:
                     continue
                 elif cb_data == "cancel_emergency_closeall":
                     if not is_admin:
+                        # pyrefly: ignore[unexpected-keyword]
                         self.answer_callback(cb_id, "⛔ Security Veto: Restricted to administrator.", show_alert=True)
                         continue
                     self.answer_callback(cb_id, "Cancelled.")
@@ -1211,6 +1214,7 @@ class TelegramConfirmationBot:
                     continue
                 elif cb_data.startswith("propose_trade_") or cb_data.startswith("propose_scalp_"):
                     if not is_admin:
+                        # pyrefly: ignore[unexpected-keyword]
                         self.answer_callback(cb_id, "🔒 Trade proposal generation is restricted to the administrator. Type /levels for analysis.", show_alert=True)
                         continue
                     target_sym = cb_data.replace("propose_trade_", "").replace("propose_scalp_", "").strip()

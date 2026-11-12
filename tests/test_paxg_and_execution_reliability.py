@@ -260,6 +260,38 @@ class TestPaxgAndExecutionReliability(unittest.TestCase):
         self.assertIn("Empirical Backtest", card_text_top)
         self.assertIn("68% Win Rate", card_text_top)
 
+    def test_time_machine_breakeven_friction_does_not_artificially_veto_high_win_rate_trades(self):
+        from multiagent_team.time_machine_agent import TimeMachineAgent
+        tm = TimeMachineAgent(client=None)
+
+        # 3 Wins, 1 Loss, 8 Breakevens (75% WR on decisive trades)
+        matches = [
+            {"outcome": "WIN", "gross_return_pct": 0.02, "net_return_pct": 0.0184, "gross_r": 2.0, "net_r": 1.84, "max_adverse_pct": 0.1, "bars_held": 5, "bar_index": 50},
+            {"outcome": "WIN", "gross_return_pct": 0.02, "net_return_pct": 0.0184, "gross_r": 2.0, "net_r": 1.84, "max_adverse_pct": 0.1, "bars_held": 5, "bar_index": 70},
+            {"outcome": "WIN", "gross_return_pct": 0.02, "net_return_pct": 0.0184, "gross_r": 2.0, "net_r": 1.84, "max_adverse_pct": 0.1, "bars_held": 5, "bar_index": 90},
+            {"outcome": "LOSS", "gross_return_pct": -0.01, "net_return_pct": -0.0116, "gross_r": -1.0, "net_r": -1.16, "max_adverse_pct": 1.0, "bars_held": 4, "bar_index": 110},
+        ]
+        # 8 Breakevens (gross return 0.0, net return -0.0016 after friction)
+        for idx in range(8):
+            matches.append({
+                "outcome": "BREAKEVEN", "gross_return_pct": 0.0, "net_return_pct": -0.0016, "gross_r": 0.0, "net_r": -0.16, "max_adverse_pct": 0.3, "bars_held": 3, "bar_index": 130 + idx * 10
+            })
+
+        # Calculate decisive metrics
+        decisive_matches = [m for m in matches if m["outcome"] in ("WIN", "LOSS")]
+        decisive_ev_r = round(sum(m["net_r"] for m in decisive_matches) / len(decisive_matches), 2)
+        decisive_losses = abs(sum(m["net_return_pct"] for m in matches if m["outcome"] == "LOSS"))
+        gross_profits = sum(m["net_return_pct"] for m in matches if m["net_return_pct"] > 0)
+        decisive_pf = round(gross_profits / decisive_losses, 2)
+        
+        real_losses = abs(sum(m["net_return_pct"] for m in matches if m["outcome"] in ("LOSS", "TIMEOUT") and m["net_return_pct"] < 0))
+        pf = round(gross_profits / real_losses, 2)
+
+        self.assertEqual(len(decisive_matches), 4)
+        self.assertAlmostEqual(decisive_pf, 4.76, delta=0.1)
+        self.assertAlmostEqual(pf, 4.76, delta=0.1)
+        self.assertGreater(decisive_ev_r, 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

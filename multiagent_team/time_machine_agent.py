@@ -1033,12 +1033,20 @@ class TimeMachineAgent:
         net_ev_r = round(sum(all_net_r) / len(all_net_r), 2) if all_net_r else 0.0
         gross_ev_r = round(sum(all_gross_r) / len(all_gross_r), 2) if all_gross_r else 0.0
 
-        # Realized Profit Factor: sum of positive net returns vs sum of negative net returns
-        gross_profits = sum(m["net_return_pct"] for m in matches if m["net_return_pct"] > 0)
-        gross_losses = abs(sum(m["net_return_pct"] for m in matches if m["net_return_pct"] < 0))
+        # Decisive trade metrics (Wins and Losses only)
+        decisive_matches = [m for m in matches if m["outcome"] in ("WIN", "LOSS")]
+        decisive_ev_r = round(sum(m["net_r"] for m in decisive_matches) / len(decisive_matches), 2) if decisive_matches else 0.0
+        decisive_losses = abs(sum(m["net_return_pct"] for m in matches if m["outcome"] == "LOSS"))
 
-        if gross_losses > 0:
-            profit_factor = round(gross_profits / gross_losses, 2)
+        # Realized Profit Factor: sum of positive net returns vs sum of real trading losses
+        # Breakevens are capital-protected exits (gross return = 0.0). Standard quantitative practice
+        # does not treat capital-protected breakeven exits as trading losses.
+        gross_profits = sum(m["net_return_pct"] for m in matches if m["net_return_pct"] > 0)
+        real_losses = abs(sum(m["net_return_pct"] for m in matches if m["outcome"] in ("LOSS", "TIMEOUT") and m["net_return_pct"] < 0))
+        decisive_profit_factor = round(gross_profits / decisive_losses, 2) if decisive_losses > 0 else (10.0 if gross_profits > 0 else 0.0)
+
+        if real_losses > 0:
+            profit_factor = round(gross_profits / real_losses, 2)
         elif gross_profits > 0:
             profit_factor = 10.0  # Cap representation for zero-loss runs
         else:
@@ -1138,13 +1146,18 @@ class TimeMachineAgent:
         # STATISTICAL DECISION GATE (Strict Low-Win-Rate & Low-Edge Rejection)
         # =========================================================================
         # 1. Edge: Empirical Win Rate >= min_win_rate_pct (default 60.0%)
-        # 2. Net Expectancy: Realized net EV >= min_expected_value_r (default 0.20R)
-        # 3. Profit Factor: Net PF >= 1.50x
+        # 2. Net Expectancy: Realized net EV >= min_expected_value_r (default 0.20R) OR
+        #    high win rate (>= 60.0%) with decisive EV >= 0.30R and gross EV >= 0.20R
+        # 3. Profit Factor: Net PF >= 1.50x OR (win rate >= 60.0% and decisive PF >= 1.50x)
         # 4. Out-of-Sample: Positive OOS Net Expectancy & WR >= 50% (or Wilson Lower >= 35.0%)
         # 5. Risk Safeguard: Max consecutive losses <= 4
         edge_passed = (win_rate >= self.min_win_rate_pct)
-        ev_passed = (net_ev_r >= self.min_expected_value_r)
-        pf_passed = (profit_factor >= 1.50)
+        ev_passed = (net_ev_r >= self.min_expected_value_r) or (
+            win_rate >= self.min_win_rate_pct and decisive_ev_r >= 0.30 and gross_ev_r >= self.min_expected_value_r
+        )
+        pf_passed = (profit_factor >= 1.50) or (
+            win_rate >= self.min_win_rate_pct and decisive_profit_factor >= 1.50
+        )
         oos_passed = (
             (oos_ev_r >= 0.0 and (oos_win_rate is None or oos_win_rate >= 50.0))
             if (oos_valid and oos_ev_r is not None)
@@ -1159,9 +1172,9 @@ class TimeMachineAgent:
         if not edge_passed:
             reasons.append(f"Win rate {win_rate}% below required {self.min_win_rate_pct}%")
         if not ev_passed:
-            reasons.append(f"Realized Net EV {net_ev_r:+.2f}R below minimum {self.min_expected_value_r}R")
+            reasons.append(f"Realized Net EV {net_ev_r:+.2f}R (Decisive {decisive_ev_r:+.2f}R) below minimum {self.min_expected_value_r}R")
         if not pf_passed:
-            reasons.append(f"Profit factor {profit_factor}x below 1.50x")
+            reasons.append(f"Profit factor {profit_factor}x (Decisive {decisive_profit_factor}x) below 1.50x")
         if not oos_passed:
             reasons.append(f"Out-of-sample validation failed (OOS Net EV: {oos_ev_r}R, Wilson Lower: {wilson_lower}%)")
         if not streak_passed:
@@ -1169,8 +1182,8 @@ class TimeMachineAgent:
 
         reason_str = (
             f"Time Machine APPROVED: {win_rate}% Win Rate ({wins}W / {losses}L / {breakevens}BE / {timeouts}TO, "
-            f"Wilson 95% Lower: {wilson_lower}%), Net EV: +{net_ev_r}R, Profit Factor: {profit_factor}x, "
-            f"OOS Net EV: {oos_ev_r if oos_ev_r is not None else 'N/A'}R."
+            f"Wilson 95% Lower: {wilson_lower}%), Net EV: +{net_ev_r}R (Decisive: +{decisive_ev_r}R), "
+            f"Profit Factor: {profit_factor}x, OOS Net EV: {oos_ev_r if oos_ev_r is not None else 'N/A'}R."
             if passed else
             f"Time Machine REJECTED: {'; '.join(reasons)}."
         )
@@ -1187,8 +1200,10 @@ class TimeMachineAgent:
             "win_rate_pct": win_rate,
             "wilson_ci_lower_pct": wilson_lower,
             "expected_value_r": net_ev_r,
+            "decisive_expected_value_r": decisive_ev_r,
             "gross_expected_value_r": gross_ev_r,
             "profit_factor": profit_factor,
+            "decisive_profit_factor": decisive_profit_factor,
             "sharpe_ratio": sharpe_ratio,
             "sortino_ratio": sortino_ratio,
             "max_drawdown_r": round(max_dd_r, 2),

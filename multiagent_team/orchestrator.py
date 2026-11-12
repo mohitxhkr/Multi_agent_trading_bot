@@ -564,6 +564,17 @@ class MultiAgentTradingOrchestrator:
         try:
             sym = trade.get("symbol", "")
 
+            # 0. Defense-in-depth Time Machine Win-Rate Guard (blocks low win-rate automatic/scale-in proposals)
+            tm_meta = trade.get("time_machine")
+            if isinstance(tm_meta, dict) and tm_meta:
+                tm_wr = float(tm_meta.get("win_rate_pct", 0.0) or 0.0)
+                if not tm_meta.get("passed") or tm_wr < self.time_machine.min_win_rate_pct:
+                    tm_reason = tm_meta.get("reason") or (
+                        f"Win rate {tm_wr:.1f}% below mandatory {self.time_machine.min_win_rate_pct:.0f}% minimum."
+                    )
+                    logger.info(f"Orchestrator: Candidate {sym} vetoed in background by Time Machine guard ({tm_reason}). Proposal suppressed.")
+                    return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": tm_reason}
+
             # 1. Background Pre-Validation by Safety Controller & Agents BEFORE Telegram proposal
             pos_res = self.client.get_positions()
             active_pos = [p for p in pos_res.get("result", []) if abs(float(p.get("size", 0))) > 0] if pos_res.get("success") else []
@@ -879,7 +890,7 @@ class MultiAgentTradingOrchestrator:
             tm_res = self.time_machine.simulate_setup(c, candles_15m=candles_15m, candles_1h=candles_1h)
             c["time_machine"] = tm_res
 
-            if tm_res.get("passed"):
+            if tm_res.get("passed") and float(tm_res.get("win_rate_pct", 0.0) or 0.0) >= self.time_machine.min_win_rate_pct:
                 print(f"   🟢 [TIME MACHINE APPROVED] {sym} {c['side'].upper()}: {tm_res['win_rate_pct']}% Win Rate (Wilson 95% Lower: {tm_res.get('wilson_ci_lower_pct')}%) | EV: +{tm_res['expected_value_r']}R | PF: {tm_res['profit_factor']}x")
                 tm_qualified.append(c)
             else:
@@ -1464,6 +1475,14 @@ class MultiAgentTradingOrchestrator:
                 }
                 tm_res = self.time_machine.simulate_setup(candidate, candles_15m=candles_15m, candles_1h=candles_1h)
                 candidate["time_machine"] = tm_res
+                if not tm_res.get("passed") or float(tm_res.get("win_rate_pct", 0.0) or 0.0) < self.time_machine.min_win_rate_pct:
+                    reason = tm_res.get("reason") or (
+                        f"Time Machine rejected scale-in on {symbol} {side.upper()}: win rate "
+                        f"{tm_res.get('win_rate_pct', 0.0)}% below required {self.time_machine.min_win_rate_pct:.0f}%."
+                    )
+                    logger.info(f"Orchestrator: Scale-in {symbol} {side.upper()} rejected in background by Time Machine: {reason}")
+                    self.notify_telegram_rejection(symbol, reason, "TIME_MACHINE_VETO", chat_id=chat_id)
+                    return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": reason, "notified": True}
             else:
                 # Fresh trade: MUST pass StrategyAgent (trend alignment + confluence) AND TimeMachine (win rate >= 60%)
                 if side:
@@ -1528,7 +1547,19 @@ class MultiAgentTradingOrchestrator:
                         "side": side
                     }
 
-        # 4. Risk Gatekeeper evaluation
+        # 4. Final Time Machine Win-Rate Invariant + Risk Gatekeeper evaluation
+        tm_check = candidate.get("time_machine")
+        if not isinstance(tm_check, dict) or not tm_check:
+            tm_check = self.time_machine.simulate_setup(candidate, candles_15m=candles_15m, candles_1h=candles_1h)
+            candidate["time_machine"] = tm_check
+        if not tm_check.get("passed") or float(tm_check.get("win_rate_pct", 0.0) or 0.0) < self.time_machine.min_win_rate_pct:
+            reason = tm_check.get("reason") or (
+                f"Time Machine rejected {symbol} {str(candidate.get('side', side or '')).upper()}: win rate "
+                f"{tm_check.get('win_rate_pct', 0.0)}% below required {self.time_machine.min_win_rate_pct:.0f}%."
+            )
+            self.notify_telegram_rejection(candidate.get("symbol", symbol), reason, "TIME_MACHINE_VETO", chat_id=chat_id)
+            return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": reason, "notified": True}
+
         candidate["is_scale_in"] = is_scale_in
         decision = self.risk_gatekeeper.evaluate_candidate(candidate, leverage=asset_lev)
         for k, v in candidate.items():

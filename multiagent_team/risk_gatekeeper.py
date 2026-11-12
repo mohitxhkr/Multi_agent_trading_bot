@@ -164,9 +164,9 @@ class RiskGatekeeperAgent:
 
         is_scale_in = bool(setup.get("is_scale_in", False))
 
-        # 1.4. Time Machine Win-Rate & Expectancy Gate (Never pass low win-rate trades)
+        # 1.4. Time Machine Win-Rate & Expectancy Gate (Never pass low win-rate trades, including scale-ins)
         tm_meta = setup.get("time_machine")
-        if isinstance(tm_meta, dict) and tm_meta and not is_scale_in:
+        if isinstance(tm_meta, dict) and tm_meta:
             if tm_meta.get("passed") is False:
                 return {
                     "gate_decision": "REJECTED",

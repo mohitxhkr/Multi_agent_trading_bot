@@ -303,6 +303,108 @@ class TestTrendAndWinRateGates(unittest.TestCase):
         self.assertEqual(res_wr["code"], "TIME_MACHINE_VETO")
         self.assertTrue(orch.notify_telegram_rejection.called)
 
+    def test_risk_gatekeeper_rejects_low_winrate_even_for_scale_in(self):
+        """Scale-in ('adding to winner') MUST NOT bypass the mandatory 60% win-rate gate."""
+        from multiagent_team.risk_gatekeeper import RiskGatekeeperAgent
+
+        client = MagicMock()
+        client.get_wallet_balances.return_value = {
+            "success": True,
+            "result": [{"asset_symbol": "USDT", "balance": 1000.0, "available_balance": 900.0}],
+        }
+        client.get_positions.return_value = {"success": True, "result": []}
+        rg = RiskGatekeeperAgent(client=client, risk_manager=MagicMock())
+
+        setup = {
+            "symbol": "BTCUSD",
+            "side": "buy",
+            "entry_price": 70000.0,
+            "stop_loss_price": 69500.0,
+            "take_profit_price": 71250.0,
+            "planned_rr_ratio": 2.5,
+            "score": 92,
+            "is_scale_in": True,
+            "time_machine": {
+                "passed": False,
+                "win_rate_pct": 42.0,
+                "expected_value_r": 0.05,
+                "reason": "Win rate 42.0% below required 60.0%",
+            },
+        }
+        res = rg.evaluate_candidate(setup, leverage=50)
+        self.assertEqual(res["gate_decision"], "REJECTED")
+        self.assertIn("Time Machine", res["reason"])
+
+    def test_propose_on_demand_trade_rejects_low_winrate_scale_in(self):
+        """Manual /trade scale-in on a winning position must be rejected in background when win rate is low."""
+        mock_client = MagicMock()
+        mock_client.get_positions.return_value = {
+            "success": True,
+            "result": [{"symbol": "BTCUSD", "size": 5, "entry_price": 69000.0, "unrealized_pnl": 25.0}],
+        }
+        mock_client.get_ticker.return_value = {"success": True, "result": {"mark_price": 70000.0}}
+        orch = MultiAgentTradingOrchestrator(client=mock_client, symbols=["BTCUSD"], interactive=False)
+        orch.emergency_controller.is_halted = MagicMock(return_value=(False, ""))
+        orch.notify_telegram_rejection = MagicMock()
+        orch.regime_analyst.analyze_symbol = MagicMock(
+            return_value={
+                "symbol": "BTCUSD",
+                "regime": "STRONG_UPTREND",
+                "directional_bias": "BULLISH",
+                "macro_4h": {"regime": "MACRO_BULLISH"},
+                "macro_daily": {"regime": "DAILY_BULLISH"},
+                "current_price": 70000.0,
+                "mark_price": 70000.0,
+                "vwap": 69800.0,
+                "atr_14": 300.0,
+                "_raw_candles_15m": {"c": [70000.0] * 30},
+                "_raw_candles_1h": {"c": [70000.0] * 30},
+            }
+        )
+        orch.telegram_bot.request_trade_confirmation = MagicMock()
+
+        with patch.object(
+            orch.time_machine,
+            "simulate_setup",
+            return_value={
+                "passed": False,
+                "verdict": "REJECTED",
+                "win_rate_pct": 40.0,
+                "expected_value_r": -0.02,
+                "profit_factor": 0.95,
+                "reason": "Time Machine REJECTED: Win rate 40.0% below required 60.0%.",
+            },
+        ):
+            res = orch.propose_on_demand_trade(symbol="BTCUSD", chat_id="123")
+
+        self.assertEqual(res["status"], "REJECTED")
+        self.assertEqual(res["code"], "TIME_MACHINE_VETO")
+        self.assertTrue(orch.notify_telegram_rejection.called)
+        self.assertFalse(orch.telegram_bot.request_trade_confirmation.called)
+
+    def test_execute_proposal_flow_suppresses_low_winrate_card(self):
+        """Defense-in-depth: _execute_proposal_flow never sends a Telegram card when win rate < 60%."""
+        orch = MultiAgentTradingOrchestrator(client=MagicMock(), symbols=["BTCUSD"], interactive=False)
+        orch.telegram_bot = MagicMock(is_configured=True)
+
+        trade = {
+            "symbol": "BTCUSD",
+            "side": "buy",
+            "entry_price": 70000.0,
+            "is_scale_in": True,
+            "time_machine": {
+                "passed": False,
+                "win_rate_pct": 35.0,
+                "expected_value_r": -0.1,
+                "reason": "Win rate 35.0% below required 60.0%",
+            },
+        }
+        res = orch._execute_proposal_flow(trade, chat_id="123")
+        self.assertEqual(res["status"], "REJECTED")
+        self.assertEqual(res["code"], "TIME_MACHINE_VETO")
+        self.assertFalse(orch.telegram_bot.request_trade_confirmation.called)
+
 
 if __name__ == "__main__":
     unittest.main()
+

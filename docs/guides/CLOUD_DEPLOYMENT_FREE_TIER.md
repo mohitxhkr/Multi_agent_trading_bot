@@ -32,10 +32,10 @@ Render provides **750 free hours every month** (enough for the whole month 24/7)
    * **Start Command:** `python server.py`
    * **Instance Type:** `Free`
 5. Click **Advanced** $\rightarrow$ **Add Environment Variable** and paste your secrets:
-   * `DELTA_API_KEY`: *(Your key from .env)*
-   * `DELTA_API_SECRET`: *(Your secret from .env)*
-   * `TELEGRAM_BOT_TOKEN`: `REDACTED_TELEGRAM_BOT_TOKEN`
-   * `TELEGRAM_CHAT_ID`: `123456789`
+   * `DELTA_API_KEY`: *(Your Delta Exchange API key)*
+   * `DELTA_API_SECRET`: *(Your Delta Exchange API secret)*
+   * `TELEGRAM_BOT_TOKEN`: *(Your Telegram Bot token from @BotFather)*
+   * `TELEGRAM_CHAT_ID`: *(Your Telegram numeric Chat ID)*
    * `BTC_LEVERAGE`: `50`
    * `ALT_LEVERAGE`: `25`
    * `CAPITAL_ALLOCATION_MIN_PCT`: `0.75`

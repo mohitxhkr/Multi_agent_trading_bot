@@ -14,15 +14,15 @@ services:
       - key: DELTA_BASE_URL
         value: https://cdn-ind.testnet.deltaex.org
       - key: DELTA_API_KEY
-        value: REDACTED_DELTA_API_KEY
+        sync: false
       - key: DELTA_API_SECRET
-        value: REDACTED_DELTA_API_SECRET
+        sync: false
       - key: TELEGRAM_BOT_TOKEN
-        value: REDACTED_TELEGRAM_BOT_TOKEN
+        sync: false
       - key: TELEGRAM_CHAT_ID
-        value: "123456789"
+        sync: false
       - key: AUTHORIZED_TELEGRAM_USERS
-        value: "123456789"
+        sync: false
       - key: TELEGRAM_NOTIFICATIONS_ENABLED
         value: "true"
       - key: MAX_RISK_PER_TRADE_PCT

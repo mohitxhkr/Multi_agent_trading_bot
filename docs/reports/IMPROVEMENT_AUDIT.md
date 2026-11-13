@@ -24,7 +24,7 @@ A comprehensive source-code audit was conducted across all modules of the Delta 
 ### Vulnerability 0.1: Hardcoded Telegram Bot Credentials & Unauthenticated Callbacks
 - **Affected Files:** [`src/telegram_bot.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/src/telegram_bot.py), [`src/telegram_notifier.py`](file:///d:/Project/Multi%20Agent%20Trading%20Bot/src/telegram_notifier.py)
 - **Current Defect:**
-  - Hardcoded Telegram Bot Token (`<REDACTED_BOT_TOKEN>`) and Chat ID (`123456789`) embedded as fallback string literals in source code.
+  - Hardcoded Telegram Bot Token (`<REDACTED_BOT_TOKEN>`) and Chat ID (`<REDACTED_CHAT_ID>`) embedded as fallback string literals in source code.
   - Callback queries accept incoming updates from any Telegram user or forward without verifying `callback_query.from.id == authorized_chat_id`.
   - No cryptographic nonces or parameter binding: callbacks only check `confirm_{trade_id}`, allowing replay attacks.
   - Silent failure on market data drift: if mark price check throws an exception, approval proceeds anyway (`logger.warning("Pre-execution price check skipped")`).

@@ -209,7 +209,7 @@ class TestTelegramSinglePollerAndTrade(unittest.TestCase):
         self.assertTrue(os.path.exists(chart_p), f"Candlestick chart file should exist at {chart_p}")
         self.assertEqual(trade_spec["symbol"], "BTCUSD")
         self.assertEqual(trade_spec["side"], "buy")
-        self.assertLessEqual(trade_spec.get("dollar_risk_usd", 0.0), 4.0)
+        self.assertLessEqual(trade_spec.get("dollar_risk_usd", 0.0), orch.risk_manager.max_dollar_risk_per_trade)
 
     def test_handle_command_trade_is_non_blocking_and_dispatches_async(self):
         """Sending /trade command immediately replies and runs task asynchronously."""

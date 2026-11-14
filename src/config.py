@@ -36,15 +36,15 @@ class SystemConfig(BaseModel):
     # 2. Hard Risk Limits (Non-Negotiable Absolute Ceilings)
     # -------------------------------------------------------------------------
     max_risk_per_trade_pct: float = Field(
-        default_factory=lambda: float(os.getenv("MAX_RISK_PER_TRADE_PCT", "0.01")),
+        default_factory=lambda: float(os.getenv("MAX_RISK_PER_TRADE_PCT", "0.02")),
         ge=0.001,
         le=0.05,
         description="Max percentage of total equity risked on a single trade (0.1% to 5.0%)"
     )
     max_dollar_risk_per_trade: float = Field(
-        default_factory=lambda: float(os.getenv("MAX_DOLLAR_RISK_PER_TRADE", "4.00")),
+        default_factory=lambda: float(os.getenv("MAX_DOLLAR_RISK_PER_TRADE", "25.00")),
         ge=0.50,
-        le=100.0,
+        le=500.0,
         description="Absolute hard dollar cap on any single trade loss"
     )
     max_daily_drawdown_pct: float = Field(

@@ -74,6 +74,7 @@ class MultiAgentTradingOrchestrator:
 
         self.risk_manager = RiskManager(
             max_risk_per_trade_pct=float(os.getenv("MAX_RISK_PER_TRADE_PCT", "0.02")),
+            max_dollar_risk_per_trade=float(os.getenv("MAX_DOLLAR_RISK_PER_TRADE", "25.00")),
             max_concurrent_positions=int(os.getenv("MAX_CONCURRENT_POSITIONS", "3")),
             max_daily_drawdown_pct=float(os.getenv("MAX_DAILY_DRAWDOWN_PCT", "0.03")),
             max_allowed_leverage=int(os.getenv("MAX_ALLOWED_LEVERAGE", "50")),

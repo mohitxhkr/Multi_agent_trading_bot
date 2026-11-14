@@ -343,14 +343,14 @@ class RiskGatekeeperAgent:
 
         # Absolute Hard Risk Budget:
         hard_dollar_risk_cap = float(
-            self.risk_manager.max_dollar_risk_per_trade if is_primary else min(self.risk_manager.max_dollar_risk_per_trade, 2.50)
+            self.risk_manager.max_dollar_risk_per_trade if is_primary else (self.risk_manager.max_dollar_risk_per_trade * 0.75)
         )
         target_risk_pct = float(
             self.risk_manager.max_risk_per_trade_pct if is_primary else (self.risk_manager.max_risk_per_trade_pct * 0.75)
         )
         
         # Baseline dollar risk budget (scales up on winning streak, but strictly bounded by hard_dollar_risk_cap)
-        baseline_cap = min(hard_dollar_risk_cap * 0.75, 2.70) if is_primary else min(hard_dollar_risk_cap * 0.60, 2.00)
+        baseline_cap = hard_dollar_risk_cap * 0.75 if is_primary else hard_dollar_risk_cap * 0.60
         base_dollar_risk = min(
             baseline_cap * dd_risk_scalar,
             total_usdt * target_risk_pct * dd_risk_scalar

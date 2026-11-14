@@ -488,15 +488,16 @@ class RiskGatekeeperAgent:
         stop_dist_pct = round((stop_distance / entry) * 100.0, 2)
 
         # Categorize Trade Risk-to-Reward Profile
-        if stop_dist_pct <= 0.60 and rr_ratio >= 2.2:
+        # Institutional Min Risk: Structural stop <= 1.35% with asymmetric >= 2.2:1 R:R
+        if stop_dist_pct <= 1.35 and rr_ratio >= 2.2:
             rr_category = "MIN_RISK_MAX_REWARD"
             rr_badge = "🟢 MIN RISK · MAX PROFIT"
             rr_desc = "Asymmetric Institutional Alpha"
-        elif stop_dist_pct > 0.70 and rr_ratio < 2.0:
+        elif stop_dist_pct > 1.35 and rr_ratio < 2.0:
             rr_category = "MAX_RISK_MIN_REWARD"
             rr_badge = "🔴 MAX RISK · MIN PROFIT"
             rr_desc = "Toxic Amateur Trap (Negative Asymmetry)"
-        elif stop_dist_pct > 0.70 and rr_ratio >= 2.2:
+        elif stop_dist_pct > 1.35 and rr_ratio >= 2.2:
             rr_category = "MAX_RISK_MAX_REWARD"
             rr_badge = "🟠 MAX RISK · MAX PROFIT"
             rr_desc = "High-Stakes Speculation"

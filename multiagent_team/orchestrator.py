@@ -1098,17 +1098,18 @@ class MultiAgentTradingOrchestrator:
         now_ts = time.time()
         cooldowns = self._get_proposal_cooldowns()
 
+        proposal_cooldown_sec = int(os.getenv("PROPOSAL_COOLDOWN_SECONDS", "600"))
         eligible_trades = []
         for t in approved_trades:
             sym_t = t.get("symbol", "")
             last_p = cooldowns.get(sym_t, 0)
-            if now_ts - last_p >= 1800:  # 30-minute proposal cooldown per symbol
+            if now_ts - last_p >= proposal_cooldown_sec:
                 eligible_trades.append(t)
             else:
-                logger.info(f"Orchestrator: {sym_t} proposal suppressed by 30m cooldown ({int(now_ts - last_p)}s elapsed)")
+                logger.info(f"Orchestrator: {sym_t} proposal suppressed by {proposal_cooldown_sec // 60}m cooldown ({int(now_ts - last_p)}s elapsed)")
 
         if not eligible_trades:
-            print("\n   All approved setups are currently on 30m proposal cooldown. Telegram alert silenced to prevent spam.")
+            print(f"\n   All approved setups are currently on {proposal_cooldown_sec // 60}m proposal cooldown. Telegram alert silenced to prevent spam.")
             return {"status": "COMPLETED", "code": "PROPOSALS_ON_COOLDOWN", "approved_count": len(approved_trades)}
 
         # Agent 6: Telegram 2-Way Human Authorization Gate

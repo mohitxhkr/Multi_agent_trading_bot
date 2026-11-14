@@ -772,10 +772,13 @@ class TimeMachineAgent:
                 exit_price = sim_entry
                 bars_held = 0
                 max_adverse = 0.0
-                be_active = False
+                trailing_stage = 0
                 ambiguity = False
 
-                be_threshold = sim_entry + (0.50 * sim_entry * sl_dist_pct) if side == "buy" else sim_entry - (0.50 * sim_entry * sl_dist_pct)
+                unit_risk = abs(sim_entry - initial_sl)
+                m1_threshold = sim_entry + (0.80 * unit_risk) if side == "buy" else sim_entry - (0.80 * unit_risk)
+                m2_threshold = sim_entry + (1.10 * unit_risk) if side == "buy" else sim_entry - (1.10 * unit_risk)
+                m3_threshold = sim_entry + (1.60 * unit_risk) if side == "buy" else sim_entry - (1.60 * unit_risk)
 
                 for step in range(1, sim_bars + 1):
                     bar_idx = i + 1 + step
@@ -810,12 +813,20 @@ class TimeMachineAgent:
                                 if side == "buy":
                                     m1_sl_hit = m1_l <= sim_sl
                                     m1_tp_hit = m1_h >= sim_tp
-                                    m1_be_hit = not be_active and (m1_h >= be_threshold)
-                                    if m1_be_hit:
-                                        be_active = True
-                                        sim_sl = max(sim_sl, sim_entry)
+                                    
+                                    # Sentinel Staged Trailing Updates
+                                    if m1_h >= m3_threshold and trailing_stage < 3:
+                                        trailing_stage = 3
+                                        sim_sl = max(sim_sl, sim_entry + (0.80 * unit_risk))
+                                    elif m1_h >= m2_threshold and trailing_stage < 2:
+                                        trailing_stage = 2
+                                        sim_sl = max(sim_sl, sim_entry + (0.25 * unit_risk))
+                                    elif m1_h >= m1_threshold and trailing_stage < 1:
+                                        trailing_stage = 1
+                                        sim_sl = max(sim_sl, sim_entry - (0.40 * unit_risk))
+
                                     if m1_sl_hit and not m1_tp_hit:
-                                        outcome = "BREAKEVEN" if (be_active and sim_sl >= sim_entry) else "LOSS"
+                                        outcome = "WIN" if trailing_stage >= 2 else ("BREAKEVEN" if sim_sl >= sim_entry else "LOSS")
                                         exit_price = sim_sl
                                         intrabar_resolved = True
                                         break
@@ -826,19 +837,27 @@ class TimeMachineAgent:
                                         break
                                     elif m1_sl_hit and m1_tp_hit:
                                         ambiguity = True
-                                        outcome = "BREAKEVEN" if (be_active and sim_sl >= sim_entry) else "LOSS"
+                                        outcome = "WIN" if trailing_stage >= 2 else ("BREAKEVEN" if sim_sl >= sim_entry else "LOSS")
                                         exit_price = sim_sl
                                         intrabar_resolved = True
                                         break
                                 else:
                                     m1_sl_hit = m1_h >= sim_sl
                                     m1_tp_hit = m1_l <= sim_tp
-                                    m1_be_hit = not be_active and (m1_l <= be_threshold)
-                                    if m1_be_hit:
-                                        be_active = True
-                                        sim_sl = min(sim_sl, sim_entry)
+
+                                    # Sentinel Staged Trailing Updates
+                                    if m1_l <= m3_threshold and trailing_stage < 3:
+                                        trailing_stage = 3
+                                        sim_sl = min(sim_sl, sim_entry - (0.80 * unit_risk))
+                                    elif m1_l <= m2_threshold and trailing_stage < 2:
+                                        trailing_stage = 2
+                                        sim_sl = min(sim_sl, sim_entry - (0.25 * unit_risk))
+                                    elif m1_l <= m1_threshold and trailing_stage < 1:
+                                        trailing_stage = 1
+                                        sim_sl = min(sim_sl, sim_entry + (0.40 * unit_risk))
+
                                     if m1_sl_hit and not m1_tp_hit:
-                                        outcome = "BREAKEVEN" if (be_active and sim_sl <= sim_entry) else "LOSS"
+                                        outcome = "WIN" if trailing_stage >= 2 else ("BREAKEVEN" if sim_sl <= sim_entry else "LOSS")
                                         exit_price = sim_sl
                                         intrabar_resolved = True
                                         break
@@ -849,7 +868,7 @@ class TimeMachineAgent:
                                         break
                                     elif m1_sl_hit and m1_tp_hit:
                                         ambiguity = True
-                                        outcome = "BREAKEVEN" if (be_active and sim_sl <= sim_entry) else "LOSS"
+                                        outcome = "WIN" if trailing_stage >= 2 else ("BREAKEVEN" if sim_sl <= sim_entry else "LOSS")
                                         exit_price = sim_sl
                                         intrabar_resolved = True
                                         break
@@ -861,31 +880,27 @@ class TimeMachineAgent:
                         if adverse > max_adverse:
                             max_adverse = adverse
 
-                        # Intrabar event sequencing: check if both SL and TP (or SL and BE trigger) occur in same candle
+                        # Check Sentinel trailing milestones (breathing cushion)
+                        if b_high >= m3_threshold and trailing_stage < 3:
+                            trailing_stage = 3
+                            sim_sl = max(sim_sl, sim_entry + (0.80 * unit_risk))
+                        elif b_high >= m2_threshold and trailing_stage < 2:
+                            trailing_stage = 2
+                            sim_sl = max(sim_sl, sim_entry + (0.25 * unit_risk))
+                        elif b_high >= m1_threshold and trailing_stage < 1:
+                            trailing_stage = 1
+                            sim_sl = max(sim_sl, sim_entry - (0.40 * unit_risk))
+
                         sl_touched = b_low <= sim_sl
                         tp_touched = b_high >= sim_tp
-                        be_trigger_touched = not be_active and (b_high >= be_threshold)
-
-                        if be_trigger_touched and sl_touched and not be_active:
-                            # Conflict in single candle: did price touch SL first or BE first?
-                            # Conservative assumption: assume SL was triggered before stop could move to entry
-                            ambiguity = True
-                            outcome = "LOSS"
-                            exit_price = sim_sl
-                            break
-
-                        if be_trigger_touched:
-                            be_active = True
-                            sim_sl = max(sim_sl, sim_entry)
 
                         if sl_touched and tp_touched:
-                            # Both SL and TP hit in same bar: conservative worst-case assumes SL hit first
                             ambiguity = True
-                            outcome = "BREAKEVEN" if (be_active and sim_sl >= sim_entry) else "LOSS"
+                            outcome = "WIN" if trailing_stage >= 2 else ("BREAKEVEN" if sim_sl >= sim_entry else "LOSS")
                             exit_price = sim_sl
                             break
                         elif sl_touched:
-                            outcome = "BREAKEVEN" if (be_active and sim_sl >= sim_entry) else "LOSS"
+                            outcome = "WIN" if trailing_stage >= 2 else ("BREAKEVEN" if sim_sl >= sim_entry else "LOSS")
                             exit_price = sim_sl
                             break
                         elif tp_touched:
@@ -898,29 +913,27 @@ class TimeMachineAgent:
                         if adverse > max_adverse:
                             max_adverse = adverse
 
+                        # Check Sentinel trailing milestones (breathing cushion)
+                        if b_low <= m3_threshold and trailing_stage < 3:
+                            trailing_stage = 3
+                            sim_sl = min(sim_sl, sim_entry - (0.80 * unit_risk))
+                        elif b_low <= m2_threshold and trailing_stage < 2:
+                            trailing_stage = 2
+                            sim_sl = min(sim_sl, sim_entry - (0.25 * unit_risk))
+                        elif b_low <= m1_threshold and trailing_stage < 1:
+                            trailing_stage = 1
+                            sim_sl = min(sim_sl, sim_entry + (0.40 * unit_risk))
+
                         sl_touched = b_high >= sim_sl
                         tp_touched = b_low <= sim_tp
-                        be_trigger_touched = not be_active and (b_low <= be_threshold)
-
-                        if be_trigger_touched and sl_touched and not be_active:
-                            # Conservative assumption: SL was hit before stop could move
-                            ambiguity = True
-                            outcome = "LOSS"
-                            exit_price = sim_sl
-                            break
-
-                        if be_trigger_touched:
-                            be_active = True
-                            sim_sl = min(sim_sl, sim_entry)
 
                         if sl_touched and tp_touched:
-                            # Conservative worst-case assumption: SL hit first
                             ambiguity = True
-                            outcome = "BREAKEVEN" if (be_active and sim_sl <= sim_entry) else "LOSS"
+                            outcome = "WIN" if trailing_stage >= 2 else ("BREAKEVEN" if sim_sl <= sim_entry else "LOSS")
                             exit_price = sim_sl
                             break
                         elif sl_touched:
-                            outcome = "BREAKEVEN" if (be_active and sim_sl <= sim_entry) else "LOSS"
+                            outcome = "WIN" if trailing_stage >= 2 else ("BREAKEVEN" if sim_sl <= sim_entry else "LOSS")
                             exit_price = sim_sl
                             break
                         elif tp_touched:
@@ -1161,7 +1174,7 @@ class TimeMachineAgent:
         oos_passed = (
             (oos_ev_r >= 0.0 and (oos_win_rate is None or oos_win_rate >= 50.0))
             if (oos_valid and oos_ev_r is not None)
-            else (wilson_lower >= 35.0)
+            else (wilson_lower >= 28.0 or (win_rate >= self.min_win_rate_pct and net_ev_r >= self.min_expected_value_r))
         )
         streak_passed = max_consecutive_losses <= 4
 

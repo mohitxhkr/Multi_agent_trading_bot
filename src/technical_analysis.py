@@ -2117,20 +2117,21 @@ def analyze_multi_timeframe(
     is_eth = "ETH" in (symbol or "").upper()
 
     # Dynamic Structural SL calibration:
-    # BTC requires >= 0.35% buffer to clear 15m ATR noise ($300-$500 on $80k BTC)
-    # ETH requires >= 0.25% buffer
+    # Dynamic structural stop loss bounds:
+    # Allows stops to breathe safely above/below key structural levels (EMA21, swing pivots)
+    # up to 1.60% (aligning with strategy_agent 3.0x ATR bounds) while preventing noise stop-outs.
     if is_btc:
-        min_sl_dist = current_price * 0.0035
-        max_sl_dist = current_price * 0.0065
+        min_sl_dist = current_price * 0.0085
+        max_sl_dist = current_price * 0.0160
     elif is_eth:
-        min_sl_dist = current_price * 0.0025
-        max_sl_dist = current_price * 0.0060
+        min_sl_dist = current_price * 0.0080
+        max_sl_dist = current_price * 0.0160
     elif is_primary:
-        min_sl_dist = current_price * 0.0028
-        max_sl_dist = current_price * 0.0060
+        min_sl_dist = current_price * 0.0080
+        max_sl_dist = current_price * 0.0160
     else:
-        min_sl_dist = current_price * 0.0035
-        max_sl_dist = current_price * 0.0075
+        min_sl_dist = current_price * 0.0085
+        max_sl_dist = current_price * 0.0180
 
     # High-Liquidity Institutional Killzones:
     # London Open: 07:00 - 10:00 UTC | New York Open: 12:00 - 17:00 UTC
@@ -2389,109 +2390,13 @@ def analyze_multi_timeframe(
                         f"OTE Limit Entry: ${calc_entry:.4f}, Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.6:1."
                     )
 
-    # Priority B: 15m High-Momentum Trend Pullback / EMA Re-test Scalp
-    if not setup_qualified:
-        vwap_val = float(analysis_1h.get("vwap") or current_price)
-        
-        # Bullish Pullback: 1H & 4H Bullish, 15m testing EMA dynamic support
-        if (
-            "BULLISH" in regime_1h
-            and _is_htf_trend_aligned("buy")
-            and current_price >= ema21_15m * 0.995
-            and 40.0 <= rsi_15m <= 75.0
-        ):
-            pb_score = 65 + (10 if is_primary else 0)
-            
-            # VWAP Institutional Alignment & Band Position
-            vwap_1h_info = analysis_1h.get("vwap_analysis", {})
-            v_stance = vwap_1h_info.get("stance", "AT_VWAP")
-            v_band = vwap_1h_info.get("band_location", "FAIR_VALUE_CORE")
-            v_slope = vwap_1h_info.get("slope", "FLAT")
-
-            if v_stance in ("ABOVE_VWAP", "AT_VWAP") or current_price >= vwap_val:
-                pb_score += 10
-            if v_band in ("FAIR_VALUE_CORE", "DISCOUNT_BAND") and v_slope == "RISING_BULLISH":
-                pb_score += 5
-
-            if is_killzone:
-                pb_score += 5
-
-            # MACD Momentum & Crossover Alignment
-            macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
-            if macd_15m.get("crossover") == "BULLISH_CROSS" or macd_15m.get("momentum_phase") == "BULLISH_EXPANSION":
-                pb_score += 10
-            elif macd_15m.get("histogram", 0) > 0 or "BULLISH" in macd_15m.get("bias", ""):
-                pb_score += 5
-
-            qual_threshold = 85 if is_primary else 90
-            if pb_score >= qual_threshold:
-                setup_score = pb_score
-                sl_dist = max(min_sl_dist, min(1.0 * atr_15m, max_sl_dist))
-                invalidation_sl = round_price(current_price - sl_dist, current_price)
-                target_tp = round_price(current_price + (2.5 * sl_dist), current_price)
-                
-                setup_qualified = True
-                setup_side = "buy"
-                strategy_label = "Intraday_EMA_Pullback_Scalp_Long"
-                m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
-                thesis = (
-                    f"Intraday 15m EMA Trend Bounce (Score {setup_score}/100{m_tag}): 1H {regime_1h}, holding 15m EMA21 support (${ema21_15m:.2f}) & VWAP (${vwap_val:.2f}). "
-                    f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
-                )
-
-        # Bearish Pullback: 1H & 4H Bearish, 15m capped by EMA dynamic resistance
-        elif (
-            "BEARISH" in regime_1h
-            and _is_htf_trend_aligned("sell")
-            and current_price <= ema21_15m * 1.005
-            and 18.0 <= rsi_15m <= 58.0
-        ):
-            pb_score = 65 + (10 if is_primary else 0)
-
-            # VWAP Institutional Alignment & Band Position
-            vwap_1h_info = analysis_1h.get("vwap_analysis", {})
-            v_stance = vwap_1h_info.get("stance", "AT_VWAP")
-            v_band = vwap_1h_info.get("band_location", "FAIR_VALUE_CORE")
-            v_slope = vwap_1h_info.get("slope", "FLAT")
-
-            if v_stance in ("BELOW_VWAP", "AT_VWAP") or current_price <= vwap_val:
-                pb_score += 10
-            if v_band in ("FAIR_VALUE_CORE", "PREMIUM_BAND") and v_slope == "FALLING_BEARISH":
-                pb_score += 5
-
-            if is_killzone:
-                pb_score += 5
-
-            # MACD Momentum & Crossover Alignment
-            macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
-            if macd_15m.get("crossover") == "BEARISH_CROSS" or macd_15m.get("momentum_phase") == "BEARISH_EXPANSION":
-                pb_score += 10
-            elif macd_15m.get("histogram", 0) < 0 or "BEARISH" in macd_15m.get("bias", ""):
-                pb_score += 5
-
-            qual_threshold = 85 if is_primary else 90
-            if pb_score >= qual_threshold:
-                setup_score = pb_score
-                sl_dist = max(min_sl_dist, min(1.0 * atr_15m, max_sl_dist))
-                invalidation_sl = round_price(current_price + sl_dist, current_price)
-                target_tp = round_price(current_price - (2.5 * sl_dist), current_price)
-
-                setup_qualified = True
-                setup_side = "sell"
-                strategy_label = "Intraday_EMA_Pullback_Scalp_Short"
-                m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
-                thesis = (
-                    f"Intraday 15m EMA Trend Rejection (Score {setup_score}/100{m_tag}): 1H {regime_1h}, capped under 15m EMA21 (${ema21_15m:.2f}). "
-                    f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
-                )
-
-    # Priority C: Institutional Bearish Breakdown Short (Trend continuation during sell-offs / market dumps)
+    # Priority B: Institutional Bearish Breakdown Short (Primary alpha trend continuation during sell-offs / market dumps)
     if not setup_qualified:
         vwap_val = float(analysis_1h.get("vwap") or current_price)
 
         is_bearish_regime = ("BEARISH" in regime_1h) and _is_htf_trend_aligned("sell")
-        is_below_ema = current_price <= ema21_15m * 1.003
-        has_bearish_momentum = 16.0 <= rsi_15m <= 50.0
+        is_below_ema = current_price <= ema21_15m * 1.006
+        has_bearish_momentum = 16.0 <= rsi_15m <= 55.0
 
         if is_bearish_regime and is_below_ema and has_bearish_momentum:
             bd_score = 50
@@ -2522,7 +2427,7 @@ def analyze_multi_timeframe(
             qual_threshold = 85 if is_primary else 90
             if bd_score >= qual_threshold:
                 calc_entry = current_price
-                raw_sl = max(ema21_15m, calc_entry + (0.85 * atr_15m))
+                raw_sl = max(ema21_15m + (0.35 * atr_15m), calc_entry + (1.25 * atr_15m))
                 raw_risk = raw_sl - calc_entry
                 sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                 invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
@@ -2538,6 +2443,106 @@ def analyze_multi_timeframe(
                     f"Unified 4H {macro_4h_regime} & 1H {regime_1h} momentum continuation. "
                     f"Trading below EMA21 (${ema21_15m:.2f}) with RSI {rsi_15m:.1f}. "
                     f"Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
+                )
+
+    # Priority C: 15m High-Momentum Trend Pullback / EMA Re-test Scalp
+    if not setup_qualified:
+        vwap_val = float(analysis_1h.get("vwap") or current_price)
+        
+        # Bullish Pullback: 1H & 4H Bullish, 15m testing EMA dynamic support
+        if (
+            "BULLISH" in regime_1h
+            and _is_htf_trend_aligned("buy")
+            and ema21_15m * 0.994 <= current_price <= ema21_15m * 1.010
+            and 40.0 <= rsi_15m <= 75.0
+        ):
+            pb_score = 65 + (10 if is_primary else 0)
+            
+            # VWAP Institutional Alignment & Band Position
+            vwap_1h_info = analysis_1h.get("vwap_analysis", {})
+            v_stance = vwap_1h_info.get("stance", "AT_VWAP")
+            v_band = vwap_1h_info.get("band_location", "FAIR_VALUE_CORE")
+            v_slope = vwap_1h_info.get("slope", "FLAT")
+
+            if v_stance in ("ABOVE_VWAP", "AT_VWAP") or current_price >= vwap_val:
+                pb_score += 10
+            if v_band in ("FAIR_VALUE_CORE", "DISCOUNT_BAND") and v_slope == "RISING_BULLISH":
+                pb_score += 5
+
+            if is_killzone:
+                pb_score += 5
+
+            # MACD Momentum & Crossover Alignment
+            macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
+            if macd_15m.get("crossover") == "BULLISH_CROSS" or macd_15m.get("momentum_phase") == "BULLISH_EXPANSION":
+                pb_score += 10
+            elif macd_15m.get("histogram", 0) > 0 or "BULLISH" in macd_15m.get("bias", ""):
+                pb_score += 5
+
+            qual_threshold = 85 if is_primary else 90
+            if pb_score >= qual_threshold:
+                setup_score = pb_score
+                raw_sl = min(ema21_15m - (0.25 * atr_15m), current_price - (1.15 * atr_15m))
+                raw_risk = current_price - raw_sl
+                sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
+                invalidation_sl = round_price(current_price - sl_dist, current_price)
+                target_tp = round_price(current_price + (2.5 * sl_dist), current_price)
+                
+                setup_qualified = True
+                setup_side = "buy"
+                strategy_label = "Intraday_EMA_Pullback_Scalp_Long"
+                m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
+                thesis = (
+                    f"Intraday 15m EMA Trend Bounce (Score {setup_score}/100{m_tag}): 1H {regime_1h}, holding 15m EMA21 support (${ema21_15m:.2f}) & VWAP (${vwap_val:.2f}). "
+                    f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
+                )
+
+        # Bearish Pullback: 1H & 4H Bearish, 15m capped by EMA dynamic resistance
+        elif (
+            "BEARISH" in regime_1h
+            and _is_htf_trend_aligned("sell")
+            and ema21_15m * 0.990 <= current_price <= ema21_15m * 1.006
+            and 18.0 <= rsi_15m <= 58.0
+        ):
+            pb_score = 65 + (10 if is_primary else 0)
+
+            # VWAP Institutional Alignment & Band Position
+            vwap_1h_info = analysis_1h.get("vwap_analysis", {})
+            v_stance = vwap_1h_info.get("stance", "AT_VWAP")
+            v_band = vwap_1h_info.get("band_location", "FAIR_VALUE_CORE")
+            v_slope = vwap_1h_info.get("slope", "FLAT")
+
+            if v_stance in ("BELOW_VWAP", "AT_VWAP") or current_price <= vwap_val:
+                pb_score += 10
+            if v_band in ("FAIR_VALUE_CORE", "PREMIUM_BAND") and v_slope == "FALLING_BEARISH":
+                pb_score += 5
+
+            if is_killzone:
+                pb_score += 5
+
+            # MACD Momentum & Crossover Alignment
+            macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
+            if macd_15m.get("crossover") == "BEARISH_CROSS" or macd_15m.get("momentum_phase") == "BEARISH_EXPANSION":
+                pb_score += 10
+            elif macd_15m.get("histogram", 0) < 0 or "BEARISH" in macd_15m.get("bias", ""):
+                pb_score += 5
+
+            qual_threshold = 85 if is_primary else 90
+            if pb_score >= qual_threshold:
+                setup_score = pb_score
+                raw_sl = max(ema21_15m + (0.25 * atr_15m), current_price + (1.15 * atr_15m))
+                raw_risk = raw_sl - current_price
+                sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
+                invalidation_sl = round_price(current_price + sl_dist, current_price)
+                target_tp = round_price(current_price - (2.5 * sl_dist), current_price)
+
+                setup_qualified = True
+                setup_side = "sell"
+                strategy_label = "Intraday_EMA_Pullback_Scalp_Short"
+                m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
+                thesis = (
+                    f"Intraday 15m EMA Trend Rejection (Score {setup_score}/100{m_tag}): 1H {regime_1h}, capped under 15m EMA21 (${ema21_15m:.2f}). "
+                    f"Tight Scalp SL: {sl_dist / current_price * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
                 )
 
     # Priority D: SMC Fair Value Gap (FVG) Retest & Mitigation Engine

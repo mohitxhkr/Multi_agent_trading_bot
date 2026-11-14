@@ -482,6 +482,10 @@ class TimeMachineAgent:
                 macd_ok = c_hist >= 0 or c_hist > p_hist
                 return pullback_test and rsi_ok and vwap_ok and macd_ok and h1_bullish
 
+            # 2b. Scale-In / Pyramid setup (ScaleIn_Pyramid_BUY)
+            if "scalein" in strat_lower or "pyramid" in strat_lower:
+                return (c_price >= c_ema21 * 0.996) and (45.0 <= c_rsi <= 80.0) and h1_bullish
+
             # 3. Breakout setup (Institutional_Bullish_Breakout_Long)
             if "breakout" in strat_lower:
                 breakout = (c_high > recent_high or bos_detected) and c_price > c_ema21
@@ -535,6 +539,10 @@ class TimeMachineAgent:
                 vwap_ok = c_price <= c_vwap * 1.004
                 macd_ok = c_hist <= 0 or c_hist < p_hist
                 return pullback_test and rsi_ok and vwap_ok and macd_ok and h1_bearish
+
+            # 2b. Scale-In / Pyramid setup (ScaleIn_Pyramid_SELL)
+            if "scalein" in strat_lower or "pyramid" in strat_lower:
+                return (c_price <= c_ema21 * 1.004) and (20.0 <= c_rsi <= 60.0) and h1_bearish
 
             # 3. Breakdown setup (Institutional_Bearish_Breakdown_Short)
             if "breakdown" in strat_lower:

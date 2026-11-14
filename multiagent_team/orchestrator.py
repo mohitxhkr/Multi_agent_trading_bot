@@ -448,6 +448,83 @@ class MultiAgentTradingOrchestrator:
                 )
         return None
 
+    def _build_scale_in_candidate(
+        self,
+        position: Dict[str, Any],
+        scan_results: Dict[str, Any],
+        posture_data: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Build a high-conviction scale-in ('adding to winner') candidate for an active profitable position.
+        """
+        symbol = str(position.get("product_symbol") or position.get("symbol") or "").upper()
+        if not symbol:
+            return None
+        existing_size = float(position.get("size", 0.0) or 0.0)
+        if existing_size == 0:
+            return None
+        side = "buy" if existing_size > 0 else "sell"
+        pnl = float(position.get("unrealized_pnl", 0.0) or 0.0)
+        if pnl <= 0:
+            return None
+
+        sym_raw = (scan_results.get("symbols_data", {}) or {}).get(symbol, {})
+        analysis = sym_raw.get("analysis", {}) if isinstance(sym_raw, dict) else {}
+        if not analysis:
+            analysis = self.regime_analyst.analyze_symbol(symbol, resolution="15")
+
+        if not isinstance(analysis, dict) or "error" in analysis:
+            return None
+
+        # Check posture gate
+        if posture_data:
+            posture_veto = self._check_exposure_posture_gate(posture_data, symbol=symbol, side=side)
+            if posture_veto:
+                return None
+
+        # Check counter trend
+        if self._is_counter_trend_direction(side, analysis):
+            return None
+
+        cur_mark = float(analysis.get("mark_price") or analysis.get("current_price") or position.get("mark_price") or 0.0)
+        if cur_mark <= 0:
+            return None
+
+        atr = float((analysis.get("macro_15m") or {}).get("atr_14") or analysis.get("atr_14") or (cur_mark * 0.006))
+        vwap = float(analysis.get("vwap") or cur_mark)
+        from src.technical_analysis import round_price
+        sl_dist = max(atr * 1.5, cur_mark * 0.0085)
+        sl = round_price(cur_mark - sl_dist) if side == "buy" else round_price(cur_mark + sl_dist)
+        tp = round_price(cur_mark + (sl_dist * 2.5)) if side == "buy" else round_price(cur_mark - (sl_dist * 2.5))
+        rr = 2.5
+
+        return {
+            "symbol": symbol,
+            "side": side,
+            "entry_price": cur_mark,
+            "stop_loss_price": sl,
+            "take_profit_price": tp,
+            "planned_rr_ratio": rr,
+            "strategy_name": f"ScaleIn_Pyramid_{side.upper()}",
+            "thesis": f"🔥 [SCALE-IN: ADDING TO WINNER] 15m {side.upper()} @ VWAP ${vwap:,.2f} (Current PnL: +${pnl:.2f})",
+            "score": 92,
+            "conviction_tier": "SCALE_IN_WINNER",
+            "atr_14": atr,
+            "spread_pct": float(analysis.get("spread_pct") or 0.02),
+            "is_scale_in": True,
+            "scale_in_parent": {
+                "existing_size": abs(existing_size),
+                "entry_price": float(position.get("entry_price", cur_mark)),
+                "unrealized_pnl": pnl,
+                "side": side
+            },
+            "confluence": {
+                "vwap_detail": f"Mark: ${cur_mark:,.2f} | 15m VWAP: ${vwap:,.2f} | ATR: ${atr:,.2f}",
+                "liquidity_detail": f"Targeting 1:{rr:.1f} R:R Scale-In",
+                "macd_detail": f"15m {side.upper()} Continuation"
+            },
+        }
+
     def check_and_dispatch_level_breakout_alerts(
         self,
         symbols_data: Optional[Dict[str, Any]] = None,
@@ -874,8 +951,11 @@ class MultiAgentTradingOrchestrator:
 
         # Reconcile local state with exchange positions
         raw_pos_res = self.client.get_positions()
+        active_pos_list = []
         if raw_pos_res.get("success"):
-            self.state_manager.reconcile_positions_with_exchange(raw_pos_res.get("result", []))
+            raw_pos_list = raw_pos_res.get("result", [])
+            self.state_manager.reconcile_positions_with_exchange(raw_pos_list)
+            active_pos_list = [p for p in raw_pos_list if abs(float(p.get("size", 0.0) or 0.0)) > 0]
 
         # Check and update Trailing Stops
         trailing_updates = self.trailing_stop_manager.check_and_update_trailing_stops()
@@ -994,6 +1074,16 @@ class MultiAgentTradingOrchestrator:
             if len(tier1_only) < len(candidates):
                 print(f"   🛡️ [{posture_data['posture']}] Filtered out altcoin setups. Focusing strictly on Tier-1 Core.")
             candidates = tier1_only
+
+        # Automated Scale-In ("Adding to Winner") Detection:
+        # If an active position is currently in profit, prioritize scale-in proposal!
+        for pos in active_pos_list:
+            pos_pnl = float(pos.get("unrealized_pnl", 0.0) or 0.0)
+            if pos_pnl > 0.0:
+                scale_cand = self._build_scale_in_candidate(pos, scan_results, posture_data)
+                if scale_cand:
+                    print(f"   🔥 [SCALE-IN DETECTED] {scale_cand['symbol']} is in profit (+${pos_pnl:.2f}). Adding pyramid setup to candidates!")
+                    candidates.insert(0, scale_cand)
 
         self.system_monitor.record_agent_duration("Agent3_StrategyGenerator", (time.time() - t3) * 1000)
 
@@ -1617,7 +1707,7 @@ class MultiAgentTradingOrchestrator:
                 atr = float((analysis.get("macro_15m") or {}).get("atr_14") or analysis.get("atr_14") or (cur_mark * 0.006))
                 vwap = float(analysis.get("vwap") or cur_mark)
                 from src.technical_analysis import round_price
-                sl_dist = atr * 1.5
+                sl_dist = max(atr * 1.5, cur_mark * 0.0085)
                 sl = round_price(cur_mark - sl_dist) if side == "buy" else round_price(cur_mark + sl_dist)
                 tp = round_price(cur_mark + (sl_dist * 2.5)) if side == "buy" else round_price(cur_mark - (sl_dist * 2.5))
                 rr = 2.5

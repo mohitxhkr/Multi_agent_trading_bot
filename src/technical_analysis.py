@@ -2390,60 +2390,114 @@ def analyze_multi_timeframe(
                         f"OTE Limit Entry: ${calc_entry:.4f}, Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.6:1."
                     )
 
-    # Priority B: Institutional Bearish Breakdown Short (Primary alpha trend continuation during sell-offs / market dumps)
+    # Priority B: Institutional Trend Momentum Continuation (Breakout Long during rallies / Breakdown Short during dumps)
     if not setup_qualified:
         vwap_val = float(analysis_1h.get("vwap") or current_price)
 
-        is_bearish_regime = ("BEARISH" in regime_1h) and _is_htf_trend_aligned("sell")
-        is_below_ema = current_price <= ema21_15m * 1.006
-        has_bearish_momentum = 16.0 <= rsi_15m <= 55.0
+        # 1. Bullish Breakout Long (Trend continuation during market pumps / upside expansions)
+        is_bullish_regime = ("BULLISH" in regime_1h) and _is_htf_trend_aligned("buy")
+        is_above_ema = current_price >= ema21_15m * 0.994
+        has_bullish_momentum = 45.0 <= rsi_15m <= 82.0
 
-        if is_bearish_regime and is_below_ema and has_bearish_momentum:
-            bd_score = 50
-            if macro_4h_regime == "MACRO_BEARISH":
-                bd_score += 20
+        if is_bullish_regime and is_above_ema and has_bullish_momentum:
+            bo_score = 50
+            if macro_4h_regime == "MACRO_BULLISH":
+                bo_score += 20
             elif macro_4h_regime == "MACRO_NEUTRAL":
-                bd_score += 10
+                bo_score += 10
 
-            if "BEARISH" in regime_1h:
-                bd_score += 15
+            if "BULLISH" in regime_1h:
+                bo_score += 15
 
-            if vwap_val > 0 and current_price <= vwap_val:
-                bd_score += 10
+            if vwap_val > 0 and current_price >= vwap_val:
+                bo_score += 10
 
             if is_primary:
-                bd_score += 10
+                bo_score += 10
 
             if is_killzone:
-                bd_score += 5
+                bo_score += 5
 
             # MACD Momentum & Crossover Alignment
             macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
-            if macd_15m.get("crossover") == "BEARISH_CROSS" or macd_15m.get("momentum_phase") == "BEARISH_EXPANSION":
-                bd_score += 10
-            elif macd_15m.get("histogram", 0) < 0 or "BEARISH" in macd_15m.get("bias", ""):
-                bd_score += 5
+            if macd_15m.get("crossover") == "BULLISH_CROSS" or macd_15m.get("momentum_phase") == "BULLISH_EXPANSION":
+                bo_score += 10
+            elif macd_15m.get("histogram", 0) > 0 or "BULLISH" in macd_15m.get("bias", ""):
+                bo_score += 5
 
             qual_threshold = 85 if is_primary else 90
-            if bd_score >= qual_threshold:
+            if bo_score >= qual_threshold:
                 calc_entry = current_price
-                raw_sl = max(ema21_15m + (0.35 * atr_15m), calc_entry + (1.25 * atr_15m))
-                raw_risk = raw_sl - calc_entry
+                raw_sl = min(ema21_15m - (0.35 * atr_15m), calc_entry - (1.25 * atr_15m))
+                raw_risk = calc_entry - raw_sl
                 sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
-                invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
-                target_tp = round_price(calc_entry - (2.5 * sl_dist), calc_entry)
+                invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
+                target_tp = round_price(calc_entry + (2.5 * sl_dist), calc_entry)
 
                 setup_qualified = True
-                setup_side = "sell"
-                setup_score = min(98, bd_score)
-                strategy_label = "Institutional_Bearish_Breakdown_Short"
+                setup_side = "buy"
+                setup_score = min(98, bo_score)
+                strategy_label = "Institutional_Bullish_Breakout_Long"
                 m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
                 thesis = (
-                    f"Institutional Bearish Breakdown Short (Score {setup_score}/100 · {session_label}{m_tag}): "
+                    f"Institutional Bullish Breakout Long (Score {setup_score}/100 · {session_label}{m_tag}): "
                     f"Unified 4H {macro_4h_regime} & 1H {regime_1h} momentum continuation. "
-                    f"Trading below EMA21 (${ema21_15m:.2f}) with RSI {rsi_15m:.1f}. "
+                    f"Trading above EMA21 (${ema21_15m:.2f}) with RSI {rsi_15m:.1f}. "
                     f"Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
                 )
+
+        # 2. Bearish Breakdown Short (Trend continuation during sell-offs / market dumps)
+        if not setup_qualified:
+            is_bearish_regime = ("BEARISH" in regime_1h) and _is_htf_trend_aligned("sell")
+            is_below_ema = current_price <= ema21_15m * 1.006
+            has_bearish_momentum = 16.0 <= rsi_15m <= 55.0
+
+            if is_bearish_regime and is_below_ema and has_bearish_momentum:
+                bd_score = 50
+                if macro_4h_regime == "MACRO_BEARISH":
+                    bd_score += 20
+                elif macro_4h_regime == "MACRO_NEUTRAL":
+                    bd_score += 10
+
+                if "BEARISH" in regime_1h:
+                    bd_score += 15
+
+                if vwap_val > 0 and current_price <= vwap_val:
+                    bd_score += 10
+
+                if is_primary:
+                    bd_score += 10
+
+                if is_killzone:
+                    bd_score += 5
+
+                # MACD Momentum & Crossover Alignment
+                macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
+                if macd_15m.get("crossover") == "BEARISH_CROSS" or macd_15m.get("momentum_phase") == "BEARISH_EXPANSION":
+                    bd_score += 10
+                elif macd_15m.get("histogram", 0) < 0 or "BEARISH" in macd_15m.get("bias", ""):
+                    bd_score += 5
+
+                qual_threshold = 85 if is_primary else 90
+                if bd_score >= qual_threshold:
+                    calc_entry = current_price
+                    raw_sl = max(ema21_15m + (0.35 * atr_15m), calc_entry + (1.25 * atr_15m))
+                    raw_risk = raw_sl - calc_entry
+                    sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
+                    invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
+                    target_tp = round_price(calc_entry - (2.5 * sl_dist), calc_entry)
+
+                    setup_qualified = True
+                    setup_side = "sell"
+                    setup_score = min(98, bd_score)
+                    strategy_label = "Institutional_Bearish_Breakdown_Short"
+                    m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
+                    thesis = (
+                        f"Institutional Bearish Breakdown Short (Score {setup_score}/100 · {session_label}{m_tag}): "
+                        f"Unified 4H {macro_4h_regime} & 1H {regime_1h} momentum continuation. "
+                        f"Trading below EMA21 (${ema21_15m:.2f}) with RSI {rsi_15m:.1f}. "
+                        f"Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
+                    )
 
     # Priority C: 15m High-Momentum Trend Pullback / EMA Re-test Scalp
     if not setup_qualified:
@@ -2482,7 +2536,7 @@ def analyze_multi_timeframe(
             qual_threshold = 85 if is_primary else 90
             if pb_score >= qual_threshold:
                 setup_score = pb_score
-                raw_sl = min(ema21_15m - (0.25 * atr_15m), current_price - (1.15 * atr_15m))
+                raw_sl = min(ema21_15m - (0.35 * atr_15m), current_price - (1.25 * atr_15m))
                 raw_risk = current_price - raw_sl
                 sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                 invalidation_sl = round_price(current_price - sl_dist, current_price)

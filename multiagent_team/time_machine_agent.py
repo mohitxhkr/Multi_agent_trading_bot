@@ -482,8 +482,14 @@ class TimeMachineAgent:
                 macd_ok = c_hist >= 0 or c_hist > p_hist
                 return pullback_test and rsi_ok and vwap_ok and macd_ok and h1_bullish
 
-            # 3. Momentum Impulse / Breakout (High_Volume_Momentum_Impulse)
-            if "momentum" in strat_lower or "impulse" in strat_lower or "breakout" in strat_lower:
+            # 3. Breakout setup (Institutional_Bullish_Breakout_Long)
+            if "breakout" in strat_lower:
+                breakout = (c_high > recent_high or bos_detected) and c_price > c_ema21
+                rsi_ok = 40.0 <= c_rsi <= 80.0
+                return breakout and rsi_ok and h1_bullish
+
+            # 4. Momentum Impulse (High_Volume_Momentum_Impulse)
+            if "momentum" in strat_lower or "impulse" in strat_lower:
                 vol_surge = c_vol >= 1.5 * v_sma
                 strong_body = (c_price - c_open) > 0 and (c_price - c_open) / max(0.0001, (c_high - c_low)) >= 0.50
                 trend_ok = (c_price > c_ema21 or bos_detected) and h1_bullish

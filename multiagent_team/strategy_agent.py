@@ -616,38 +616,60 @@ class StrategyAgent:
         elif structure_type == "NORMAL":
             score_15m += 10
 
-        # Category C: Liquidity Sweep Confluence
+        # Category C: Liquidity Sweep & Anti-Trap Confluence
         liq = analysis.get("liquidity") or {}
         sweep_type = liq.get("sweep_type") or "NONE"
         mss_confirmed = liq.get("mss_confirmed", False)
         nearest_bsl = float(liq.get("nearest_bsl") or 0.0)
         nearest_ssl = float(liq.get("nearest_ssl") or 0.0)
         liq_structure = liq.get("liquidity_structure", "BALANCED_LIQUIDITY_CORE")
+        bull_trap = bool(liq.get("bull_trap_detected", False) or sweep_type == "BEARISH_BSL_SWEEP")
+        bear_trap = bool(liq.get("bear_trap_detected", False) or sweep_type == "BULLISH_SSL_SWEEP")
+
+        # Layer 2 Safety Gatekeeper: Anti-Trap Veto on Breakout/Breakdown
+        strategy_name = hp_setup.get("strategy_name") or hp_setup.get("strategy") or ""
+        strat_lower = strategy_name.lower()
+        if side == "buy" and bull_trap and "breakout" in strat_lower:
+            logger.warning(f"StrategyAgent VETO on {symbol} [BULL_TRAP_VETO]: Breakout long rejected due to active bull trap at resistance.")
+            self._record_rejection(symbol, "Active Bull Trap detected at resistance. Buying breakout trap is strictly forbidden.", "BULL_TRAP_VETO")
+            return None
+        if side == "sell" and bear_trap and ("breakdown" in strat_lower or "breakout" in strat_lower):
+            logger.warning(f"StrategyAgent VETO on {symbol} [BEAR_TRAP_VETO]: Breakdown short rejected due to active bear trap at support.")
+            self._record_rejection(symbol, "Active Bear Trap detected at support. Shorting breakdown trap is strictly forbidden.", "BEAR_TRAP_VETO")
+            return None
 
         liq_boost = 0
         if side == "buy":
-            if sweep_type == "BULLISH_SSL_SWEEP":
+            if bull_trap:
+                liq_boost -= 20
+                if "BULL TRAP" not in thesis:
+                    thesis = f"⚠️ [BULL TRAP ACTIVE - AVOID LONGS] {thesis}"
+            elif bear_trap or sweep_type == "BULLISH_SSL_SWEEP":
                 if mss_confirmed or liq_structure == "SWEEP_MSS_CONFIRMED":
-                    liq_boost += 8
-                    if "SSL SWEEP" not in thesis:
+                    liq_boost += 12
+                    if "SSL SWEEP" not in thesis and "BEAR TRAP" not in thesis:
                         thesis = f"💧 [BULLISH SSL SWEEP + MSS CONFIRMED] {thesis}"
                 else:
-                    liq_boost += 4
-                    if "SSL SWEEP" not in thesis:
+                    liq_boost += 6
+                    if "SSL SWEEP" not in thesis and "BEAR TRAP" not in thesis:
                         thesis = f"💧 [BULLISH SSL SWEEP] {thesis}"
             if nearest_bsl > entry:
                 liq_boost += 3
             if liq_structure == "TESTING_BSL_LIQUIDITY":
                 liq_boost -= 4
         elif side == "sell":
-            if sweep_type == "BEARISH_BSL_SWEEP":
+            if bear_trap:
+                liq_boost -= 20
+                if "BEAR TRAP" not in thesis:
+                    thesis = f"⚠️ [BEAR TRAP ACTIVE - AVOID SHORTS] {thesis}"
+            elif bull_trap or sweep_type == "BEARISH_BSL_SWEEP":
                 if mss_confirmed or liq_structure == "SWEEP_MSS_CONFIRMED":
-                    liq_boost += 8
-                    if "BSL SWEEP" not in thesis:
+                    liq_boost += 12
+                    if "BSL SWEEP" not in thesis and "BULL TRAP" not in thesis:
                         thesis = f"💧 [BEARISH BSL SWEEP + MSS CONFIRMED] {thesis}"
                 else:
-                    liq_boost += 4
-                    if "BSL SWEEP" not in thesis:
+                    liq_boost += 6
+                    if "BSL SWEEP" not in thesis and "BULL TRAP" not in thesis:
                         thesis = f"💧 [BEARISH BSL SWEEP] {thesis}"
             if nearest_ssl > 0 and nearest_ssl < entry:
                 liq_boost += 3
@@ -837,7 +859,7 @@ class StrategyAgent:
                     thesis = f"⚠️ [HEAVY BID WALL SUPPORT (OBI {obi_ratio:+.2f})] {thesis}"
 
         # Adaptive Learning Check
-        raw_strat = hp_setup.get("strategy") or f"Institutional_SMC_{priority_tag}_{side.upper()}"
+        raw_strat = hp_setup.get("strategy") or hp_setup.get("strategy_name") or hp_setup.get("strategy_label") or f"Institutional_SMC_{priority_tag}_{side.upper()}"
         macro_4h = analysis.get("macro_4h") or {}
         macro_daily = analysis.get("macro_daily") or {}
         macro_weekly = analysis.get("macro_weekly") or {}
@@ -1025,13 +1047,14 @@ class StrategyAgent:
             if setup:
                 candidates.append(setup)
 
-        # Rank by: Primary tier first, then Asymmetric Profit Ratio (planned R:R), then score
-        candidates.sort(
-            key=lambda s: (
-                1 if s.get("is_primary") else 0,
-                s.get("planned_rr_ratio", 0.0),
-                s.get("score", 0)
-            ),
-            reverse=True
-        )
+        # Rank by: Primary tier first, Sweep/Trap Reversal tier, then planned R:R, then score
+        def _candidate_rank_key(s: Dict[str, Any]):
+            is_primary = 1 if s.get("is_primary") else 0
+            strat = str(s.get("strategy_name", "")).upper()
+            is_reversal = 1 if ("SWEEP" in strat or "TRAP" in strat or "REVERSAL" in strat) else 0
+            rr = s.get("planned_rr_ratio", 0.0)
+            score = s.get("score", 0)
+            return (is_primary, is_reversal, rr, score)
+
+        candidates.sort(key=_candidate_rank_key, reverse=True)
         return candidates

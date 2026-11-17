@@ -468,11 +468,11 @@ class TimeMachineAgent:
                     return False
 
         if side == "buy":
-            # 1. Sweep setup (Institutional_SSL_Sweep) - Verified by SMC Sweep & MSS Body Close
-            if "ssl" in strat_lower or "sweep" in strat_lower:
+            # 1. Sweep setup (Institutional_SSL_Sweep / Reversal) - Verified by SMC Sweep & MSS Body Close
+            if "ssl" in strat_lower or "sweep" in strat_lower or "trap" in strat_lower or "reversal" in strat_lower:
                 sweep_ok = (sweep_type == "BULLISH_SSL_SWEEP" and mss_confirmed) or (c_low < recent_low and c_price > recent_low)
                 mss_bull = c_price > c_open and c_rsi >= 38
-                return sweep_ok and mss_bull and (h1_bullish or c_rsi < 35)
+                return sweep_ok and mss_bull and (h1_bullish or c_rsi < 35 or not h1_bearish)
 
             # 2. Pullback setup (Intraday_EMA_Pullback_Scalp_Long)
             if "pullback" in strat_lower or "ema" in strat_lower:
@@ -488,6 +488,10 @@ class TimeMachineAgent:
 
             # 3. Breakout setup (Institutional_Bullish_Breakout_Long)
             if "breakout" in strat_lower:
+                # Anti-Trap check: Reject breakout if candle rejected high and closed back inside
+                is_trap = (c_high > recent_high and c_price < recent_high) or ((c_high - max(c_open, c_price)) > 0.28 * max(c_high - c_low, 1e-6))
+                if is_trap:
+                    return False
                 breakout = (c_high > recent_high or bos_detected) and c_price > c_ema21
                 rsi_ok = 40.0 <= c_rsi <= 80.0
                 return breakout and rsi_ok and h1_bullish
@@ -526,11 +530,11 @@ class TimeMachineAgent:
             return (swept_low or is_oversold_bounce or is_breakout or is_ema_bounce or is_momentum_impulse) and (trend_aligned or is_macd_confirmed) and is_vwap_aligned
 
         elif side == "sell":
-            # 1. Sweep setup (Institutional_BSL_Sweep) - Verified by SMC Sweep & MSS Body Close
-            if "bsl" in strat_lower or "sweep" in strat_lower:
+            # 1. Sweep setup (Institutional_BSL_Sweep / Reversal) - Verified by SMC Sweep & MSS Body Close
+            if "bsl" in strat_lower or "sweep" in strat_lower or "trap" in strat_lower or "reversal" in strat_lower:
                 sweep_ok = (sweep_type == "BEARISH_BSL_SWEEP" and mss_confirmed) or (c_high > recent_high and c_price < recent_high)
                 mss_bear = c_price < c_open and c_rsi <= 62
-                return sweep_ok and mss_bear and (h1_bearish or c_rsi > 65)
+                return sweep_ok and mss_bear and (h1_bearish or c_rsi > 65 or not h1_bullish)
 
             # 2. Pullback setup (Intraday_EMA_Pullback_Scalp_Short)
             if "pullback" in strat_lower or "ema" in strat_lower:
@@ -546,6 +550,10 @@ class TimeMachineAgent:
 
             # 3. Breakdown setup (Institutional_Bearish_Breakdown_Short)
             if "breakdown" in strat_lower:
+                # Anti-Trap check: Reject breakdown if candle rejected low and closed back inside
+                is_trap = (c_low < recent_low and c_price > recent_low) or ((min(c_open, c_price) - c_low) > 0.28 * max(c_high - c_low, 1e-6))
+                if is_trap:
+                    return False
                 breakdown = (c_low < recent_low or bos_detected) and c_price < c_ema21
                 rsi_ok = 20.0 <= c_rsi <= 55.0
                 return breakdown and rsi_ok and h1_bearish

@@ -823,7 +823,7 @@ def analyze_liquidity_pools_and_sweeps(
 
     avg_volume = (sum(volumes[-20:]) / 20.0) if volumes and len(volumes) >= 20 else 0.0
 
-    # Examine recent candles (last 6 bars) for sweeps
+    # Examine recent candles (last 6 bars) for single-bar sweeps / stop hunts
     for bar_offset in range(1, min(7, n - 2)):
         bar_idx = n - bar_offset
         bar_h = highs[bar_idx]
@@ -833,9 +833,9 @@ def analyze_liquidity_pools_and_sweeps(
         bar_v = volumes[bar_idx] if volumes and len(volumes) > bar_idx else 0.0
         bar_range = max(bar_h - bar_l, 1e-6)
 
-        # 1. Bearish BSL Sweep (pierced prior swing high, closed back below)
+        # 1. Bearish BSL Sweep / Bull Trap (pierced prior swing high, closed back below, price currently holding below)
         for sh_idx, sh_val in swing_highs:
-            if sh_idx < bar_idx and bar_h > sh_val and bar_c < sh_val:
+            if sh_idx < bar_idx and bar_h > sh_val and bar_c < sh_val and current_price < sh_val:
                 upper_wick = bar_h - max(bar_o, bar_c)
                 wick_ratio = upper_wick / bar_range
                 # Must show meaningful wick rejection (>= 25% of candle range)
@@ -858,7 +858,7 @@ def analyze_liquidity_pools_and_sweeps(
                         volume_confirmed = True
 
                     narrative = (
-                        f"Bearish BSL Liquidity Sweep: Price spiked Buy-Side Liquidity (${swept_level:.2f}) "
+                        f"Bearish BSL Liquidity Sweep / Bull Trap: Price spiked Buy-Side Liquidity (${swept_level:.2f}) "
                         f"trapping breakout longs, rejected with {wick_ratio * 100:.0f}% upper wick. "
                         f"Market Structure Shift (MSS): {'CONFIRMED' if mss_confirmed else 'FORMING'}."
                     )
@@ -866,9 +866,9 @@ def analyze_liquidity_pools_and_sweeps(
         if sweep_detected:
             break
 
-        # 2. Bullish SSL Sweep (pierced prior swing low, closed back above)
+        # 2. Bullish SSL Sweep / Bear Trap (pierced prior swing low, closed back above, price currently holding above)
         for sl_idx, sl_val in swing_lows:
-            if sl_idx < bar_idx and bar_l < sl_val and bar_c > sl_val:
+            if sl_idx < bar_idx and bar_l < sl_val and bar_c > sl_val and current_price > sl_val:
                 lower_wick = min(bar_o, bar_c) - bar_l
                 wick_ratio = lower_wick / bar_range
                 # Must show meaningful wick rejection (>= 25% of candle range)
@@ -891,7 +891,7 @@ def analyze_liquidity_pools_and_sweeps(
                         volume_confirmed = True
 
                     narrative = (
-                        f"Bullish SSL Liquidity Sweep: Price swept Sell-Side Liquidity (${swept_level:.2f}) "
+                        f"Bullish SSL Liquidity Sweep / Bear Trap: Price swept Sell-Side Liquidity (${swept_level:.2f}) "
                         f"grabbing stops, rejected higher with {wick_ratio * 100:.0f}% lower wick. "
                         f"Market Structure Shift (MSS): {'CONFIRMED' if mss_confirmed else 'FORMING'}."
                     )
@@ -899,9 +899,94 @@ def analyze_liquidity_pools_and_sweeps(
         if sweep_detected:
             break
 
+    # 3. Two-Bar / Multi-Bar False Breakout & Breakdown Trap Engine (if single-bar wick not detected)
+    if not sweep_detected:
+        for bar_offset in range(1, min(6, n - 3)):
+            bar_idx = n - bar_offset
+            prev_idx = bar_idx - 1
+            if prev_idx < 1:
+                continue
+
+            p_h = highs[prev_idx]
+            p_l = lows[prev_idx]
+            p_c = closes[prev_idx]
+            p_o = opens[prev_idx] if opens and len(opens) > prev_idx else p_c
+
+            b_h = highs[bar_idx]
+            b_l = lows[bar_idx]
+            b_c = closes[bar_idx]
+            b_o = opens[bar_idx] if opens and len(opens) > bar_idx else b_c
+            b_v = volumes[bar_idx] if volumes and len(volumes) > bar_idx else 0.0
+
+            # Multi-bar Bull Trap: Candle prev_idx broke out above swing high, but candle bar_idx closed back below
+            for sh_idx, sh_val in swing_highs:
+                if sh_idx < prev_idx and p_h > sh_val and (p_c >= sh_val * 0.9995 or p_h > sh_val * 1.0005) and current_price < sh_val:
+                    # Current bar closes back under the swing high with bearish rejection
+                    if b_c < sh_val and b_c <= b_o:
+                        sweep_detected = True
+                        sweep_type = "BEARISH_BSL_SWEEP"
+                        swept_level = round(sh_val, 2)
+                        sweep_wick_extreme = round(max(p_h, b_h), 2)
+                        target_liquidity = nearest_ssl
+                        bias = "DOWNSIDE"
+
+                        trap_base_low = min(p_l, b_l)
+                        for sub_idx in range(bar_idx, n):
+                            if closes[sub_idx] < trap_base_low:
+                                mss_confirmed = True
+                                break
+
+                        if avg_volume > 0 and b_v >= (0.85 * avg_volume):
+                            volume_confirmed = True
+
+                        narrative = (
+                            f"Two-Bar Bull Trap (False Breakout): Price spiked above Buy-Side Liquidity (${swept_level:.2f}) "
+                            f"inducing breakout longs, then reversed and closed back inside range. "
+                            f"Market Structure Shift (MSS): {'CONFIRMED' if mss_confirmed else 'FORMING'}."
+                        )
+                        break
+            if sweep_detected:
+                break
+
+            # Multi-bar Bear Trap: Candle prev_idx broke down below swing low, but candle bar_idx closed back above
+            for sl_idx, sl_val in swing_lows:
+                if sl_idx < prev_idx and p_l < sl_val and (p_c <= sl_val * 1.0005 or p_l < sl_val * 0.9995) and current_price > sl_val:
+                    # Current bar closes back above the swing low with bullish rejection
+                    if b_c > sl_val and b_c >= b_o:
+                        sweep_detected = True
+                        sweep_type = "BULLISH_SSL_SWEEP"
+                        swept_level = round(sl_val, 2)
+                        sweep_wick_extreme = round(min(p_l, b_l), 2)
+                        target_liquidity = nearest_bsl
+                        bias = "UPSIDE"
+
+                        trap_top_high = max(p_h, b_h)
+                        for sub_idx in range(bar_idx, n):
+                            if closes[sub_idx] > trap_top_high:
+                                mss_confirmed = True
+                                break
+
+                        if avg_volume > 0 and b_v >= (0.85 * avg_volume):
+                            volume_confirmed = True
+
+                        narrative = (
+                            f"Two-Bar Bear Trap (False Breakdown): Price flushed below Sell-Side Liquidity (${swept_level:.2f}) "
+                            f"inducing breakdown shorts, then reversed and closed back inside range. "
+                            f"Market Structure Shift (MSS): {'CONFIRMED' if mss_confirmed else 'FORMING'}."
+                        )
+                        break
+            if sweep_detected:
+                break
+
     if not sweep_detected:
         narrative = f"Price balancing between BSL (${nearest_bsl:.2f}) and SSL (${nearest_ssl:.2f})."
         bias = "EQUILIBRIUM"
+
+    bull_trap_detected = (sweep_type == "BEARISH_BSL_SWEEP")
+    bear_trap_detected = (sweep_type == "BULLISH_SSL_SWEEP")
+    trap_type = "BULL_TRAP" if bull_trap_detected else ("BEAR_TRAP" if bear_trap_detected else "NONE")
+    trap_level = swept_level if sweep_detected else 0.0
+    trap_extreme = sweep_wick_extreme if sweep_detected else 0.0
 
     bsl_dist_pct = round(abs(nearest_bsl - current_price) / current_price * 100.0, 2) if current_price > 0 else 0.0
     ssl_dist_pct = round(abs(current_price - nearest_ssl) / current_price * 100.0, 2) if current_price > 0 else 0.0
@@ -929,6 +1014,11 @@ def analyze_liquidity_pools_and_sweeps(
         "sweep_type": sweep_type,
         "swept_level": swept_level,
         "sweep_wick_extreme": sweep_wick_extreme,
+        "bull_trap_detected": bull_trap_detected,
+        "bear_trap_detected": bear_trap_detected,
+        "trap_type": trap_type,
+        "trap_level": trap_level,
+        "trap_extreme": trap_extreme,
         "target_liquidity": target_liquidity,
         "mss_confirmed": mss_confirmed,
         "volume_confirmed": volume_confirmed,
@@ -2112,6 +2202,30 @@ def analyze_multi_timeframe(
     sweep_wick = active_liq.get("sweep_wick_extreme", current_price)
     st_tf = "15m" if sweep_15 else ("1H" if sweep_1h else "None")
 
+    bull_trap_detected = bool(active_liq.get("bull_trap_detected", False) or liq_15m.get("bull_trap_detected", False) or liq_1h.get("bull_trap_detected", False) or sweep_type == "BEARISH_BSL_SWEEP")
+    bear_trap_detected = bool(active_liq.get("bear_trap_detected", False) or liq_15m.get("bear_trap_detected", False) or liq_1h.get("bear_trap_detected", False) or sweep_type == "BULLISH_SSL_SWEEP")
+
+    nearest_bsl_lvl = float(active_liq.get('nearest_bsl', 0) or liq_15m.get('nearest_bsl', 0) or 0)
+    nearest_ssl_lvl = float(active_liq.get('nearest_ssl', 0) or liq_15m.get('nearest_ssl', 0) or 0)
+
+    # Detect sharp single-bar rejection wicks (pin bar / shooting star / hammer) at key liquidity levels
+    has_upper_rejection_wick = False
+    has_lower_rejection_wick = False
+    if candles_15m and len(candles_15m.get('c', [])) >= 2:
+        last_h = float(candles_15m['h'][-1])
+        last_l = float(candles_15m['l'][-1])
+        last_c = float(candles_15m['c'][-1])
+        last_o = float(candles_15m['o'][-1])
+        rng = max(last_h - last_l, 1e-6)
+        u_wick = last_h - max(last_o, last_c)
+        l_wick = min(last_o, last_c) - last_l
+        # Rejection wick at BSL resistance: upper wick >= 35% of candle AND upper wick >= 1.8x lower wick AND near/above BSL
+        if (u_wick / rng >= 0.35) and (u_wick >= 1.8 * l_wick) and (nearest_bsl_lvl == 0 or last_h >= nearest_bsl_lvl * 0.998):
+            has_upper_rejection_wick = True
+        # Rejection wick at SSL support: lower wick >= 35% of candle AND lower wick >= 1.8x upper wick AND near/below SSL
+        if (l_wick / rng >= 0.35) and (l_wick >= 1.8 * u_wick) and (nearest_ssl_lvl == 0 or last_l <= nearest_ssl_lvl * 1.002):
+            has_lower_rejection_wick = True
+
     is_primary = any(p in (symbol or "").upper() for p in ["BTC", "ETH", "XAU", "GOLD"])
     is_btc = "BTC" in (symbol or "").upper()
     is_eth = "ETH" in (symbol or "").upper()
@@ -2176,6 +2290,23 @@ def analyze_multi_timeframe(
             return True
         return False
 
+    def _is_sweep_reversal_aligned(trade_side: str) -> bool:
+        """
+        Check macro HTF alignment for Sweep & Trap Reversals (Priority A).
+        Reversals trade WITH the smart money stop-hunt flow.
+        We do NOT block the reversal simply because 1H was pulled along by the trap.
+        We only block if 4H and Daily are in an active extreme runaway trend opposing the reversal.
+        """
+        if trade_side == "buy":  # Reversal Long after SSL Sweep / Bear Trap
+            if "MACRO_BEARISH" in h4_reg_upper and "DAILY_BEARISH" in d1_reg_upper and rsi_1d >= 38.0:
+                return False
+            return True
+        if trade_side == "sell":  # Reversal Short after BSL Sweep / Bull Trap
+            if "MACRO_BULLISH" in h4_reg_upper and "DAILY_BULLISH" in d1_reg_upper and rsi_1d <= 62.0:
+                return False
+            return True
+        return False
+
     setup_qualified = False
     setup_side = None
     setup_score = 0
@@ -2189,13 +2320,15 @@ def analyze_multi_timeframe(
     strategy_label = ""
 
     # Priority B: High-Volume Momentum Impulse Scalp (Pro Fast Scalp)
-    # Triggers when volume expands aggressively in volatile markets and no liquidity sweep is present
-    if not setup_qualified and not sweep_detected and max_vol_ratio >= 1.25:
+    # Triggers when volume expands aggressively in volatile markets and no liquidity sweep or trap is present
+    if not setup_qualified and not sweep_detected and not bull_trap_detected and not bear_trap_detected and max_vol_ratio >= 1.25:
         vwap_val = float(analysis_1h.get("vwap") or current_price)
 
         # Bullish Momentum Impulse Scalp
         if (
-            _is_htf_trend_aligned("buy")
+            not bull_trap_detected
+            and not has_upper_rejection_wick
+            and _is_htf_trend_aligned("buy")
             and current_price >= ema21_15m * 0.998
             and (vwap_val == 0 or current_price >= vwap_val * 0.998)
             and 42.0 <= rsi_15m <= 80.0
@@ -2244,7 +2377,9 @@ def analyze_multi_timeframe(
 
         # Bearish Momentum Impulse Scalp
         elif (
-            _is_htf_trend_aligned("sell")
+            not bear_trap_detected
+            and not has_lower_rejection_wick
+            and _is_htf_trend_aligned("sell")
             and current_price <= ema21_15m * 1.002
             and (vwap_val == 0 or current_price <= vwap_val * 1.002)
             and 16.0 <= rsi_15m <= 55.0
@@ -2293,15 +2428,15 @@ def analyze_multi_timeframe(
 
     # Priority A: Intraday Liquidity Sweep Scalp (15m / 1H)
     # Institutional Rules:
-    # 1. Macro Trend Alignment: NEVER trade against dominant 1H & 4H momentum.
+    # 1. Macro Trend Alignment: Check macro posture via _is_sweep_reversal_aligned.
     # 2. Market Structure Shift (MSS): MANDATORY confirmation (no entering on unconfirmed wicks).
     # 3. Optimal Trade Entry (OTE): Retest limit entry to maximize R:R (>= 2.4:1).
     # 4. Strict Confluence: High precision setup targeting 80-90% win rate.
     if sweep_detected:
         if sweep_type == "BULLISH_SSL_SWEEP":
-            # STRICT VETO 1: Cannot go long against 1H, 4H, or unflipped Daily trend
-            if not _is_htf_trend_aligned("buy"):
-                long_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 1H/4H/Daily Bearish)."
+            # STRICT VETO 1: Cannot go long against runaway 4H & Daily bear trends
+            if not _is_sweep_reversal_aligned("buy"):
+                long_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily strongly Bearish)."
             elif not mss_confirmed:
                 long_rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
             else:
@@ -2329,7 +2464,7 @@ def analyze_multi_timeframe(
                     else:
                         calc_entry = current_price
 
-                    raw_sl = min(sweep_wick, calc_entry - (0.5 * atr_15m)) - (0.08 * atr_15m)
+                    raw_sl = min(sweep_wick, calc_entry - (0.5 * atr_15m)) - (0.15 * atr_15m)
                     raw_risk = calc_entry - raw_sl
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
@@ -2339,15 +2474,15 @@ def analyze_multi_timeframe(
                     setup_side = "buy"
                     strategy_label = f"Institutional_SSL_Sweep_{st_tf}"
                     thesis = (
-                        f"High-Precision {st_tf} Bullish SSL Sweep (Score {setup_score}/100 · {session_label}): Confirmed liquidity absorption "
-                        f"at ${active_liq.get('swept_level', 0):.4f} with verified MSS & HTF alignment. "
-                        f"OTE Limit Entry: ${calc_entry:.4f}, Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.6:1."
+                        f"High-Precision {st_tf} Bullish SSL Sweep & Bear Trap Reversal (Score {setup_score}/100 · {session_label}): Confirmed liquidity absorption "
+                        f"at ${active_liq.get('swept_level', 0):.4f} with verified MSS & macro alignment. "
+                        f"OTE Limit Entry: ${calc_entry:.4f}, Invalidation SL below sweep wick: ${invalidation_sl:.4f} ({sl_dist / calc_entry * 100:.2f}%), Planned Asymmetric R:R: 2.6:1."
                     )
 
         elif sweep_type == "BEARISH_BSL_SWEEP":
-            # STRICT VETO 1: Cannot short against 1H, 4H, or unflipped Daily trend
-            if not _is_htf_trend_aligned("sell"):
-                short_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 1H/4H/Daily Bullish expansion)."
+            # STRICT VETO 1: Cannot short against runaway 4H & Daily bull trends
+            if not _is_sweep_reversal_aligned("sell"):
+                short_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily strongly Bullish expansion)."
             elif not mss_confirmed:
                 short_rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
             else:
@@ -2375,7 +2510,7 @@ def analyze_multi_timeframe(
                     else:
                         calc_entry = current_price
 
-                    raw_sl = max(sweep_wick, calc_entry + (0.5 * atr_15m)) + (0.08 * atr_15m)
+                    raw_sl = max(sweep_wick, calc_entry + (0.5 * atr_15m)) + (0.15 * atr_15m)
                     raw_risk = raw_sl - calc_entry
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
@@ -2385,9 +2520,9 @@ def analyze_multi_timeframe(
                     setup_side = "sell"
                     strategy_label = f"Institutional_BSL_Sweep_{st_tf}"
                     thesis = (
-                        f"High-Precision {st_tf} Bearish BSL Sweep (Score {setup_score}/100 · {session_label}): Confirmed liquidity absorption "
-                        f"at ${active_liq.get('swept_level', 0):.4f} with verified MSS & HTF alignment. "
-                        f"OTE Limit Entry: ${calc_entry:.4f}, Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.6:1."
+                        f"High-Precision {st_tf} Bearish BSL Sweep & Bull Trap Reversal (Score {setup_score}/100 · {session_label}): Confirmed liquidity absorption "
+                        f"at ${active_liq.get('swept_level', 0):.4f} with verified MSS & macro alignment. "
+                        f"OTE Limit Entry: ${calc_entry:.4f}, Invalidation SL above sweep wick: ${invalidation_sl:.4f} ({sl_dist / calc_entry * 100:.2f}%), Planned Asymmetric R:R: 2.6:1."
                     )
 
     # Priority B: Institutional Trend Momentum Continuation (Breakout Long during rallies / Breakdown Short during dumps)
@@ -2400,51 +2535,55 @@ def analyze_multi_timeframe(
         has_bullish_momentum = 45.0 <= rsi_15m <= 82.0
 
         if is_bullish_regime and is_above_ema and has_bullish_momentum:
-            bo_score = 50
-            if macro_4h_regime == "MACRO_BULLISH":
-                bo_score += 20
-            elif macro_4h_regime == "MACRO_NEUTRAL":
-                bo_score += 10
+            # ANTI-TRAP VETO: Never buy into an active Bull Trap / BSL stop hunt or upper rejection wick at resistance
+            if bull_trap_detected or has_upper_rejection_wick:
+                long_rejection_reason = "Blocked: Bull Trap / BSL Liquidity Sweep active at resistance. Breakout longs strictly vetoed to prevent buying the trap."
+            else:
+                bo_score = 50
+                if macro_4h_regime == "MACRO_BULLISH":
+                    bo_score += 20
+                elif macro_4h_regime == "MACRO_NEUTRAL":
+                    bo_score += 10
 
-            if "BULLISH" in regime_1h:
-                bo_score += 15
+                if "BULLISH" in regime_1h:
+                    bo_score += 15
 
-            if vwap_val > 0 and current_price >= vwap_val:
-                bo_score += 10
+                if vwap_val > 0 and current_price >= vwap_val:
+                    bo_score += 10
 
-            if is_primary:
-                bo_score += 10
+                if is_primary:
+                    bo_score += 10
 
-            if is_killzone:
-                bo_score += 5
+                if is_killzone:
+                    bo_score += 5
 
-            # MACD Momentum & Crossover Alignment
-            macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
-            if macd_15m.get("crossover") == "BULLISH_CROSS" or macd_15m.get("momentum_phase") == "BULLISH_EXPANSION":
-                bo_score += 10
-            elif macd_15m.get("histogram", 0) > 0 or "BULLISH" in macd_15m.get("bias", ""):
-                bo_score += 5
+                # MACD Momentum & Crossover Alignment
+                macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
+                if macd_15m.get("crossover") == "BULLISH_CROSS" or macd_15m.get("momentum_phase") == "BULLISH_EXPANSION":
+                    bo_score += 10
+                elif macd_15m.get("histogram", 0) > 0 or "BULLISH" in macd_15m.get("bias", ""):
+                    bo_score += 5
 
-            qual_threshold = 85 if is_primary else 90
-            if bo_score >= qual_threshold:
-                calc_entry = current_price
-                raw_sl = min(ema21_15m - (0.35 * atr_15m), calc_entry - (1.25 * atr_15m))
-                raw_risk = calc_entry - raw_sl
-                sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
-                invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
-                target_tp = round_price(calc_entry + (2.5 * sl_dist), calc_entry)
+                qual_threshold = 85 if is_primary else 90
+                if bo_score >= qual_threshold:
+                    calc_entry = current_price
+                    raw_sl = min(ema21_15m - (0.35 * atr_15m), calc_entry - (1.25 * atr_15m))
+                    raw_risk = calc_entry - raw_sl
+                    sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
+                    invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
+                    target_tp = round_price(calc_entry + (2.5 * sl_dist), calc_entry)
 
-                setup_qualified = True
-                setup_side = "buy"
-                setup_score = min(98, bo_score)
-                strategy_label = "Institutional_Bullish_Breakout_Long"
-                m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
-                thesis = (
-                    f"Institutional Bullish Breakout Long (Score {setup_score}/100 · {session_label}{m_tag}): "
-                    f"Unified 4H {macro_4h_regime} & 1H {regime_1h} momentum continuation. "
-                    f"Trading above EMA21 (${ema21_15m:.2f}) with RSI {rsi_15m:.1f}. "
-                    f"Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
-                )
+                    setup_qualified = True
+                    setup_side = "buy"
+                    setup_score = min(98, bo_score)
+                    strategy_label = "Institutional_Bullish_Breakout_Long"
+                    m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
+                    thesis = (
+                        f"Institutional Bullish Breakout Long (Score {setup_score}/100 · {session_label}{m_tag}): "
+                        f"Unified 4H {macro_4h_regime} & 1H {regime_1h} momentum continuation. "
+                        f"Trading above EMA21 (${ema21_15m:.2f}) with RSI {rsi_15m:.1f}. "
+                        f"Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
+                    )
 
         # 2. Bearish Breakdown Short (Trend continuation during sell-offs / market dumps)
         if not setup_qualified:
@@ -2453,51 +2592,55 @@ def analyze_multi_timeframe(
             has_bearish_momentum = 16.0 <= rsi_15m <= 55.0
 
             if is_bearish_regime and is_below_ema and has_bearish_momentum:
-                bd_score = 50
-                if macro_4h_regime == "MACRO_BEARISH":
-                    bd_score += 20
-                elif macro_4h_regime == "MACRO_NEUTRAL":
-                    bd_score += 10
+                # ANTI-TRAP VETO: Never short into an active Bear Trap / SSL stop hunt or lower rejection wick at support
+                if bear_trap_detected or has_lower_rejection_wick:
+                    short_rejection_reason = "Blocked: Bear Trap / SSL Liquidity Sweep active at support. Breakdown shorts strictly vetoed to prevent shorting the trap."
+                else:
+                    bd_score = 50
+                    if macro_4h_regime == "MACRO_BEARISH":
+                        bd_score += 20
+                    elif macro_4h_regime == "MACRO_NEUTRAL":
+                        bd_score += 10
 
-                if "BEARISH" in regime_1h:
-                    bd_score += 15
+                    if "BEARISH" in regime_1h:
+                        bd_score += 15
 
-                if vwap_val > 0 and current_price <= vwap_val:
-                    bd_score += 10
+                    if vwap_val > 0 and current_price <= vwap_val:
+                        bd_score += 10
 
-                if is_primary:
-                    bd_score += 10
+                    if is_primary:
+                        bd_score += 10
 
-                if is_killzone:
-                    bd_score += 5
+                    if is_killzone:
+                        bd_score += 5
 
-                # MACD Momentum & Crossover Alignment
-                macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
-                if macd_15m.get("crossover") == "BEARISH_CROSS" or macd_15m.get("momentum_phase") == "BEARISH_EXPANSION":
-                    bd_score += 10
-                elif macd_15m.get("histogram", 0) < 0 or "BEARISH" in macd_15m.get("bias", ""):
-                    bd_score += 5
+                    # MACD Momentum & Crossover Alignment
+                    macd_15m = macro_15m.get("macd", {}) if macro_15m else {}
+                    if macd_15m.get("crossover") == "BEARISH_CROSS" or macd_15m.get("momentum_phase") == "BEARISH_EXPANSION":
+                        bd_score += 10
+                    elif macd_15m.get("histogram", 0) < 0 or "BEARISH" in macd_15m.get("bias", ""):
+                        bd_score += 5
 
-                qual_threshold = 85 if is_primary else 90
-                if bd_score >= qual_threshold:
-                    calc_entry = current_price
-                    raw_sl = max(ema21_15m + (0.35 * atr_15m), calc_entry + (1.25 * atr_15m))
-                    raw_risk = raw_sl - calc_entry
-                    sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
-                    invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry - (2.5 * sl_dist), calc_entry)
+                    qual_threshold = 85 if is_primary else 90
+                    if bd_score >= qual_threshold:
+                        calc_entry = current_price
+                        raw_sl = max(ema21_15m + (0.35 * atr_15m), calc_entry + (1.25 * atr_15m))
+                        raw_risk = raw_sl - calc_entry
+                        sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
+                        invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
+                        target_tp = round_price(calc_entry - (2.5 * sl_dist), calc_entry)
 
-                    setup_qualified = True
-                    setup_side = "sell"
-                    setup_score = min(98, bd_score)
-                    strategy_label = "Institutional_Bearish_Breakdown_Short"
-                    m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
-                    thesis = (
-                        f"Institutional Bearish Breakdown Short (Score {setup_score}/100 · {session_label}{m_tag}): "
-                        f"Unified 4H {macro_4h_regime} & 1H {regime_1h} momentum continuation. "
-                        f"Trading below EMA21 (${ema21_15m:.2f}) with RSI {rsi_15m:.1f}. "
-                        f"Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
-                    )
+                        setup_qualified = True
+                        setup_side = "sell"
+                        setup_score = min(98, bd_score)
+                        strategy_label = "Institutional_Bearish_Breakdown_Short"
+                        m_tag = f" | MACD {macd_15m.get('crossover', 'ALIGNED')}" if macd_15m else ""
+                        thesis = (
+                            f"Institutional Bearish Breakdown Short (Score {setup_score}/100 · {session_label}{m_tag}): "
+                            f"Unified 4H {macro_4h_regime} & 1H {regime_1h} momentum continuation. "
+                            f"Trading below EMA21 (${ema21_15m:.2f}) with RSI {rsi_15m:.1f}. "
+                            f"Tight SL: {sl_dist / calc_entry * 100:.2f}%, Planned Asymmetric R:R: 2.5:1."
+                        )
 
     # Priority C: 15m High-Momentum Trend Pullback / EMA Re-test Scalp
     if not setup_qualified:
@@ -2505,7 +2648,9 @@ def analyze_multi_timeframe(
         
         # Bullish Pullback: 1H & 4H Bullish, 15m testing EMA dynamic support
         if (
-            "BULLISH" in regime_1h
+            not bull_trap_detected
+            and not has_upper_rejection_wick
+            and "BULLISH" in regime_1h
             and _is_htf_trend_aligned("buy")
             and ema21_15m * 0.994 <= current_price <= ema21_15m * 1.010
             and 40.0 <= rsi_15m <= 75.0
@@ -2553,7 +2698,9 @@ def analyze_multi_timeframe(
 
         # Bearish Pullback: 1H & 4H Bearish, 15m capped by EMA dynamic resistance
         elif (
-            "BEARISH" in regime_1h
+            not bear_trap_detected
+            and not has_lower_rejection_wick
+            and "BEARISH" in regime_1h
             and _is_htf_trend_aligned("sell")
             and ema21_15m * 0.990 <= current_price <= ema21_15m * 1.006
             and 18.0 <= rsi_15m <= 58.0
@@ -2697,7 +2844,7 @@ def analyze_multi_timeframe(
                     )
 
     if not setup_qualified:
-        rejection_reason = short_rejection_reason or long_rejection_reason or "No high-probability trend or mean-reversion edge qualified (min score 85)."
+        rejection_reason = (long_rejection_reason if "BULLISH" in regime_1h else short_rejection_reason) or short_rejection_reason or long_rejection_reason or "No high-probability trend or mean-reversion edge qualified (min score 85)."
 
     real_rr = round(abs(target_tp - calc_entry) / abs(calc_entry - invalidation_sl), 2) if (setup_qualified and abs(calc_entry - invalidation_sl) > 0) else 0.0
 
@@ -2720,6 +2867,8 @@ def analyze_multi_timeframe(
         "rejection_reason": rejection_reason,
         "macro_regime": macro_4h_regime
     }
+    analysis_1h["long_rejection_reason"] = long_rejection_reason
+    analysis_1h["short_rejection_reason"] = short_rejection_reason
 
     # Synthesize Breakout and Breakdown Key Levels & Pre-Trade Plan
     try:

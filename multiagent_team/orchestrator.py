@@ -699,7 +699,7 @@ class MultiAgentTradingOrchestrator:
                                 c1h_lvl = sym_ctx.get("_raw_candles_1h")
                                 tm_res = self.time_machine.simulate_setup(b_cand, candles_15m=c15_lvl, candles_1h=c1h_lvl)
                                 b_cand["time_machine"] = tm_res
-                                if not tm_res.get("passed") or float(tm_res.get("win_rate_pct", 0.0) or 0.0) < self.time_machine.min_win_rate_pct:
+                                if not tm_res.get("passed"):
                                     logger.info(f"Level breakout proposal {sym} {side_val.upper()} vetoed by Time Machine (low win rate/edge): {tm_res.get('reason')}")
                                     continue
 
@@ -758,11 +758,8 @@ class MultiAgentTradingOrchestrator:
             # 0. Defense-in-depth Time Machine Win-Rate Guard (blocks low win-rate automatic/scale-in proposals)
             tm_meta = trade.get("time_machine")
             if isinstance(tm_meta, dict) and tm_meta:
-                tm_wr = float(tm_meta.get("win_rate_pct", 0.0) or 0.0)
-                if not tm_meta.get("passed") or tm_wr < self.time_machine.min_win_rate_pct:
-                    tm_reason = tm_meta.get("reason") or (
-                        f"Win rate {tm_wr:.1f}% below mandatory {self.time_machine.min_win_rate_pct:.0f}% minimum."
-                    )
+                if not tm_meta.get("passed"):
+                    tm_reason = tm_meta.get("reason") or "Time Machine historical simulation rejected setup."
                     logger.info(f"Orchestrator: Candidate {sym} vetoed in background by Time Machine guard ({tm_reason}). Proposal suppressed.")
                     return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": tm_reason}
 
@@ -1108,7 +1105,7 @@ class MultiAgentTradingOrchestrator:
             tm_res = self.time_machine.simulate_setup(c, candles_15m=candles_15m, candles_1h=candles_1h)
             c["time_machine"] = tm_res
 
-            if tm_res.get("passed") and float(tm_res.get("win_rate_pct", 0.0) or 0.0) >= self.time_machine.min_win_rate_pct:
+            if tm_res.get("passed"):
                 print(f"   🟢 [TIME MACHINE APPROVED] {sym} {c['side'].upper()}: {tm_res['win_rate_pct']}% Win Rate (Wilson 95% Lower: {tm_res.get('wilson_ci_lower_pct')}%) | EV: +{tm_res['expected_value_r']}R | PF: {tm_res['profit_factor']}x")
                 tm_qualified.append(c)
             else:
@@ -1584,7 +1581,7 @@ class MultiAgentTradingOrchestrator:
                     c1h = sym_raw.get("_raw_candles_1h")
                     tm_res = self.time_machine.simulate_setup(cand, candles_15m=c15, candles_1h=c1h)
                     cand["time_machine"] = tm_res
-                    if tm_res.get("passed") and float(tm_res.get("win_rate_pct", 0.0) or 0.0) >= self.time_machine.min_win_rate_pct:
+                    if tm_res.get("passed"):
                         candidate = cand
                         candles_15m = c15 or {}
                         symbol = c_sym
@@ -1739,11 +1736,8 @@ class MultiAgentTradingOrchestrator:
                 }
                 tm_res = self.time_machine.simulate_setup(candidate, candles_15m=candles_15m, candles_1h=candles_1h)
                 candidate["time_machine"] = tm_res
-                if not tm_res.get("passed") or float(tm_res.get("win_rate_pct", 0.0) or 0.0) < self.time_machine.min_win_rate_pct:
-                    reason = tm_res.get("reason") or (
-                        f"Time Machine rejected scale-in on {symbol} {side.upper()}: win rate "
-                        f"{tm_res.get('win_rate_pct', 0.0)}% below required {self.time_machine.min_win_rate_pct:.0f}%."
-                    )
+                if not tm_res.get("passed"):
+                    reason = tm_res.get("reason") or f"Time Machine rejected scale-in on {symbol} {side.upper()}."
                     logger.info(f"Orchestrator: Scale-in {symbol} {side.upper()} rejected in background by Time Machine: {reason}")
                     self.notify_telegram_rejection(symbol, reason, "TIME_MACHINE_VETO", chat_id=chat_id)
                     return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": reason, "notified": True}
@@ -1785,11 +1779,8 @@ class MultiAgentTradingOrchestrator:
                     return {"status": "REJECTED", "code": post_posture_veto[0], "reason": post_posture_veto[1], "notified": True}
                 tm_res = self.time_machine.simulate_setup(candidate, candles_15m=candles_15m, candles_1h=candles_1h)
                 candidate["time_machine"] = tm_res
-                if not tm_res.get("passed") or float(tm_res.get("win_rate_pct", 0.0) or 0.0) < self.time_machine.min_win_rate_pct:
-                    reason = tm_res.get("reason") or (
-                        f"Time Machine rejected {symbol} {side.upper()}: win rate "
-                        f"{tm_res.get('win_rate_pct', 0.0)}% below required {self.time_machine.min_win_rate_pct:.0f}%."
-                    )
+                if not tm_res.get("passed"):
+                    reason = tm_res.get("reason") or f"Time Machine rejected {symbol} {side.upper()}."
                     self.notify_telegram_rejection(symbol, reason, "TIME_MACHINE_VETO", chat_id=chat_id)
                     return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": reason, "notified": True}
         else:
@@ -1819,11 +1810,8 @@ class MultiAgentTradingOrchestrator:
         if not isinstance(tm_check, dict) or not tm_check:
             tm_check = self.time_machine.simulate_setup(candidate, candles_15m=candles_15m, candles_1h=candles_1h)
             candidate["time_machine"] = tm_check
-        if not tm_check.get("passed") or float(tm_check.get("win_rate_pct", 0.0) or 0.0) < self.time_machine.min_win_rate_pct:
-            reason = tm_check.get("reason") or (
-                f"Time Machine rejected {symbol} {str(candidate.get('side', side or '')).upper()}: win rate "
-                f"{tm_check.get('win_rate_pct', 0.0)}% below required {self.time_machine.min_win_rate_pct:.0f}%."
-            )
+        if not tm_check.get("passed"):
+            reason = tm_check.get("reason") or f"Time Machine rejected {symbol} {str(candidate.get('side', side or '')).upper()}."
             self.notify_telegram_rejection(candidate.get("symbol", symbol), reason, "TIME_MACHINE_VETO", chat_id=chat_id)
             return {"status": "REJECTED", "code": "TIME_MACHINE_VETO", "reason": reason, "notified": True}
 

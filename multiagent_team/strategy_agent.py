@@ -41,7 +41,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "target_rr_ratio": 2.5,
         "min_confluence_score": 75,   # Institutional primary alpha floor
         "atr_stop_min_mult": 0.40,
-        "atr_stop_max_mult": 3.0,
+        "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.03,
         "pivot_window": 2,
         "is_primary": True,
@@ -53,7 +53,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "target_rr_ratio": 2.5,
         "min_confluence_score": 75,   # Institutional primary alpha floor
         "atr_stop_min_mult": 0.40,
-        "atr_stop_max_mult": 3.0,
+        "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.04,
         "pivot_window": 2,
         "is_primary": True,
@@ -65,7 +65,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "target_rr_ratio": 2.4,
         "min_confluence_score": 75,   # Institutional primary alpha floor
         "atr_stop_min_mult": 0.40,
-        "atr_stop_max_mult": 3.0,
+        "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.03,
         "pivot_window": 2,
         "is_primary": True,
@@ -77,7 +77,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "target_rr_ratio": 2.4,
         "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
-        "atr_stop_max_mult": 3.0,
+        "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.03,
         "pivot_window": 2,
         "is_primary": True,
@@ -89,7 +89,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "target_rr_ratio": 2.4,
         "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
-        "atr_stop_max_mult": 3.0,
+        "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.03,
         "pivot_window": 2,
         "is_primary": True,
@@ -101,7 +101,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "target_rr_ratio": 2.6,
         "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
-        "atr_stop_max_mult": 3.0,
+        "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.05,
         "pivot_window": 2,
         "is_primary": False,
@@ -113,7 +113,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "target_rr_ratio": 2.6,
         "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
-        "atr_stop_max_mult": 3.0,
+        "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.05,
         "pivot_window": 2,
         "is_primary": False,
@@ -125,7 +125,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "target_rr_ratio": 2.5,
         "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
-        "atr_stop_max_mult": 3.0,
+        "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.04,
         "pivot_window": 2,
         "is_primary": False,
@@ -563,6 +563,9 @@ class StrategyAgent:
         # Hard Veto F: Sub-ATR micro-stop or excessively loose stop
         min_atr_mult = cfg["atr_stop_min_mult"]
         max_atr_mult = cfg["atr_stop_max_mult"]
+        stop_pct = (stop_distance / entry) if entry > 0 else 0.0
+        if cfg.get("is_primary") and stop_pct <= 0.0160:
+            max_atr_mult = max(max_atr_mult, 3.5)
 
         if atr_multiple < min_atr_mult:
             reason = f"Stop loss distance (${stop_distance:.2f}) is only {atr_multiple:.2f}x ATR (< {min_atr_mult:.2f}x ATR of ${atr_15m:.2f}). Highly vulnerable to noise stop-outs."

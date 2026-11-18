@@ -488,8 +488,11 @@ class TimeMachineAgent:
 
             # 3. Breakout setup (Institutional_Bullish_Breakout_Long)
             if "breakout" in strat_lower:
-                # Anti-Trap check: Reject breakout if candle rejected high and closed back inside
-                is_trap = (c_high > recent_high and c_price < recent_high) or ((c_high - max(c_open, c_price)) > 0.28 * max(c_high - c_low, 1e-6))
+                # Anti-Trap check: Reject breakout if candle rejected high and closed back inside, or formed severe upper rejection wick
+                candle_range = max(c_high - c_low, 1e-6)
+                upper_wick = c_high - max(c_open, c_price)
+                lower_wick = min(c_open, c_price) - c_low
+                is_trap = (c_high > recent_high and c_price < recent_high) or (upper_wick > 0.35 * candle_range and upper_wick > 2.0 * lower_wick)
                 if is_trap:
                     return False
                 breakout = (c_high > recent_high or bos_detected) and c_price > c_ema21
@@ -550,8 +553,11 @@ class TimeMachineAgent:
 
             # 3. Breakdown setup (Institutional_Bearish_Breakdown_Short)
             if "breakdown" in strat_lower:
-                # Anti-Trap check: Reject breakdown if candle rejected low and closed back inside
-                is_trap = (c_low < recent_low and c_price > recent_low) or ((min(c_open, c_price) - c_low) > 0.28 * max(c_high - c_low, 1e-6))
+                # Anti-Trap check: Reject breakdown if candle rejected low and closed back inside, or formed severe lower rejection wick
+                candle_range = max(c_high - c_low, 1e-6)
+                lower_wick = min(c_open, c_price) - c_low
+                upper_wick = c_high - max(c_open, c_price)
+                is_trap = (c_low < recent_low and c_price > recent_low) or (lower_wick > 0.35 * candle_range and lower_wick > 2.0 * upper_wick)
                 if is_trap:
                     return False
                 breakdown = (c_low < recent_low or bos_detected) and c_price < c_ema21
@@ -1178,25 +1184,31 @@ class TimeMachineAgent:
         avg_bars = round(sum(m["bars_held"] for m in matches) / len(matches), 1) if matches else 0.0
 
         # =========================================================================
-        # STATISTICAL DECISION GATE (Strict Low-Win-Rate & Low-Edge Rejection)
+        # STATISTICAL DECISION GATE (Calibrated to Asymmetric R:R & Quant Edge)
         # =========================================================================
-        # 1. Edge: Empirical Win Rate >= min_win_rate_pct (default 60.0%)
+        # 1. Edge: Empirical Win Rate >= required_wr.
+        #    Breakeven WR = 1 / (1 + planned_rr). For 2.5:1 R:R, breakeven is 28.6%.
+        #    At planned R:R >= 2.2:1, a minimum WR of 45.0% yields +0.575R expectancy.
+        #    For sub-2.2:1 trades, standard floor (default 60.0%) applies.
         # 2. Net Expectancy: Realized net EV >= min_expected_value_r (default 0.20R) OR
-        #    high win rate (>= 60.0%) with decisive EV >= 0.30R and gross EV >= 0.20R
-        # 3. Profit Factor: Net PF >= 1.50x OR (win rate >= 60.0% and decisive PF >= 1.50x)
-        # 4. Out-of-Sample: Positive OOS Net Expectancy & WR >= 50% (or Wilson Lower >= 35.0%)
+        #    high win rate (>= required_wr) with decisive EV >= 0.30R and gross EV >= 0.20R
+        # 3. Profit Factor: Net PF >= 1.50x OR (win rate >= required_wr and decisive PF >= 1.50x)
+        # 4. Out-of-Sample: Positive OOS Net Expectancy & WR >= 45% (or Wilson Lower >= 25.0%)
         # 5. Risk Safeguard: Max consecutive losses <= 4
-        edge_passed = (win_rate >= self.min_win_rate_pct)
+        required_wr = 45.0 if planned_rr >= 2.2 else self.min_win_rate_pct
+        edge_passed = (win_rate >= required_wr)
         ev_passed = (net_ev_r >= self.min_expected_value_r) or (
-            win_rate >= self.min_win_rate_pct and decisive_ev_r >= 0.30 and gross_ev_r >= self.min_expected_value_r
+            win_rate >= required_wr and decisive_ev_r >= 0.30 and gross_ev_r >= self.min_expected_value_r
         )
         pf_passed = (profit_factor >= 1.50) or (
-            win_rate >= self.min_win_rate_pct and decisive_profit_factor >= 1.50
+            win_rate >= required_wr and decisive_profit_factor >= 1.50
         )
+        min_oos_wr = 45.0 if planned_rr >= 2.2 else 50.0
+        min_wilson = 25.0 if planned_rr >= 2.2 else 28.0
         oos_passed = (
-            (oos_ev_r >= 0.0 and (oos_win_rate is None or oos_win_rate >= 50.0))
+            (oos_ev_r >= 0.0 and (oos_win_rate is None or oos_win_rate >= min_oos_wr))
             if (oos_valid and oos_ev_r is not None)
-            else (wilson_lower >= 28.0 or (win_rate >= self.min_win_rate_pct and net_ev_r >= self.min_expected_value_r))
+            else (wilson_lower >= min_wilson or (win_rate >= required_wr and net_ev_r >= self.min_expected_value_r))
         )
         streak_passed = max_consecutive_losses <= 4
 
@@ -1205,7 +1217,7 @@ class TimeMachineAgent:
 
         reasons = []
         if not edge_passed:
-            reasons.append(f"Win rate {win_rate}% below required {self.min_win_rate_pct}%")
+            reasons.append(f"Win rate {win_rate}% below required {required_wr}%")
         if not ev_passed:
             reasons.append(f"Realized Net EV {net_ev_r:+.2f}R (Decisive {decisive_ev_r:+.2f}R) below minimum {self.min_expected_value_r}R")
         if not pf_passed:

@@ -2567,7 +2567,7 @@ def analyze_multi_timeframe(
                 qual_threshold = 85 if is_primary else 90
                 if bo_score >= qual_threshold:
                     calc_entry = current_price
-                    raw_sl = min(ema21_15m - (0.35 * atr_15m), calc_entry - (1.25 * atr_15m))
+                    raw_sl = max(min(ema21_15m - (0.35 * atr_15m), calc_entry - (1.25 * atr_15m)), calc_entry - (2.85 * atr_15m))
                     raw_risk = calc_entry - raw_sl
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
@@ -2624,7 +2624,7 @@ def analyze_multi_timeframe(
                     qual_threshold = 85 if is_primary else 90
                     if bd_score >= qual_threshold:
                         calc_entry = current_price
-                        raw_sl = max(ema21_15m + (0.35 * atr_15m), calc_entry + (1.25 * atr_15m))
+                        raw_sl = min(max(ema21_15m + (0.35 * atr_15m), calc_entry + (1.25 * atr_15m)), calc_entry + (2.85 * atr_15m))
                         raw_risk = raw_sl - calc_entry
                         sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                         invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)

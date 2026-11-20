@@ -56,15 +56,52 @@ class TestPaxgAndExecutionReliability(unittest.TestCase):
     def test_delta_client_resolve_symbol_gold_variants(self):
         client = DeltaExchangeClient.__new__(DeltaExchangeClient)
         client._products_cache = {
-            "PAXGUSD": {"id": 169532, "symbol": "PAXGUSD"},
-            "BTCUSD": {"id": 1, "symbol": "BTCUSD"}
+            "PAXGUSD": {"id": 169532, "symbol": "PAXGUSD", "tick_size": "0.01"},
+            "BTCUSD": {"id": 1, "symbol": "BTCUSD", "tick_size": "0.1"}
         }
         client._product_id_map = {"PAXGUSD": 169532, "BTCUSD": 1}
         client._cache_timestamp = time.time()
         client.load_products = MagicMock()
+        client._request = MagicMock(return_value={"success": True})
 
         self.assertEqual(client.resolve_symbol("PAXG"), "PAXGUSD")
         self.assertEqual(client.resolve_symbol("PAXGUSD"), "PAXGUSD")
+
+        # Test place_protective_stop payload schema
+        client.place_protective_stop("PAXGUSD", size=5, side="buy", stop_price=3500.123)
+        client._request.assert_called_with(
+            "POST",
+            "/v2/orders",
+            payload={
+                "product_id": 169532,
+                "size": 5,
+                "side": "sell",
+                "order_type": "market_order",
+                "stop_order_type": "stop_loss_order",
+                "stop_price": "3500.12",
+                "stop_trigger_method": "mark_price",
+                "time_in_force": "gtc",
+                "reduce_only": True
+            },
+            authenticated=True
+        )
+
+        # Test place_take_profit payload schema
+        client.place_take_profit("PAXGUSD", size=5, side="buy", take_profit_price=3650.456)
+        client._request.assert_called_with(
+            "POST",
+            "/v2/orders",
+            payload={
+                "product_id": 169532,
+                "size": 5,
+                "side": "sell",
+                "order_type": "limit_order",
+                "limit_price": "3650.46",
+                "time_in_force": "gtc",
+                "reduce_only": True
+            },
+            authenticated=True
+        )
 
     def test_safety_controller_criterion_9_gold_whitelist(self):
         controller = DeterministicSafetyController()
@@ -149,6 +186,10 @@ class TestPaxgAndExecutionReliability(unittest.TestCase):
             "success": True,
             "result": {"id": "78910"}
         }
+        mock_client.place_take_profit.return_value = {
+            "success": True,
+            "result": {"id": "111213"}
+        }
         mock_client.get_open_orders.return_value = {"success": True, "result": []}
 
         exec_agent = ExecutionAgent(client=mock_client)
@@ -173,6 +214,8 @@ class TestPaxgAndExecutionReliability(unittest.TestCase):
         mock_client.place_order.assert_called()
         # Verify protective stop was placed
         mock_client.place_protective_stop.assert_called()
+        # Verify take profit order was placed
+        mock_client.place_take_profit.assert_called()
 
     def test_telegram_bot_update_proposal_card_status(self):
         bot = TelegramConfirmationBot.__new__(TelegramConfirmationBot)

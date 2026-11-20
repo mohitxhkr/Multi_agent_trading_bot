@@ -577,18 +577,53 @@ class DeltaExchangeClient:
     ) -> Dict[str, Any]:
         """
         Place a dedicated reduce-only stop-loss order to ensure an open position is protected.
+        On Delta Exchange, stop orders use order_type='market_order' with stop_order_type='stop_loss_order'.
         """
         pid = self.get_product_id(symbol)
         if not pid:
             return {"success": False, "error": f"Product not found for symbol {symbol}"}
 
         stop_side = "sell" if side.lower() == "buy" else "buy"
+        sl_tick = self.round_to_tick(symbol, stop_price)
         payload = {
             "product_id": pid,
             "size": int(size),
             "side": stop_side,
-            "order_type": "stop_market_order",
-            "stop_price": str(stop_price),
+            "order_type": "market_order",
+            "stop_order_type": "stop_loss_order",
+            "stop_price": str(sl_tick),
+            "stop_trigger_method": "mark_price",
+            "time_in_force": "gtc",
+            "reduce_only": True
+        }
+        if client_order_id:
+            payload["client_order_id"] = str(client_order_id)
+
+        return self._request("POST", "/v2/orders", payload=payload, authenticated=True)
+
+    def place_take_profit(
+        self,
+        symbol: str,
+        size: int,
+        side: str,
+        take_profit_price: float,
+        client_order_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Place a dedicated reduce-only take-profit limit order to lock in target gains.
+        """
+        pid = self.get_product_id(symbol)
+        if not pid:
+            return {"success": False, "error": f"Product not found for symbol {symbol}"}
+
+        tp_side = "sell" if side.lower() == "buy" else "buy"
+        tp_tick = self.round_to_tick(symbol, take_profit_price)
+        payload = {
+            "product_id": pid,
+            "size": int(size),
+            "side": tp_side,
+            "order_type": "limit_order",
+            "limit_price": str(tp_tick),
             "time_in_force": "gtc",
             "reduce_only": True
         }

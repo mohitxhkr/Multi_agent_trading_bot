@@ -1487,12 +1487,21 @@ class TelegramConfirmationBot:
 
                 if raw_sym:
                     # Normalize raw_sym
-                    if raw_sym in ["BTC", "BITCOIN"]:
+                    if raw_sym in ["GOLD", "XAU", "PAXG", "PAXGUSD", "XAUUSD", "XAUTUSD"]:
+                        reply(
+                            "⚠️ <b>[PAXGUSD / GOLD NOT SUPPORTED FOR AUTOMATED TRADING]</b>\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━\n"
+                            "• <b>Delta Exchange Restriction:</b> Delta Exchange does not support native bracket orders (simultaneous Stop-Loss & Take-Profit) for PAXGUSD (<code>show_bracket_orders: false</code>).\n"
+                            "• <b>Capital Protection Policy:</b> To prevent naked position exposure and ensure guaranteed stop-loss execution, PAXGUSD has been removed from automated trading.\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━\n"
+                            "✅ <b>Active Supported Assets:</b> <code>BTCUSD</code>, <code>ETHUSD</code>, <code>SOLUSD</code>, <code>XRPUSD</code>, <code>DOGEUSD</code>, <code>ADAUSD</code>\n"
+                            "💡 <i>Tip: Send <code>/trade BTC</code> or <code>/trade ETH</code> to evaluate live crypto setups!</i>"
+                        )
+                        return
+                    elif raw_sym in ["BTC", "BITCOIN"]:
                         target_sym = "BTCUSD"
                     elif raw_sym in ["ETH", "ETHEREUM"]:
                         target_sym = "ETHUSD"
-                    elif raw_sym in ["GOLD", "XAU", "PAXG"]:
-                        target_sym = "XAUUSD"
                     elif raw_sym in ["SOL", "SOLANA"]:
                         target_sym = "SOLUSD"
                     elif raw_sym in ["XRP", "RIPPLE"]:
@@ -1525,7 +1534,7 @@ class TelegramConfirmationBot:
             if target_sym:
                 reply(f"🔍 <i>Evaluating live trade setup for <code>{target_sym}</code>{dir_txt}...</i>")
             else:
-                reply(f"🔍 <i>Scanning primary assets (BTC, ETH, XAU, SOL){dir_txt} for best trade setup...</i>")
+                reply(f"🔍 <i>Scanning primary assets (BTC, ETH, SOL, XRP){dir_txt} for best trade setup...</i>")
 
             # Asynchronously dispatch in dedicated worker thread so the Telegram polling listener never freezes!
             def _async_trade_task():

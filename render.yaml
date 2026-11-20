@@ -54,9 +54,9 @@ services:
       - key: CAPITAL_ALLOCATION_MAX_PCT
         value: "1.00"
       - key: PRIMARY_SYMBOLS
-        value: "BTCUSD,ETHUSD,XAUUSD"
+        value: "BTCUSD,ETHUSD,SOLUSD"
       - key: DEFAULT_SYMBOLS
-        value: "BTCUSD,ETHUSD,XAUUSD,SOLUSD,PAXGUSD,XRPUSD,DOGEUSD,ADAUSD"
+        value: "BTCUSD,ETHUSD,SOLUSD,XRPUSD,DOGEUSD,ADAUSD"
       - key: SCAN_INTERVAL_SECONDS
         value: "120"
 

@@ -165,9 +165,11 @@ class ExecutionAgent:
                         total_contracts = abs(int(float(p.get("size", contracts))))
                         break
 
-            # Adjust protective Stop Loss to protect expanded position
+            # Adjust protective Stop Loss and Take Profit to protect expanded position
             sl_updated = False
+            tp_updated = False
             sl_order_id = None
+            tp_order_id = None
             try:
                 open_orders_res = self.client.get_open_orders(symbol=symbol)
                 if open_orders_res.get("success"):
@@ -177,15 +179,21 @@ class ExecutionAgent:
                         o_side = str(o.get("side", "")).lower()
                         o_stop_type = str(o.get("stop_order_type", "")).lower()
                         is_stop = "stop" in o_type or "stop" in o_stop_type or bool(o.get("stop_price")) or (o.get("bracket_order") and o_side == expected_sl_side)
-                        if is_stop and o_side == expected_sl_side:
+                        is_tp = (o_side == expected_sl_side and not is_stop and bool(o.get("reduce_only"))) or ("take_profit" in o_stop_type)
+                        if is_stop and o_side == expected_sl_side and not sl_updated:
                             sl_order_id = int(o.get("id"))
                             edit_res = self.client.edit_order(symbol=symbol, order_id=sl_order_id, size=total_contracts)
                             if edit_res.get("success"):
                                 logger.info(f"ExecutionAgent: Successfully updated existing SL #{sl_order_id} size to {total_contracts} contracts.")
                                 sl_updated = True
-                            break
+                        elif is_tp and o_side == expected_sl_side and not tp_updated:
+                            tp_order_id = int(o.get("id"))
+                            edit_res = self.client.edit_order(symbol=symbol, order_id=tp_order_id, size=total_contracts)
+                            if edit_res.get("success"):
+                                logger.info(f"ExecutionAgent: Successfully updated existing TP #{tp_order_id} size to {total_contracts} contracts.")
+                                tp_updated = True
             except Exception as e:
-                logger.warning(f"ExecutionAgent: Error attempting to edit existing SL order size: {e}")
+                logger.warning(f"ExecutionAgent: Error attempting to edit existing SL/TP order size: {e}")
 
             if not sl_updated:
                 # Place supplementary protective stop for added contracts
@@ -203,6 +211,23 @@ class ExecutionAgent:
                         logger.info(f"ExecutionAgent: Supplementary protective stop confirmed for {contracts} contracts: Order #{sl_order_id}")
                 except Exception as e:
                     logger.warning(f"ExecutionAgent: Supplementary stop error: {e}")
+
+            if not tp_updated and take_profit and float(take_profit) > 0:
+                # Place supplementary take profit for added contracts
+                try:
+                    add_tp_res = self.client.place_take_profit(
+                        symbol=symbol,
+                        size=contracts,
+                        side=side,
+                        take_profit_price=take_profit,
+                        client_order_id=f"scale_tp_{uuid.uuid4().hex[:6]}"
+                    )
+                    if add_tp_res.get("success"):
+                        tp_order_id = str(add_tp_res.get("result", {}).get("id"))
+                        tp_updated = True
+                        logger.info(f"ExecutionAgent: Supplementary take profit confirmed for {contracts} contracts: Order #{tp_order_id}")
+                except Exception as e:
+                    logger.warning(f"ExecutionAgent: Supplementary take profit error: {e}")
 
             # Record in state manager
             self.state_manager.record_order(
@@ -331,9 +356,27 @@ class ExecutionAgent:
                             client_order_id=f"sl_{fallback_cid}"
                         )
                         if sl_res.get("success"):
-                            logger.info(f"ExecutionAgent: Protective stop attached for {symbol} @ ${stop_loss}")
+                            sl_order_id = str(sl_res.get("result", {}).get("id"))
+                            sl_verified = True
+                            logger.info(f"ExecutionAgent: Protective stop attached for {symbol} @ ${stop_loss} (Order #{sl_order_id})")
                     except Exception as sl_err:
                         logger.error(f"ExecutionAgent: Failed to attach protective stop during fallback: {sl_err}")
+
+                    # Immediately attach standalone take-profit target if specified
+                    if take_profit and float(take_profit) > 0:
+                        try:
+                            tp_res = self.client.place_take_profit(
+                                symbol=symbol,
+                                size=contracts,
+                                side=side,
+                                take_profit_price=take_profit,
+                                client_order_id=f"tp_{fallback_cid}"
+                            )
+                            if tp_res.get("success"):
+                                tp_order_id = str(tp_res.get("result", {}).get("id"))
+                                logger.info(f"ExecutionAgent: Take profit target attached for {symbol} @ ${take_profit} (Order #{tp_order_id})")
+                        except Exception as tp_err:
+                            logger.error(f"ExecutionAgent: Failed to attach take profit during fallback: {tp_err}")
                 else:
                     last_error = f"{last_error} | Fallback market order failed: {fb_market_res.get('error')}"
             except Exception as fb_err:
@@ -398,7 +441,6 @@ class ExecutionAgent:
                         if o_stop_px <= 0 or (side == "buy" and o_stop_px <= entry_price) or (side == "sell" and o_stop_px >= entry_price):
                             sl_order_id = str(o.get("id"))
                             sl_verified = True
-                            break
                     elif o_side == expected_sl_side and not is_stop and not tp_order_id:
                         tp_order_id = str(o.get("id"))
         except Exception as e:

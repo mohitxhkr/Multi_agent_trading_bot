@@ -95,7 +95,7 @@ class MultiAgentTradingOrchestrator:
         self.performance_coach = PerformanceCoachAgent(state_manager=self.state_manager)
         self.trailing_stop_manager = TrailingStopManager(client=self.client, telegram=self.telegram)
 
-        raw_symbols = os.getenv("DEFAULT_SYMBOLS", "BTCUSD,ETHUSD,XAUUSD,SOLUSD,PAXGUSD,XRPUSD,DOGEUSD,ADAUSD")
+        raw_symbols = os.getenv("DEFAULT_SYMBOLS", "BTCUSD,ETHUSD,SOLUSD,XRPUSD,DOGEUSD,ADAUSD")
         self.symbols = symbols or [s.strip().upper() for s in raw_symbols.split(",") if s.strip()]
         self.interactive = interactive
         self.leverage = leverage

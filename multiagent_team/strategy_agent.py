@@ -68,31 +68,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.03,
         "pivot_window": 2,
-        "is_primary": True,
-        "priority_tier": 1
-    },
-    "PAXGUSD": {
-        "symbol": "PAXGUSD",
-        "max_spread_pct": 0.10,
-        "target_rr_ratio": 2.4,
-        "min_confluence_score": 75,
-        "atr_stop_min_mult": 0.40,
-        "atr_stop_max_mult": 3.5,
-        "fvg_min_gap_pct": 0.03,
-        "pivot_window": 2,
-        "is_primary": True,
-        "priority_tier": 1
-    },
-    "XAUTUSD": {
-        "symbol": "XAUTUSD",
-        "max_spread_pct": 0.10,
-        "target_rr_ratio": 2.4,
-        "min_confluence_score": 75,
-        "atr_stop_min_mult": 0.40,
-        "atr_stop_max_mult": 3.5,
-        "fvg_min_gap_pct": 0.03,
-        "pivot_window": 2,
-        "is_primary": True,
+        "is_primary": False,
         "priority_tier": 1
     },
     "SOLUSD": {

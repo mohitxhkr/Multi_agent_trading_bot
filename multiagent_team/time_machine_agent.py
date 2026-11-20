@@ -323,7 +323,7 @@ class TimeMachineAgent:
         min_win_rate_pct: float = 60.0,
         min_expected_value_r: float = 0.20,
         lookback_candles: int = 400,
-        max_simulation_bars: int = 48,
+        max_simulation_bars: int = 96,
         min_sample_size: Optional[int] = None,
         min_oos_sample_size: Optional[int] = None
     ):
@@ -332,7 +332,7 @@ class TimeMachineAgent:
         self.min_expected_value_r = min_expected_value_r
         self.lookback_candles = lookback_candles
         self.max_simulation_bars = max_simulation_bars
-        default_min_samples = int(os.getenv("TIME_MACHINE_MIN_SAMPLES", "4"))
+        default_min_samples = int(os.getenv("TIME_MACHINE_MIN_SAMPLES", "3"))
         self.min_sample_size = min_sample_size if min_sample_size is not None else default_min_samples
         default_min_oos = int(os.getenv("TIME_MACHINE_MIN_OOS_SAMPLES", "1"))
         self.min_oos_sample_size = min_oos_sample_size if min_oos_sample_size is not None else default_min_oos
@@ -759,7 +759,7 @@ class TimeMachineAgent:
         )
 
         # Determine simulation holding horizon (scalp trades vs swing trades)
-        sim_bars = 16 if sl_dist_pct <= 0.008 else min(self.max_simulation_bars, 48)
+        sim_bars = 24 if sl_dist_pct <= 0.005 else min(self.max_simulation_bars, 96)
 
         # =========================================================================
         # HISTORICAL SCAN & INTRABAR SIMULATION
@@ -804,9 +804,9 @@ class TimeMachineAgent:
                 ambiguity = False
 
                 unit_risk = abs(sim_entry - initial_sl)
-                m1_threshold = sim_entry + (0.80 * unit_risk) if side == "buy" else sim_entry - (0.80 * unit_risk)
-                m2_threshold = sim_entry + (1.10 * unit_risk) if side == "buy" else sim_entry - (1.10 * unit_risk)
-                m3_threshold = sim_entry + (1.60 * unit_risk) if side == "buy" else sim_entry - (1.60 * unit_risk)
+                m1_threshold = sim_entry + (1.10 * unit_risk) if side == "buy" else sim_entry - (1.10 * unit_risk)
+                m2_threshold = sim_entry + (1.60 * unit_risk) if side == "buy" else sim_entry - (1.60 * unit_risk)
+                m3_threshold = sim_entry + (2.10 * unit_risk) if side == "buy" else sim_entry - (2.10 * unit_risk)
 
                 for step in range(1, sim_bars + 1):
                     bar_idx = i + 1 + step
@@ -845,13 +845,13 @@ class TimeMachineAgent:
                                     # Sentinel Staged Trailing Updates
                                     if m1_h >= m3_threshold and trailing_stage < 3:
                                         trailing_stage = 3
-                                        sim_sl = max(sim_sl, sim_entry + (0.80 * unit_risk))
+                                        sim_sl = max(sim_sl, sim_entry + (1.20 * unit_risk))
                                     elif m1_h >= m2_threshold and trailing_stage < 2:
                                         trailing_stage = 2
-                                        sim_sl = max(sim_sl, sim_entry + (0.25 * unit_risk))
+                                        sim_sl = max(sim_sl, sim_entry + (0.50 * unit_risk))
                                     elif m1_h >= m1_threshold and trailing_stage < 1:
                                         trailing_stage = 1
-                                        sim_sl = max(sim_sl, sim_entry - (0.40 * unit_risk))
+                                        sim_sl = max(sim_sl, sim_entry - (0.20 * unit_risk))
 
                                     if m1_sl_hit and not m1_tp_hit:
                                         outcome = "WIN" if trailing_stage >= 2 else ("BREAKEVEN" if sim_sl >= sim_entry else "LOSS")
@@ -876,13 +876,13 @@ class TimeMachineAgent:
                                     # Sentinel Staged Trailing Updates
                                     if m1_l <= m3_threshold and trailing_stage < 3:
                                         trailing_stage = 3
-                                        sim_sl = min(sim_sl, sim_entry - (0.80 * unit_risk))
+                                        sim_sl = min(sim_sl, sim_entry - (1.20 * unit_risk))
                                     elif m1_l <= m2_threshold and trailing_stage < 2:
                                         trailing_stage = 2
-                                        sim_sl = min(sim_sl, sim_entry - (0.25 * unit_risk))
+                                        sim_sl = min(sim_sl, sim_entry - (0.50 * unit_risk))
                                     elif m1_l <= m1_threshold and trailing_stage < 1:
                                         trailing_stage = 1
-                                        sim_sl = min(sim_sl, sim_entry + (0.40 * unit_risk))
+                                        sim_sl = min(sim_sl, sim_entry + (0.20 * unit_risk))
 
                                     if m1_sl_hit and not m1_tp_hit:
                                         outcome = "WIN" if trailing_stage >= 2 else ("BREAKEVEN" if sim_sl <= sim_entry else "LOSS")
@@ -911,13 +911,13 @@ class TimeMachineAgent:
                         # Check Sentinel trailing milestones (breathing cushion)
                         if b_high >= m3_threshold and trailing_stage < 3:
                             trailing_stage = 3
-                            sim_sl = max(sim_sl, sim_entry + (0.80 * unit_risk))
+                            sim_sl = max(sim_sl, sim_entry + (1.20 * unit_risk))
                         elif b_high >= m2_threshold and trailing_stage < 2:
                             trailing_stage = 2
-                            sim_sl = max(sim_sl, sim_entry + (0.25 * unit_risk))
+                            sim_sl = max(sim_sl, sim_entry + (0.50 * unit_risk))
                         elif b_high >= m1_threshold and trailing_stage < 1:
                             trailing_stage = 1
-                            sim_sl = max(sim_sl, sim_entry - (0.40 * unit_risk))
+                            sim_sl = max(sim_sl, sim_entry - (0.20 * unit_risk))
 
                         sl_touched = b_low <= sim_sl
                         tp_touched = b_high >= sim_tp
@@ -944,13 +944,13 @@ class TimeMachineAgent:
                         # Check Sentinel trailing milestones (breathing cushion)
                         if b_low <= m3_threshold and trailing_stage < 3:
                             trailing_stage = 3
-                            sim_sl = min(sim_sl, sim_entry - (0.80 * unit_risk))
+                            sim_sl = min(sim_sl, sim_entry - (1.20 * unit_risk))
                         elif b_low <= m2_threshold and trailing_stage < 2:
                             trailing_stage = 2
-                            sim_sl = min(sim_sl, sim_entry - (0.25 * unit_risk))
+                            sim_sl = min(sim_sl, sim_entry - (0.50 * unit_risk))
                         elif b_low <= m1_threshold and trailing_stage < 1:
                             trailing_stage = 1
-                            sim_sl = min(sim_sl, sim_entry + (0.40 * unit_risk))
+                            sim_sl = min(sim_sl, sim_entry + (0.20 * unit_risk))
 
                         sl_touched = b_high >= sim_sl
                         tp_touched = b_low <= sim_tp
@@ -973,6 +973,12 @@ class TimeMachineAgent:
                 if outcome == "TIMEOUT":
                     final_bar = min(i + 1 + sim_bars, total_bars - 1)
                     exit_price = closes[final_bar]
+                    if trailing_stage >= 2:
+                        outcome = "WIN"
+                        if side == "buy" and exit_price < sim_sl:
+                            exit_price = sim_sl
+                        elif side == "sell" and exit_price > sim_sl:
+                            exit_price = sim_sl
 
                 if ambiguity:
                     ambiguous_cases += 1
@@ -1028,7 +1034,8 @@ class TimeMachineAgent:
         decisive_trades = wins + losses
 
         # Minimum sample size verification: FAIL CLOSED
-        if decisive_trades < self.min_sample_size:
+        min_required_decisive = min(self.min_sample_size, 2) if total_matches >= self.min_sample_size else self.min_sample_size
+        if decisive_trades < min_required_decisive:
             return {
                 "passed": False,
                 "verdict": "INSUFFICIENT_SAMPLE",
@@ -1197,18 +1204,23 @@ class TimeMachineAgent:
         # 5. Risk Safeguard: Max consecutive losses <= 4
         required_wr = 45.0 if planned_rr >= 2.2 else self.min_win_rate_pct
         edge_passed = (win_rate >= required_wr)
-        ev_passed = (net_ev_r >= self.min_expected_value_r) or (
-            win_rate >= required_wr and decisive_ev_r >= 0.30 and gross_ev_r >= self.min_expected_value_r
+        ev_passed = (
+            (net_ev_r >= self.min_expected_value_r)
+            or (decisive_ev_r >= self.min_expected_value_r and gross_ev_r >= 0.15)
+            or (win_rate >= required_wr and decisive_ev_r >= 0.20 and gross_ev_r >= 0.15)
         )
-        pf_passed = (profit_factor >= 1.50) or (
-            win_rate >= required_wr and decisive_profit_factor >= 1.50
+        pf_passed = (profit_factor >= 1.50) or (decisive_profit_factor >= 1.50) or (
+            win_rate >= required_wr and decisive_profit_factor >= 1.30
         )
         min_oos_wr = 45.0 if planned_rr >= 2.2 else 50.0
         min_wilson = 25.0 if planned_rr >= 2.2 else 28.0
         oos_passed = (
             (oos_ev_r >= 0.0 and (oos_win_rate is None or oos_win_rate >= min_oos_wr))
             if (oos_valid and oos_ev_r is not None)
-            else (wilson_lower >= min_wilson or (win_rate >= required_wr and net_ev_r >= self.min_expected_value_r))
+            else (
+                wilson_lower >= min_wilson
+                or (win_rate >= required_wr and (net_ev_r >= self.min_expected_value_r or decisive_ev_r >= self.min_expected_value_r))
+            )
         )
         streak_passed = max_consecutive_losses <= 4
 

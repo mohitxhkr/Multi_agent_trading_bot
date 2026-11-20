@@ -226,8 +226,11 @@ class TrailingStopManager:
             # Query recent fills on Delta Exchange to confirm exit price & time
             exit_price = None
             try:
-                fills_res = self.client.get_fills(symbol=sym, page_size=5)
+                fills_res = self.client.get_fills(symbol=sym, page_size=20)
                 for f in fills_res.get("result", []):
+                    f_sym = str(f.get("product_symbol") or (f.get("product", {}) or {}).get("symbol") or "").upper()
+                    if f_sym and f_sym != sym:
+                        continue
                     f_side = f.get("side", "").lower()
                     if (pos_state["side"] == "buy" and f_side == "sell") or (pos_state["side"] == "sell" and f_side == "buy"):
                         exit_price = float(f.get("price") or 0.0)

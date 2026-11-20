@@ -366,13 +366,21 @@ class DeltaExchangeClient:
         return self._request("GET", "/v2/orders/history", params=params, authenticated=True)
 
     def get_fills(self, symbol: Optional[str] = None, page_size: int = 20) -> Dict[str, Any]:
-        """Get recent trade fills."""
+        """Get recent trade fills, filtered by symbol if specified."""
         params = {"page_size": page_size}
         if symbol:
             pid = self.get_product_id(symbol)
             if pid:
                 params["product_id"] = pid
-        return self._request("GET", "/v2/fills", params=params, authenticated=True)
+        res = self._request("GET", "/v2/fills", params=params, authenticated=True)
+        if symbol and res.get("success") and isinstance(res.get("result"), list):
+            target_sym = self.resolve_symbol(symbol).upper()
+            filtered = [
+                f for f in res["result"]
+                if str(f.get("product_symbol") or (f.get("product", {}) or {}).get("symbol") or "").upper() == target_sym
+            ]
+            res["result"] = filtered
+        return res
 
     # -------------------------------------------------------------------------
     # Market Data Endpoints

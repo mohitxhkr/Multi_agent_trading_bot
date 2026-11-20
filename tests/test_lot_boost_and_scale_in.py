@@ -230,37 +230,48 @@ class TestLotBoostAndScaleIn(unittest.TestCase):
 
     def test_trailing_stop_manager_scale_in(self):
         """TrailingStopManager updates contract count and calculates weighted average entry price."""
-        mock_client = MagicMock()
-        tsm = TrailingStopManager(client=mock_client)
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+            temp_state_file = tf.name
+        try:
+            mock_client = MagicMock()
+            tsm = TrailingStopManager(client=mock_client, state_file=temp_state_file)
 
-        # Initial trade of 10 contracts @ $3000
-        tsm.register_initial_trade(
-            symbol="ETHUSD",
-            side="buy",
-            entry_price=3000.0,
-            initial_sl=2950.0,
-            initial_tp=3150.0,
-            contracts=10
-        )
+            # Initial trade of 10 contracts @ $3000
+            tsm.register_initial_trade(
+                symbol="ETHUSD",
+                side="buy",
+                entry_price=3000.0,
+                initial_sl=2950.0,
+                initial_tp=3150.0,
+                contracts=10
+            )
 
-        self.assertEqual(tsm.state["ETHUSD"]["contracts"], 10)
-        self.assertEqual(tsm.state["ETHUSD"]["entry_price"], 3000.0)
+            self.assertEqual(tsm.state["ETHUSD"]["contracts"], 10)
+            self.assertEqual(tsm.state["ETHUSD"]["entry_price"], 3000.0)
 
-        # Scale in: add 5 contracts @ $3060
-        # Expected new avg entry: (10*3000 + 5*3060) / 15 = 45300 / 15 = 3020.0
-        scale_res = tsm.scale_in_trade(
-            symbol="ETHUSD",
-            additional_contracts=5,
-            scale_in_price=3060.0,
-            new_sl_order_id=99902
-        )
+            # Scale in: add 5 contracts @ $3060
+            # Expected new avg entry: (10*3000 + 5*3060) / 15 = 45300 / 15 = 3020.0
+            scale_res = tsm.scale_in_trade(
+                symbol="ETHUSD",
+                additional_contracts=5,
+                scale_in_price=3060.0,
+                new_sl_order_id=99902
+            )
 
-        self.assertTrue(scale_res["success"])
-        self.assertEqual(scale_res["total_contracts"], 15)
-        self.assertEqual(scale_res["avg_entry"], 3020.0)
-        self.assertEqual(tsm.state["ETHUSD"]["contracts"], 15)
-        self.assertEqual(tsm.state["ETHUSD"]["entry_price"], 3020.0)
-        self.assertEqual(tsm.state["ETHUSD"]["sl_order_id"], 99902)
+            self.assertTrue(scale_res["success"])
+            self.assertEqual(scale_res["total_contracts"], 15)
+            self.assertEqual(scale_res["avg_entry"], 3020.0)
+            self.assertEqual(tsm.state["ETHUSD"]["contracts"], 15)
+            self.assertEqual(tsm.state["ETHUSD"]["entry_price"], 3020.0)
+            self.assertEqual(tsm.state["ETHUSD"]["sl_order_id"], 99902)
+        finally:
+            if os.path.exists(temp_state_file):
+                try:
+                    os.remove(temp_state_file)
+                except Exception:
+                    pass
 
     def test_telegram_proposal_card_scale_in_and_boost_formatting(self):
         """Telegram proposal card displays SCALE-IN banner, combined size, and past win boost."""

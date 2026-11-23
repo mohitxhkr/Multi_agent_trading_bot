@@ -640,9 +640,9 @@ def calculate_volatility_state(closes: List[float], atrs: List[float]) -> Dict[s
 
 
 def detect_news_or_abnormal_volatility(current_atr: float, avg_atr: float) -> Tuple[bool, str]:
-    """Avoid trading during extreme freak market anomalies (> 4.5x ATR) or high-impact macro news windows."""
-    if avg_atr > 0 and (current_atr / avg_atr) > 4.5:
-        return True, f"Extreme freak anomaly: 15m ATR is {current_atr/avg_atr:.1f}x historical average (> 4.5x threshold)"
+    """Avoid trading during extreme freak market anomalies (> 7.5x ATR) or high-impact macro news windows."""
+    if avg_atr > 0 and (current_atr / avg_atr) > 7.5:
+        return True, f"Extreme freak anomaly: 15m ATR is {current_atr/avg_atr:.1f}x historical average (> 7.5x threshold)"
 
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     if now_utc.weekday() < 5:
@@ -2275,17 +2275,21 @@ def analyze_multi_timeframe(
     d1_reg_upper = str(daily_regime or "").upper()
 
     def _is_htf_trend_aligned(trade_side: str) -> bool:
-        """Strictly forbid counter-trend setups against 1H, 4H, or unflipped Daily market trends."""
+        """
+        Calibrate trend alignment for intraday scalps:
+        - Long scalp requires 1H to NOT be Bearish, and prevents longs if all HTFs (1H, 4H, Daily) are actively bearish.
+        - Short scalp requires 1H to NOT be Bullish, and prevents shorts if all HTFs (1H, 4H, Daily) are actively bullish.
+        """
         if trade_side == "buy":
-            if "BEARISH" in regime_1h or "BEARISH" in h4_reg_upper:
+            if "BEARISH" in regime_1h:
                 return False
-            if "BEARISH" in d1_reg_upper and "BULLISH" not in h4_reg_upper:
+            if "BEARISH" in h4_reg_upper and "BEARISH" in d1_reg_upper and "BULLISH" not in regime_1h:
                 return False
             return True
         if trade_side == "sell":
-            if "BULLISH" in regime_1h or "BULLISH" in h4_reg_upper:
+            if "BULLISH" in regime_1h:
                 return False
-            if "BULLISH" in d1_reg_upper and "BEARISH" not in h4_reg_upper:
+            if "BULLISH" in h4_reg_upper and "BULLISH" in d1_reg_upper and "BEARISH" not in regime_1h:
                 return False
             return True
         return False
@@ -2321,7 +2325,7 @@ def analyze_multi_timeframe(
 
     # Priority B: High-Volume Momentum Impulse Scalp (Pro Fast Scalp)
     # Triggers when volume expands aggressively in volatile markets and no liquidity sweep or trap is present
-    if not setup_qualified and not sweep_detected and not bull_trap_detected and not bear_trap_detected and max_vol_ratio >= 1.25:
+    if not setup_qualified and not sweep_detected and not bull_trap_detected and not bear_trap_detected and max_vol_ratio >= 1.05:
         vwap_val = float(analysis_1h.get("vwap") or current_price)
 
         # Bullish Momentum Impulse Scalp
@@ -2358,7 +2362,7 @@ def analyze_multi_timeframe(
                 if is_killzone:
                     setup_score += 5
 
-                qual_threshold = 85 if is_primary else 90
+                qual_threshold = 80 if is_primary else 85
                 if setup_score >= qual_threshold:
                     calc_entry = current_price
                     sl_dist = max(min_sl_dist, min(0.90 * atr_15m, max_sl_dist))
@@ -2409,7 +2413,7 @@ def analyze_multi_timeframe(
                 if is_killzone:
                     setup_score += 5
 
-                qual_threshold = 85 if is_primary else 90
+                qual_threshold = 80 if is_primary else 85
                 if setup_score >= qual_threshold:
                     calc_entry = current_price
                     sl_dist = max(min_sl_dist, min(0.90 * atr_15m, max_sl_dist))
@@ -2455,12 +2459,12 @@ def analyze_multi_timeframe(
                 if is_killzone:
                     setup_score += 5   # Peak liquidity session boost
 
-                qual_threshold = 85 if is_primary else 90
+                qual_threshold = 80 if is_primary else 85
                 if setup_score >= qual_threshold:
-                    # Optimal Trade Entry (OTE): If candle expanded > 1 ATR, wait for 0.382 pullback limit
+                    # Optimal Trade Entry (OTE): If candle expanded > 1 ATR, wait for tight 0.35 ATR pullback limit
                     displacement = current_price - sweep_wick
                     if displacement > (1.0 * atr_15m):
-                        calc_entry = round_price(current_price - (0.382 * displacement), current_price)
+                        calc_entry = round_price(current_price - min(0.382 * displacement, 0.35 * atr_15m), current_price)
                     else:
                         calc_entry = current_price
 
@@ -2501,12 +2505,12 @@ def analyze_multi_timeframe(
                 if is_killzone:
                     setup_score += 5   # Peak liquidity session boost
 
-                qual_threshold = 85 if is_primary else 90
+                qual_threshold = 80 if is_primary else 85
                 if setup_score >= qual_threshold:
-                    # Optimal Trade Entry (OTE): If candle expanded > 1 ATR, wait for 0.382 pullback limit
+                    # Optimal Trade Entry (OTE): If candle expanded > 1 ATR, wait for tight 0.35 ATR pullback limit
                     displacement = sweep_wick - current_price
                     if displacement > (1.0 * atr_15m):
-                        calc_entry = round_price(current_price + (0.382 * displacement), current_price)
+                        calc_entry = round_price(current_price + min(0.382 * displacement, 0.35 * atr_15m), current_price)
                     else:
                         calc_entry = current_price
 
@@ -2539,11 +2543,11 @@ def analyze_multi_timeframe(
             if bull_trap_detected or has_upper_rejection_wick:
                 long_rejection_reason = "Blocked: Bull Trap / BSL Liquidity Sweep active at resistance. Breakout longs strictly vetoed to prevent buying the trap."
             else:
-                bo_score = 50
+                bo_score = 55
                 if macro_4h_regime == "MACRO_BULLISH":
-                    bo_score += 20
+                    bo_score += 15
                 elif macro_4h_regime == "MACRO_NEUTRAL":
-                    bo_score += 10
+                    bo_score += 8
 
                 if "BULLISH" in regime_1h:
                     bo_score += 15
@@ -2564,7 +2568,7 @@ def analyze_multi_timeframe(
                 elif macd_15m.get("histogram", 0) > 0 or "BULLISH" in macd_15m.get("bias", ""):
                     bo_score += 5
 
-                qual_threshold = 85 if is_primary else 90
+                qual_threshold = 80 if is_primary else 85
                 if bo_score >= qual_threshold:
                     calc_entry = current_price
                     raw_sl = max(min(ema21_15m - (0.35 * atr_15m), calc_entry - (1.25 * atr_15m)), calc_entry - (2.85 * atr_15m))
@@ -2596,11 +2600,11 @@ def analyze_multi_timeframe(
                 if bear_trap_detected or has_lower_rejection_wick:
                     short_rejection_reason = "Blocked: Bear Trap / SSL Liquidity Sweep active at support. Breakdown shorts strictly vetoed to prevent shorting the trap."
                 else:
-                    bd_score = 50
+                    bd_score = 55
                     if macro_4h_regime == "MACRO_BEARISH":
-                        bd_score += 20
+                        bd_score += 15
                     elif macro_4h_regime == "MACRO_NEUTRAL":
-                        bd_score += 10
+                        bd_score += 8
 
                     if "BEARISH" in regime_1h:
                         bd_score += 15
@@ -2621,7 +2625,7 @@ def analyze_multi_timeframe(
                     elif macd_15m.get("histogram", 0) < 0 or "BEARISH" in macd_15m.get("bias", ""):
                         bd_score += 5
 
-                    qual_threshold = 85 if is_primary else 90
+                    qual_threshold = 80 if is_primary else 85
                     if bd_score >= qual_threshold:
                         calc_entry = current_price
                         raw_sl = min(max(ema21_15m + (0.35 * atr_15m), calc_entry + (1.25 * atr_15m)), calc_entry + (2.85 * atr_15m))

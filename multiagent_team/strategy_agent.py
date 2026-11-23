@@ -454,23 +454,25 @@ class StrategyAgent:
                     self._record_rejection(symbol, "Unclear directional regime (1H & 15M Neutral without trigger).", "REGIME_VETO")
                     return None
 
-        # Hard Veto C2: Strict Trend Alignment (NEVER trade against 1H, 4H, Daily, or Regime Analyst trend)
+        # Hard Veto C2: Strict Trend Alignment (NEVER trade counter to active intraday trend or all-timeframe HTF alignment)
         bull_conflict = (
             h1_dir == "BEARISH"
-            or "BEARISH" in macro_4h_reg
             or "BEARISH" in dir_bias
             or "BEARISH" in reg_label
             or "TRENDING_DOWN" in reg_label
+            or "TREND_DOWN" in reg_label
             or "BREAKDOWN" in reg_label
+            or ("BEARISH" in macro_4h_reg and h1_dir != "BULLISH" and "BULLISH" not in dir_bias)
             or ("BEARISH" in macro_daily_reg and "BULLISH" not in macro_4h_reg and h1_dir != "BULLISH")
         )
         bear_conflict = (
             h1_dir == "BULLISH"
-            or "BULLISH" in macro_4h_reg
             or "BULLISH" in dir_bias
             or "BULLISH" in reg_label
             or "TRENDING_UP" in reg_label
+            or "TREND_UP" in reg_label
             or "BREAKOUT" in reg_label
+            or ("BULLISH" in macro_4h_reg and h1_dir != "BEARISH" and "BEARISH" not in dir_bias)
             or ("BULLISH" in macro_daily_reg and "BEARISH" not in macro_4h_reg and h1_dir != "BEARISH")
         )
         if side == "buy" and bull_conflict:
@@ -503,12 +505,17 @@ class StrategyAgent:
         entry = float(hp_setup.get("entry_price") or current_price)
 
         # Hard Veto D: Extreme entry price deviation
+        # For scalping executions, allow entry at current_price or tight limit pullback within 1.50% (or 1.2x ATR)
         if entry > 0 and current_price > 0:
             price_dev_pct = abs(current_price - entry) / entry * 100.0
-            if price_dev_pct > 0.50:
-                reason = f"Price has drifted {price_dev_pct:.2f}% from optimal entry ${entry:.2f}"
+            max_drift = max(1.50, round((atr_15m * 1.2 / entry) * 100.0, 2))
+            if price_dev_pct > max_drift:
+                reason = f"Price has drifted {price_dev_pct:.2f}% from optimal entry ${entry:.2f} (max allowed {max_drift:.2f}%)"
                 self._record_rejection(symbol, reason, "ENTRY_DRIFT_VETO", {"deviation_pct": price_dev_pct})
                 return None
+            elif price_dev_pct > 0.30:
+                # Calibrate execution entry to current_price for instant actionable fill
+                entry = current_price
 
         # Determine Technical Invalidation Stop Loss
         sl = float(hp_setup.get("stop_loss_price") or 0.0)
@@ -543,7 +550,8 @@ class StrategyAgent:
         if cfg.get("is_primary") and stop_pct <= 0.0160:
             max_atr_mult = max(max_atr_mult, 3.5)
 
-        if atr_multiple < min_atr_mult:
+        # Micro-stop protection: reject only if stop is both sub-ATR AND dangerously tight in percentage terms (< 0.80%)
+        if atr_multiple < min_atr_mult and stop_pct < 0.0080:
             reason = f"Stop loss distance (${stop_distance:.2f}) is only {atr_multiple:.2f}x ATR (< {min_atr_mult:.2f}x ATR of ${atr_15m:.2f}). Highly vulnerable to noise stop-outs."
             self._record_rejection(symbol, reason, "MICRO_STOP_VETO", {"atr_multiple": atr_multiple, "min_required": min_atr_mult})
             return None

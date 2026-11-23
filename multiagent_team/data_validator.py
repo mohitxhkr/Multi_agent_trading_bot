@@ -27,7 +27,7 @@ class MarketDataValidator:
         "1W": 604800,
     }
 
-    def __init__(self, max_stale_intervals: int = 3, max_allowed_spike_pct: float = 0.08):
+    def __init__(self, max_stale_intervals: int = 3, max_allowed_spike_pct: float = 0.15):
         self.max_stale_intervals = max_stale_intervals
         self.max_allowed_spike_pct = max_allowed_spike_pct
 
@@ -119,7 +119,7 @@ class MarketDataValidator:
             if bar_range > self.max_allowed_spike_pct:
                 spike_count += 1
 
-        if spike_count > 2:
+        if spike_count > 5:
             issues.append(f"Excessive abnormal price spikes detected: {spike_count} bars exceeded {self.max_allowed_spike_pct*100:.1f}% range")
 
         is_valid = len(issues) == 0

@@ -332,7 +332,7 @@ class TimeMachineAgent:
         self.min_expected_value_r = min_expected_value_r
         self.lookback_candles = lookback_candles
         self.max_simulation_bars = max_simulation_bars
-        default_min_samples = int(os.getenv("TIME_MACHINE_MIN_SAMPLES", "3"))
+        default_min_samples = int(os.getenv("TIME_MACHINE_MIN_SAMPLES", "2"))
         self.min_sample_size = min_sample_size if min_sample_size is not None else default_min_samples
         default_min_oos = int(os.getenv("TIME_MACHINE_MIN_OOS_SAMPLES", "1"))
         self.min_oos_sample_size = min_oos_sample_size if min_oos_sample_size is not None else default_min_oos
@@ -501,8 +501,8 @@ class TimeMachineAgent:
 
             # 4. Momentum Impulse (High_Volume_Momentum_Impulse)
             if "momentum" in strat_lower or "impulse" in strat_lower:
-                vol_surge = c_vol >= 1.5 * v_sma
-                strong_body = (c_price - c_open) > 0 and (c_price - c_open) / max(0.0001, (c_high - c_low)) >= 0.50
+                vol_surge = c_vol >= 1.15 * v_sma or (c_price > c_open and c_rsi >= 48)
+                strong_body = (c_price - c_open) > 0 and (c_price - c_open) / max(0.0001, (c_high - c_low)) >= 0.40
                 trend_ok = (c_price > c_ema21 or bos_detected) and h1_bullish
                 return vol_surge and strong_body and trend_ok
 
@@ -566,8 +566,8 @@ class TimeMachineAgent:
 
             # 4. Momentum Impulse (High_Volume_Momentum_Impulse)
             if "momentum" in strat_lower or "impulse" in strat_lower:
-                vol_surge = c_vol >= 1.5 * v_sma
-                strong_body = (c_open - c_price) > 0 and (c_open - c_price) / max(0.0001, (c_high - c_low)) >= 0.50
+                vol_surge = c_vol >= 1.15 * v_sma or (c_open > c_price and c_rsi <= 52)
+                strong_body = (c_open - c_price) > 0 and (c_open - c_price) / max(0.0001, (c_high - c_low)) >= 0.40
                 trend_ok = (c_price < c_ema21 or bos_detected) and h1_bearish
                 return vol_surge and strong_body and trend_ok
 

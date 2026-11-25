@@ -242,6 +242,64 @@ def generate_candlestick_chart(
                 zorder=6
             )
 
+    # Plot TradingView-Style Long / Short Position Projection Box if trade projection is provided
+    pos_proj = kl.get("position_projection") or {}
+    proj_entry = float(pos_proj.get("entry") or 0.0)
+    proj_sl = float(pos_proj.get("sl") or 0.0)
+    proj_tp = float(pos_proj.get("tp") or 0.0)
+    proj_side = str(pos_proj.get("side") or "").lower()
+    if proj_entry > 0 and proj_sl > 0 and proj_tp > 0 and proj_side in ("buy", "long", "sell", "short"):
+        is_long_proj = proj_side in ("buy", "long")
+        proj_x0 = bars_count - 1.0
+        proj_w = 8.2
+        risk_d = abs(proj_entry - proj_sl)
+        rew_d = abs(proj_tp - proj_entry)
+        proj_rr = float(pos_proj.get("rr") or (rew_d / risk_d if risk_d > 0 else 2.0))
+        tp_pct = (rew_d / proj_entry) * 100.0
+        sl_pct = (risk_d / proj_entry) * 100.0
+
+        # Reward Zone (Green Shaded Box: Entry -> TP)
+        rew_y0 = min(proj_entry, proj_tp)
+        rew_h = abs(proj_tp - proj_entry)
+        rew_rect = patches.Rectangle(
+            (proj_x0, rew_y0), proj_w, rew_h,
+            facecolor="#00C853", edgecolor="#00E676", linewidth=1.2, alpha=0.24, zorder=4
+        )
+        ax_price.add_patch(rew_rect)
+        ax_price.text(
+            proj_x0 + proj_w / 2.0, rew_y0 + rew_h / 2.0,
+            f"TARGET ${proj_tp:,.2f}\n(+{tp_pct:.2f}% · 1:{proj_rr:.1f} R:R)",
+            color="#00E676", fontsize=7.8, fontweight="bold", ha="center", va="center", zorder=8
+        )
+
+        # Risk Zone (Red Shaded Box: Entry -> SL)
+        risk_y0 = min(proj_entry, proj_sl)
+        risk_h = abs(proj_entry - proj_sl)
+        risk_rect = patches.Rectangle(
+            (proj_x0, risk_y0), proj_w, risk_h,
+            facecolor="#FF3D00", edgecolor="#FF1744", linewidth=1.2, alpha=0.24, zorder=4
+        )
+        ax_price.add_patch(risk_rect)
+        ax_price.text(
+            proj_x0 + proj_w / 2.0, risk_y0 + risk_h / 2.0,
+            f"STOP ${proj_sl:,.2f}\n(-{sl_pct:.2f}%)",
+            color="#FF8A80", fontsize=7.8, fontweight="bold", ha="center", va="center", zorder=8
+        )
+
+        # Entry Divider Line
+        ax_price.plot(
+            [proj_x0, proj_x0 + proj_w], [proj_entry, proj_entry],
+            color="#FFFFFF", linewidth=1.6, linestyle="-", zorder=6
+        )
+        dir_lbl = "LONG PROJECTION" if is_long_proj else "SHORT PROJECTION"
+        ax_price.text(
+            proj_x0 + proj_w / 2.0, proj_entry,
+            f" {dir_lbl} @ ${proj_entry:,.2f} ",
+            color="#0F141C", fontsize=7.5, fontweight="bold", ha="center", va="center",
+            bbox=dict(boxstyle="round,pad=0.2", facecolor="#FFFFFF", edgecolor="none", alpha=0.92),
+            zorder=9
+        )
+
     # Plot Current Mark Price Line
     ax_price.axhline(current_price, color=MARK_COLOR, linestyle="-", linewidth=1.2, alpha=0.75, zorder=4)
     ax_price.text(
@@ -262,9 +320,12 @@ def generate_candlestick_chart(
         y_max = max(y_max, bullish_tp * 1.002)
     if bearish_tp > 0:
         y_min = min(y_min, bearish_tp * 0.998)
+    if proj_entry > 0 and proj_sl > 0 and proj_tp > 0:
+        y_min = min(y_min, proj_sl * 0.998, proj_tp * 0.998)
+        y_max = max(y_max, proj_sl * 1.002, proj_tp * 1.002)
     padding = (y_max - y_min) * 0.10
     ax_price.set_ylim(y_min - padding, y_max + padding)
-    ax_price.set_xlim(-1, bars_count + 8)  # Extra right space for level labels & arrows
+    ax_price.set_xlim(-1, bars_count + 9)  # Extra right space for projection box & level labels
 
     # Directional Arrows on the Right Side
     arrow_x = bars_count + 3.5

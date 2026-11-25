@@ -1259,6 +1259,13 @@ class MultiAgentTradingOrchestrator:
                         "breakdown_level": sl_p if is_buy else cur_p,
                         "status_label": f"PROPOSED {side_str} ({trade.get('strategy_name', 'SMC Edge')})",
                         "proximity_status": "TESTING_BREAKOUT" if is_buy else "TESTING_BREAKDOWN",
+                        "position_projection": {
+                            "side": "buy" if is_buy else "sell",
+                            "entry": cur_p,
+                            "sl": sl_p,
+                            "tp": tp_p,
+                            "rr": float(trade.get("planned_rr_ratio") or 2.0),
+                        },
                         "bullish_breakout_plan": {
                             "take_profit_price": tp_p if is_buy else 0.0,
                             "stop_loss_price": sl_p if is_buy else 0.0
@@ -1921,6 +1928,13 @@ class MultiAgentTradingOrchestrator:
                     "breakdown_level": sl_p if is_buy else cur_mark,
                     "status_label": f"PROPOSED {side_str} ({decision.get('strategy_name', 'SMC Scalp')})",
                     "proximity_status": "TESTING_BREAKOUT" if is_buy else "TESTING_BREAKDOWN",
+                    "position_projection": {
+                        "side": "buy" if is_buy else "sell",
+                        "entry": float(decision.get("entry_price") or cur_mark),
+                        "sl": sl_p,
+                        "tp": tp_p,
+                        "rr": float(decision.get("planned_rr_ratio") or 2.0),
+                    },
                     "bullish_breakout_plan": {
                         "take_profit_price": tp_p if is_buy else 0.0,
                         "stop_loss_price": sl_p if is_buy else 0.0

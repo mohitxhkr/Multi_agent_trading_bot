@@ -2230,22 +2230,21 @@ def analyze_multi_timeframe(
     is_btc = "BTC" in (symbol or "").upper()
     is_eth = "ETH" in (symbol or "").upper()
 
-    # Dynamic Structural SL calibration:
-    # Dynamic structural stop loss bounds:
-    # Allows stops to breathe safely above/below key structural levels (EMA21, swing pivots)
-    # up to 1.60% (aligning with strategy_agent 3.0x ATR bounds) while preventing noise stop-outs.
+    # Dynamic structural stop loss bounds calibrated for achievable intraday scalps:
+    # 0.80% minimum structural buffer prevents noise wicks while 1.10%-1.25% cap + 2.25x R:R
+    # keeps initial Take Profit achievable (~1.8%-2.5%) before trailing maximizes runner profit.
     if is_btc:
-        min_sl_dist = current_price * 0.0085
-        max_sl_dist = current_price * 0.0160
+        min_sl_dist = current_price * 0.0082
+        max_sl_dist = current_price * 0.0110
     elif is_eth:
-        min_sl_dist = current_price * 0.0080
-        max_sl_dist = current_price * 0.0160
+        min_sl_dist = current_price * 0.0082
+        max_sl_dist = current_price * 0.0115
     elif is_primary:
-        min_sl_dist = current_price * 0.0080
-        max_sl_dist = current_price * 0.0160
+        min_sl_dist = current_price * 0.0082
+        max_sl_dist = current_price * 0.0115
     else:
-        min_sl_dist = current_price * 0.0085
-        max_sl_dist = current_price * 0.0180
+        min_sl_dist = current_price * 0.0082
+        max_sl_dist = current_price * 0.0125
 
     # High-Liquidity Institutional Killzones:
     # London Open: 07:00 - 10:00 UTC | New York Open: 12:00 - 17:00 UTC
@@ -2472,7 +2471,7 @@ def analyze_multi_timeframe(
                     raw_risk = calc_entry - raw_sl
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry + (2.6 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry + (2.5 * sl_dist), calc_entry)
                     
                     setup_qualified = True
                     setup_side = "buy"
@@ -2518,7 +2517,7 @@ def analyze_multi_timeframe(
                     raw_risk = raw_sl - calc_entry
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry - (2.6 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry - (2.5 * sl_dist), calc_entry)
 
                     setup_qualified = True
                     setup_side = "sell"
@@ -2788,7 +2787,7 @@ def analyze_multi_timeframe(
                     raw_risk = calc_entry - raw_sl
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry + (2.6 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry + (2.5 * sl_dist), calc_entry)
 
                     setup_qualified = True
                     setup_side = "buy"
@@ -2832,7 +2831,7 @@ def analyze_multi_timeframe(
                     raw_risk = raw_sl - calc_entry
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry - (2.6 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry - (2.5 * sl_dist), calc_entry)
 
                     setup_qualified = True
                     setup_side = "sell"

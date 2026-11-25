@@ -402,15 +402,19 @@ class TrailingStopManager:
             # Find matching SL and TP orders by product symbol or product ID
             sl_order = None
             tp_order = None
+            closing_side = "sell" if side == "buy" else "buy"
             for ord in open_orders:
                 ord_pid = ord.get("product_id")
                 ord_sym = ord.get("product_symbol")
                 matches_prod = (ord_sym and ord_sym == symbol) or (ord_pid and pid and int(ord_pid) == int(pid))
                 if matches_prod:
-                    s_type = ord.get("stop_order_type", "")
-                    if s_type == "stop_loss_order":
+                    s_type = str(ord.get("stop_order_type", "") or "").lower()
+                    o_type = str(ord.get("order_type", "") or "").lower()
+                    o_side = str(ord.get("side", "") or "").lower()
+                    is_reduce = bool(ord.get("reduce_only"))
+                    if s_type == "stop_loss_order" or ("stop" in o_type and o_side == closing_side):
                         sl_order = ord
-                    elif s_type == "take_profit_order":
+                    elif s_type == "take_profit_order" or (o_type == "limit_order" and o_side == closing_side and is_reduce):
                         tp_order = ord
 
             # Retrieve or initialize state
@@ -497,6 +501,27 @@ class TrailingStopManager:
 
             if tp_order:
                 pos_state["tp_order_id"] = tp_order.get("id")
+            elif size != 0:
+                # Auto-repair missing Take Profit order if an initial/current target exists
+                target_tp_val = float(pos_state.get("current_tp") or pos_state.get("initial_tp") or 0.0)
+                if target_tp_val <= 0:
+                    risk_est = float(pos_state.get("risk_per_unit") or (entry_price * 0.008))
+                    target_tp_val = round_price(entry_price + (2.2 * risk_est), entry_price) if side == "buy" else round_price(entry_price - (2.2 * risk_est), entry_price)
+                if target_tp_val > 0 and ((side == "buy" and target_tp_val > mark_price) or (side == "sell" and target_tp_val < mark_price)):
+                    try:
+                        placed_tp = self.client.place_take_profit(
+                            symbol=symbol,
+                            size=abs(size),
+                            side=side,
+                            take_profit_price=target_tp_val
+                        )
+                        if placed_tp.get("success"):
+                            tp_id = placed_tp.get("result", {}).get("id")
+                            pos_state["tp_order_id"] = tp_id
+                            pos_state["current_tp"] = target_tp_val
+                            logger.info(f"🛡️ TrailingStopManager: Attached missing Take Profit for {symbol} @ ${target_tp_val:.4f} (Order #{tp_id})")
+                    except Exception as e_tp:
+                        logger.warning(f"Failed to attach missing TP for {symbol}: {e_tp}")
 
             # Sync partial fills or size adjustments
             if pos_state.get("contracts") != abs(size):
@@ -550,45 +575,42 @@ class TrailingStopManager:
             is_volatile = self._is_market_highly_volatile(pos_state)
             vol_badge = " 🌪️ [VOLATILITY BUFFER ACTIVE]" if is_volatile else ""
 
-            # Volatility-adjusted milestone triggers:
-            # Prevents premature breakeven traps by giving trades room to breathe during natural retests
-            m1_trigger = 0.90 if is_volatile else 0.80
-            m2_trigger = 1.20 if is_volatile else 1.10
-            m3_trigger = 1.60 if is_volatile else 1.50
-            m4_trigger = 1.90 if is_volatile else 1.80
+            # Calibrated Scalper Trailing Milestones:
+            # Lock breakeven early (+0.60R), bank profit at +1.00R & +1.40R, and engage Runner Trailing at +1.65R+
+            m1_trigger = 0.70 if is_volatile else 0.60
+            m2_trigger = 1.10 if is_volatile else 1.00
+            m3_trigger = 1.50 if is_volatile else 1.40
+            m4_trigger = 1.75 if is_volatile else 1.65
 
             # ---------------------------------------------------------
-            # Stage 1: Risk-Slashing Cushion (60% Downside Slashed, Breakeven Retest Protected)
+            # Stage 1: Breakeven Shield (+0.05R to cover fees)
             # ---------------------------------------------------------
             if current_r >= m1_trigger and current_stage < 1:
-                # Do NOT snap SL directly to entry! Cut initial risk by 60% (move SL to -0.40R).
-                # This leaves a huge 1.20R-1.30R breathing cushion so entry retests NEVER trigger stops!
-                slash_ratio = 0.40
+                be_ratio = 0.05
                 if side == "buy":
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (slash_ratio * risk_per_unit))
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (be_ratio * risk_per_unit))
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                 else:
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (slash_ratio * risk_per_unit))
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (be_ratio * risk_per_unit))
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
 
                 if new_sl:
                     new_stage = 1
                     stage_narrative = (
-                        f"🛡️ <b>[RISK SLASHED BY 60% — BREATHING CUSHION ACTIVE{vol_badge}]</b>\n"
+                        f"🛡️ <b>[BREAKEVEN SHIELD ACTIVE — ZERO LOSS LOCKED{vol_badge}]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (Risk cut from -1.0R to -0.40R)\n"
-                        f"• Retest cushion: 1.20R+ space so natural breakout retests do not wick out the trade!"
+                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+0.05R covers fees)\n"
+                        f"• Trade is now 100% risk-free!"
                     )
 
             # ---------------------------------------------------------
-            # Stage 2: Guaranteed Green Profit Lock (+0.30R Pure Green Banked)
+            # Stage 2: Guaranteed Green Profit Lock (+0.50R Banked)
             # ---------------------------------------------------------
             elif current_r >= m2_trigger and current_stage < 2:
-                # Downside eliminated 100%! Locks in positive cash so the trade CANNOT exit at $0 breakeven.
-                lock_ratio = 0.25 if is_volatile else 0.30
+                lock_ratio = 0.45 if is_volatile else 0.50
                 if side == "buy":
                     candidate_sl = self.client.round_to_tick(symbol, entry_price + (lock_ratio * risk_per_unit))
                     if candidate_sl > current_sl:
@@ -601,19 +623,18 @@ class TrailingStopManager:
                 if new_sl:
                     new_stage = 2
                     stage_narrative = (
-                        f"🔒 <b>[GUARANTEED GREEN PROFIT LOCKED — +{lock_ratio:.2f}R BANKED{vol_badge}]</b>\n"
+                        f"🔒 <b>[PROFIT LOCKED — +{lock_ratio:.2f}R BANKED{vol_badge}]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss secured at <b>${new_sl:,.2f}</b> (Guaranteed green profit)\n"
-                        f"• Breakeven trap avoided! Exits from here are guaranteed winners."
+                        f"• Stop Loss secured at <b>${new_sl:,.2f}</b> (+{lock_ratio:.2f}R guaranteed)\n"
+                        f"• Trailing higher as momentum expands!"
                     )
 
             # ---------------------------------------------------------
-            # Stage 3: Core Profit Expansion (+0.85R Locked · >= 5-10%+ Margin Profit)
+            # Stage 3: Core Scalp Profit Lock (+0.90R Banked)
             # ---------------------------------------------------------
             elif current_r >= m3_trigger and current_stage < 3:
-                # Locks in +0.85R pure profit (delivers 8-15%+ return on allocated margin)
-                lock_ratio = 0.75 if is_volatile else 0.85
+                lock_ratio = 0.85 if is_volatile else 0.90
                 if side == "buy":
                     candidate_sl = self.client.round_to_tick(symbol, entry_price + (lock_ratio * risk_per_unit))
                     if candidate_sl > current_sl:
@@ -629,61 +650,36 @@ class TrailingStopManager:
                         f"💰 <b>[CORE PROFIT SECURED — +{lock_ratio:.2f}R LOCKED{vol_badge}]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (Banked ~10%+ margin return)\n"
-                        f"• High quality gain banked, running towards final scalp target!"
+                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+{lock_ratio:.2f}R banked)\n"
+                        f"• Approaching Runner Trailing Zone!"
                     )
 
             # ---------------------------------------------------------
-            # Stage 4: Pre-Target Lock (+1.40R Locked)
+            # Stage 4: Dynamic Runner Trailing & TP Extension (Maximize Profit!)
             # ---------------------------------------------------------
-            elif current_r >= m4_trigger and current_stage < 4:
-                lock_ratio = 1.30 if is_volatile else 1.40
-                if side == "buy":
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (lock_ratio * risk_per_unit))
-                    if candidate_sl > current_sl:
-                        new_sl = candidate_sl
-                else:
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (lock_ratio * risk_per_unit))
-                    if candidate_sl < current_sl:
-                        new_sl = candidate_sl
-
-                if new_sl:
-                    new_stage = 4
-                    stage_narrative = (
-                        f"🎯 <b>[PRE-TARGET SECURED — +{lock_ratio:.2f}R IN BANK{vol_badge}]</b>\n"
-                        f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
-                        f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss locked at <b>${new_sl:,.2f}</b> (+{lock_ratio:.2f}R guaranteed)\n"
-                        f"• Final Take Profit target in sight!"
-                    )
-
-            # ---------------------------------------------------------
-            # Stage 5: Target Hit & Outsized Runner Trailing (Max Profit)
-            # ---------------------------------------------------------
-            elif current_r >= 2.00:
-                # Dynamic runner trailing: trail at 0.55R behind mark price and extend TP
-                runner_cushion = (0.65 * risk_per_unit) if is_volatile else (0.50 * risk_per_unit)
+            elif current_r >= m4_trigger:
+                runner_cushion = (0.50 * risk_per_unit) if is_volatile else (0.40 * risk_per_unit)
                 if side == "buy":
                     candidate_sl = self.client.round_to_tick(symbol, mark_price - runner_cushion)
-                    candidate_tp = self.client.round_to_tick(symbol, mark_price + (1.5 * risk_per_unit))
+                    candidate_tp = self.client.round_to_tick(symbol, mark_price + (1.20 * risk_per_unit))
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
                 else:
                     candidate_sl = self.client.round_to_tick(symbol, mark_price + runner_cushion)
-                    candidate_tp = self.client.round_to_tick(symbol, mark_price - (1.5 * risk_per_unit))
+                    candidate_tp = self.client.round_to_tick(symbol, mark_price - (1.20 * risk_per_unit))
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
 
                 if new_sl:
-                    new_stage = 5
+                    new_stage = 4
                     stage_narrative = (
-                        f"🏆 <b>[OUTSIZED RUNNER TRAILING — MAX PROFIT MODE{vol_badge}]</b>\n"
+                        f"🏆 <b>[RUNNER TRAILING ACTIVE — MAXIMIZING PROFIT{vol_badge}]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
                         f"• Trailing Stop updated to <b>${new_sl:,.2f}</b>\n"
-                        f"• Take Profit extended to <b>${new_tp:,.2f}</b> to capture maximum trend expansion!"
+                        f"• Take Profit extended to <b>${new_tp:,.2f}</b> to ride trend expansion!"
                     )
 
             # Apply order modification on Delta Exchange if SL updated
@@ -692,12 +688,19 @@ class TrailingStopManager:
                     sl_oid_clean = str(sl_order_id).replace("bracket_sl_", "").strip()
                     if sl_oid_clean.isdigit():
                         logger.info(f"Modifying SL order {sl_oid_clean} on Delta Exchange to ${new_sl}...")
+                        sl_is_limit = bool(sl_order and str(sl_order.get("order_type", "")).lower() == "limit_order")
                         edit_res = self.client.edit_order(
                             order_id=int(sl_oid_clean),
                             product_id=int(pid),
                             stop_price=new_sl,
-                            limit_price=new_sl,
+                            limit_price=new_sl if sl_is_limit else None,
                         )
+                        if not edit_res.get("success") and sl_is_limit:
+                            edit_res = self.client.edit_order(
+                                order_id=int(sl_oid_clean),
+                                product_id=int(pid),
+                                stop_price=new_sl,
+                            )
                     else:
                         edit_res = {"success": False, "error": f"Non-numeric SL order ID: {sl_order_id}"}
                 except Exception as ee:
@@ -714,10 +717,11 @@ class TrailingStopManager:
                         try:
                             tp_oid_clean = str(tp_order_id).replace("bracket_tp_", "").strip()
                             if tp_oid_clean.isdigit():
+                                tp_is_stop = bool(tp_order and tp_order.get("stop_price"))
                                 tp_edit_res = self.client.edit_order(
                                     order_id=int(tp_oid_clean),
                                     product_id=int(pid),
-                                    stop_price=new_tp,
+                                    stop_price=new_tp if tp_is_stop else None,
                                     limit_price=new_tp,
                                 )
                                 if tp_edit_res.get("success"):

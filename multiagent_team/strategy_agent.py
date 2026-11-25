@@ -62,7 +62,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "XAUUSD": {
         "symbol": "XAUUSD",
         "max_spread_pct": 0.10,       # Gold market microstructure
-        "target_rr_ratio": 2.4,
+        "target_rr_ratio": 2.5,
         "min_confluence_score": 75,   # Institutional primary alpha floor
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
@@ -74,7 +74,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "SOLUSD": {
         "symbol": "SOLUSD",
         "max_spread_pct": 0.12,       # Higher altcoin volatility & spread
-        "target_rr_ratio": 2.6,
+        "target_rr_ratio": 2.5,
         "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
@@ -86,7 +86,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "XRPUSD": {
         "symbol": "XRPUSD",
         "max_spread_pct": 0.15,
-        "target_rr_ratio": 2.6,
+        "target_rr_ratio": 2.5,
         "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
@@ -898,8 +898,8 @@ class StrategyAgent:
             self._record_rejection(symbol, reason, "CONFLUENCE_SCORE_VETO", {"score": total_normalized_score, "min_required": min_score})
             return None
 
-        # Build Partial Targets
-        tp1_price = round(entry + (1.50 * stop_distance), 4) if side == "buy" else round(entry - (1.50 * stop_distance), 4)
+        # Build Partial Targets (Easily achievable TP1 @ 1.0R, Runner TP2 @ planned R:R)
+        tp1_price = round(entry + (1.00 * stop_distance), 4) if side == "buy" else round(entry - (1.00 * stop_distance), 4)
         partial_targets = [
             {"target_price": tp1_price, "portion_pct": 50, "label": "TP1_SCALE_OUT_LOCK_BREAKEVEN"},
             {"target_price": tp, "portion_pct": 50, "label": "TP2_RUNNER_OPPOSING_LIQUIDITY"}

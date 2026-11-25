@@ -269,6 +269,10 @@ class ExecutionAgent:
 
         order_res: Dict[str, Any] = {}
         last_error = ""
+        sl_order_id = None
+        tp_order_id = None
+        sl_verified = False
+        tp_verified = False
 
         # Pre-retry reconciliation loop: never place duplicate order on ambiguous timeout
         for attempt in range(max_retries):
@@ -374,6 +378,7 @@ class ExecutionAgent:
                             )
                             if tp_res.get("success"):
                                 tp_order_id = str(tp_res.get("result", {}).get("id"))
+                                tp_verified = True
                                 logger.info(f"ExecutionAgent: Take profit target attached for {symbol} @ ${take_profit} (Order #{tp_order_id})")
                         except Exception as tp_err:
                             logger.error(f"ExecutionAgent: Failed to attach take profit during fallback: {tp_err}")
@@ -408,66 +413,103 @@ class ExecutionAgent:
         )
 
         # ---------------------------------------------------------------------
-        # MANDATORY STOP-LOSS VERIFICATION & EMERGENCY PROTOCOL
+        # MANDATORY STOP-LOSS & TAKE-PROFIT VERIFICATION PROTOCOL
         # ---------------------------------------------------------------------
-        sl_order_id = order_data.get("stop_loss_order_id") or order_data.get("stop_order_id")
-        tp_order_id = order_data.get("take_profit_order_id")
+        if not sl_order_id:
+            sl_order_id = order_data.get("stop_loss_order_id") or order_data.get("stop_order_id")
+            if sl_order_id:
+                sl_verified = True
+        if not tp_order_id:
+            tp_order_id = order_data.get("take_profit_order_id")
+            if tp_order_id:
+                tp_verified = True
 
-        # Verify stop loss order existence and properties on Delta Exchange
-        sl_verified = False
+        # Inspect open orders on Delta Exchange (with brief retry if child bracket orders are spawning)
+        expected_sl_side = "sell" if side == "buy" else "buy"
+        for verify_try in range(2):
+            if sl_verified and (tp_verified or not take_profit or float(take_profit) <= 0):
+                break
+            time.sleep(0.6)
+            try:
+                open_orders_res = self.client.get_open_orders(symbol=symbol)
+                if open_orders_res.get("success"):
+                    for o in open_orders_res.get("result", []):
+                        o_type = str(o.get("order_type", "")).lower()
+                        o_side = str(o.get("side", "")).lower()
+                        o_stop_type = str(o.get("stop_order_type", "")).lower()
+                        is_stop = (
+                            o_stop_type == "stop_loss_order"
+                            or "stop" in o_type
+                            or bool(o.get("stop_price"))
+                            or (o.get("bracket_order") and o_side == expected_sl_side and o_stop_type != "take_profit_order")
+                        )
+                        is_tp = (
+                            o_stop_type == "take_profit_order"
+                            or (o_side == expected_sl_side and not is_stop and (bool(o.get("reduce_only")) or o_type == "limit_order"))
+                        )
 
-        # 1. Check if the parent bracket payload confirmed attached Stop-Loss
-        if order_data.get("bracket_stop_loss_price") or sl_order_id:
-            sl_verified = True
-            if not sl_order_id:
-                sl_order_id = f"bracket_sl_{order_id}"
+                        if is_stop and o_side == expected_sl_side:
+                            o_stop_px = float(o.get("stop_price") or o.get("bracket_stop_loss_price") or 0.0)
+                            if o_stop_px <= 0 or (side == "buy" and o_stop_px <= entry_price) or (side == "sell" and o_stop_px >= entry_price):
+                                sl_order_id = str(o.get("id"))
+                                sl_verified = True
+                        elif is_tp and o_side == expected_sl_side:
+                            tp_order_id = str(o.get("id"))
+                            tp_verified = True
+            except Exception as e:
+                logger.error(f"ExecutionAgent: Error inspecting open orders for SL/TP verification (attempt {verify_try + 1}): {e}")
 
-        time.sleep(0.5)
-
-        # 2. Inspect open orders for generated standalone or bracket child SL
-        try:
-            open_orders_res = self.client.get_open_orders(symbol=symbol)
-            if open_orders_res.get("success"):
-                expected_sl_side = "sell" if side == "buy" else "buy"
-                for o in open_orders_res.get("result", []):
-                    o_type = str(o.get("order_type", "")).lower()
-                    o_side = str(o.get("side", "")).lower()
-                    o_stop_type = str(o.get("stop_order_type", "")).lower()
-                    is_stop = "stop" in o_type or "stop" in o_stop_type or bool(o.get("stop_price")) or (o.get("bracket_order") and o_side == expected_sl_side)
-                    
-                    if is_stop and o_side == expected_sl_side:
-                        # Verify stop price orientation if present
-                        o_stop_px = float(o.get("stop_price") or o.get("bracket_stop_loss_price") or 0.0)
-                        if o_stop_px <= 0 or (side == "buy" and o_stop_px <= entry_price) or (side == "sell" and o_stop_px >= entry_price):
-                            sl_order_id = str(o.get("id"))
-                            sl_verified = True
-                    elif o_side == expected_sl_side and not is_stop and not tp_order_id:
-                        tp_order_id = str(o.get("id"))
-        except Exception as e:
-            logger.error(f"ExecutionAgent: Error inspecting open orders for SL verification: {e}")
-
-        # If bracket stop loss was not confirmed on the exchange, attempt immediate dedicated stop order
+        # If bracket stop loss was NOT confirmed on the exchange, place standalone protective stop order
         if not sl_verified:
             logger.warning(
                 f"ExecutionAgent: ⚠️ Protective stop NOT confirmed for {symbol} {side} #{order_id}. "
-                f"Triggering emergency protective stop placement..."
+                f"Placing standalone protective stop order..."
             )
-            try:
-                emergency_sl_res = self.client.place_protective_stop(
-                    symbol=symbol,
-                    size=contracts,
-                    side=side,
-                    stop_price=stop_loss,
-                    client_order_id=f"emerg_sl_{uuid.uuid4().hex[:6]}"
-                )
-                if emergency_sl_res.get("success"):
-                    sl_order_id = str(emergency_sl_res.get("result", {}).get("id"))
-                    sl_verified = True
-                    logger.info(f"ExecutionAgent: Emergency protective stop confirmed: Order #{sl_order_id}")
-                else:
-                    logger.critical(f"ExecutionAgent: Failed to place emergency protective stop: {emergency_sl_res}")
-            except Exception as e:
-                logger.critical(f"ExecutionAgent: Exception placing emergency protective stop: {e}")
+            for sl_try in range(2):
+                try:
+                    emergency_sl_res = self.client.place_protective_stop(
+                        symbol=symbol,
+                        size=contracts,
+                        side=side,
+                        stop_price=stop_loss,
+                        client_order_id=f"emerg_sl_{uuid.uuid4().hex[:6]}"
+                    )
+                    if emergency_sl_res.get("success"):
+                        sl_order_id = str(emergency_sl_res.get("result", {}).get("id"))
+                        sl_verified = True
+                        logger.info(f"ExecutionAgent: Protective stop confirmed: Order #{sl_order_id}")
+                        break
+                    else:
+                        logger.critical(f"ExecutionAgent: Failed to place protective stop (try {sl_try + 1}): {emergency_sl_res}")
+                except Exception as e:
+                    logger.critical(f"ExecutionAgent: Exception placing protective stop (try {sl_try + 1}): {e}")
+                time.sleep(0.4)
+
+        # If bracket take profit was NOT confirmed on the exchange, place standalone take profit order
+        if sl_verified and not tp_verified and take_profit and float(take_profit) > 0:
+            logger.warning(
+                f"ExecutionAgent: ⚠️ Take Profit NOT confirmed for {symbol} {side} #{order_id}. "
+                f"Placing standalone Take Profit order @ ${take_profit:.4f}..."
+            )
+            for tp_try in range(2):
+                try:
+                    standalone_tp_res = self.client.place_take_profit(
+                        symbol=symbol,
+                        size=contracts,
+                        side=side,
+                        take_profit_price=take_profit,
+                        client_order_id=f"tp_{uuid.uuid4().hex[:6]}"
+                    )
+                    if standalone_tp_res.get("success"):
+                        tp_order_id = str(standalone_tp_res.get("result", {}).get("id"))
+                        tp_verified = True
+                        logger.info(f"ExecutionAgent: Standalone Take Profit confirmed: Order #{tp_order_id}")
+                        break
+                    else:
+                        logger.warning(f"ExecutionAgent: Failed to place standalone Take Profit (try {tp_try + 1}): {standalone_tp_res}")
+                except Exception as e:
+                    logger.warning(f"ExecutionAgent: Exception placing standalone Take Profit (try {tp_try + 1}): {e}")
+                time.sleep(0.4)
 
         # CRITICAL FAIL-SAFE: If protective coverage is STILL missing, do NOT accept naked position!
         if not sl_verified:

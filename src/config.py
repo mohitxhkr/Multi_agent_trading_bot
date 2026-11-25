@@ -96,7 +96,7 @@ class SystemConfig(BaseModel):
         description="Absolute hard cap on leverage multiplier"
     )
     min_reward_to_risk: float = Field(
-        default_factory=lambda: float(os.getenv("MIN_REWARD_TO_RISK", "2.2")),
+        default_factory=lambda: float(os.getenv("MIN_REWARD_TO_RISK", "2.0")),
         ge=1.5,
         le=10.0,
         description="Minimum planned R:R ratio required for trade qualification"

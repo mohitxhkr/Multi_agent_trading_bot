@@ -1202,7 +1202,7 @@ class TimeMachineAgent:
         # 3. Profit Factor: Net PF >= 1.50x OR (win rate >= required_wr and decisive PF >= 1.50x)
         # 4. Out-of-Sample: Positive OOS Net Expectancy & WR >= 45% (or Wilson Lower >= 25.0%)
         # 5. Risk Safeguard: Max consecutive losses <= 4
-        required_wr = 45.0 if planned_rr >= 2.2 else self.min_win_rate_pct
+        required_wr = 45.0 if planned_rr >= 1.95 else self.min_win_rate_pct
         edge_passed = (win_rate >= required_wr)
         ev_passed = (
             (net_ev_r >= self.min_expected_value_r)

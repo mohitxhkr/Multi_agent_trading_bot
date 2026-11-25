@@ -38,7 +38,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "BTCUSD": {
         "symbol": "BTCUSD",
         "max_spread_pct": 0.05,       # Institutional liquidity on BTC
-        "target_rr_ratio": 2.5,
+        "target_rr_ratio": 2.0,
         "min_confluence_score": 75,   # Institutional primary alpha floor
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
@@ -50,7 +50,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "ETHUSD": {
         "symbol": "ETHUSD",
         "max_spread_pct": 0.07,
-        "target_rr_ratio": 2.5,
+        "target_rr_ratio": 2.0,
         "min_confluence_score": 75,   # Institutional primary alpha floor
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
@@ -62,7 +62,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "XAUUSD": {
         "symbol": "XAUUSD",
         "max_spread_pct": 0.10,       # Gold market microstructure
-        "target_rr_ratio": 2.5,
+        "target_rr_ratio": 2.0,
         "min_confluence_score": 75,   # Institutional primary alpha floor
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
@@ -74,7 +74,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "SOLUSD": {
         "symbol": "SOLUSD",
         "max_spread_pct": 0.12,       # Higher altcoin volatility & spread
-        "target_rr_ratio": 2.5,
+        "target_rr_ratio": 2.0,
         "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
@@ -86,7 +86,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "XRPUSD": {
         "symbol": "XRPUSD",
         "max_spread_pct": 0.15,
-        "target_rr_ratio": 2.5,
+        "target_rr_ratio": 2.0,
         "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
@@ -98,7 +98,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "DEFAULT": {
         "symbol": "DEFAULT",
         "max_spread_pct": 0.15,
-        "target_rr_ratio": 2.5,
+        "target_rr_ratio": 2.0,
         "min_confluence_score": 75,
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
@@ -331,7 +331,7 @@ class StrategyAgent:
 
     def __init__(
         self,
-        target_rr_ratio: float = 2.5,
+        target_rr_ratio: float = 2.0,
         max_allowed_spread_pct: float = 0.15,
         adaptive_learner: Optional[AdaptiveLearningEngine] = None
     ):
@@ -560,17 +560,17 @@ class StrategyAgent:
             self._record_rejection(symbol, reason, "LOOSE_STOP_VETO", {"atr_multiple": atr_multiple, "max_allowed": max_atr_mult})
             return None
 
-        # Take Profit and Asymmetric R:R Calibration
-        target_rr = cfg["target_rr_ratio"]
+        # Take Profit and Asymmetric R:R Calibration (Default 1:2 R:R initial target)
+        target_rr = max(cfg["target_rr_ratio"], float(self.target_rr_ratio or 2.0))
         planned_rr = abs(tp - entry) / stop_distance if stop_distance > 0 else 0.0
 
         if planned_rr < target_rr or tp <= 0:
             tp = round(entry + (target_rr * stop_distance), 4) if side == "buy" else round(entry - (target_rr * stop_distance), 4)
             planned_rr = abs(tp - entry) / stop_distance
 
-        # Hard Veto G: Minimum R:R ratio
-        if planned_rr < 2.20:
-            reason = f"Planned R:R ({planned_rr:.2f}:1) is below 2.2:1 minimum threshold."
+        # Hard Veto G: Minimum R:R ratio (1.95:1 floor for 1:2 target trades)
+        if planned_rr < 1.95:
+            reason = f"Planned R:R ({planned_rr:.2f}:1) is below 2.0:1 minimum threshold."
             self._record_rejection(symbol, reason, "INSUFFICIENT_RR_VETO", {"planned_rr": planned_rr})
             return None
 

@@ -2366,7 +2366,7 @@ def analyze_multi_timeframe(
                     calc_entry = current_price
                     sl_dist = max(min_sl_dist, min(0.90 * atr_15m, max_sl_dist))
                     invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry + (2.5 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry + (2.0 * sl_dist), calc_entry)
 
                     setup_qualified = True
                     setup_side = "buy"
@@ -2417,7 +2417,7 @@ def analyze_multi_timeframe(
                     calc_entry = current_price
                     sl_dist = max(min_sl_dist, min(0.90 * atr_15m, max_sl_dist))
                     invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry - (2.5 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry - (2.0 * sl_dist), calc_entry)
 
                     setup_qualified = True
                     setup_side = "sell"
@@ -2471,7 +2471,7 @@ def analyze_multi_timeframe(
                     raw_risk = calc_entry - raw_sl
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry + (2.5 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry + (2.0 * sl_dist), calc_entry)
                     
                     setup_qualified = True
                     setup_side = "buy"
@@ -2517,7 +2517,7 @@ def analyze_multi_timeframe(
                     raw_risk = raw_sl - calc_entry
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry - (2.5 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry - (2.0 * sl_dist), calc_entry)
 
                     setup_qualified = True
                     setup_side = "sell"
@@ -2574,7 +2574,7 @@ def analyze_multi_timeframe(
                     raw_risk = calc_entry - raw_sl
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry + (2.5 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry + (2.0 * sl_dist), calc_entry)
 
                     setup_qualified = True
                     setup_side = "buy"
@@ -2631,7 +2631,7 @@ def analyze_multi_timeframe(
                         raw_risk = raw_sl - calc_entry
                         sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                         invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
-                        target_tp = round_price(calc_entry - (2.5 * sl_dist), calc_entry)
+                        target_tp = round_price(calc_entry - (2.0 * sl_dist), calc_entry)
 
                         setup_qualified = True
                         setup_side = "sell"
@@ -2688,7 +2688,7 @@ def analyze_multi_timeframe(
                 raw_risk = current_price - raw_sl
                 sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                 invalidation_sl = round_price(current_price - sl_dist, current_price)
-                target_tp = round_price(current_price + (2.5 * sl_dist), current_price)
+                target_tp = round_price(current_price + (2.0 * sl_dist), current_price)
                 
                 setup_qualified = True
                 setup_side = "buy"
@@ -2738,7 +2738,7 @@ def analyze_multi_timeframe(
                 raw_risk = raw_sl - current_price
                 sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                 invalidation_sl = round_price(current_price + sl_dist, current_price)
-                target_tp = round_price(current_price - (2.5 * sl_dist), current_price)
+                target_tp = round_price(current_price - (2.0 * sl_dist), current_price)
 
                 setup_qualified = True
                 setup_side = "sell"
@@ -2787,7 +2787,7 @@ def analyze_multi_timeframe(
                     raw_risk = calc_entry - raw_sl
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(calc_entry - sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry + (2.5 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry + (2.0 * sl_dist), calc_entry)
 
                     setup_qualified = True
                     setup_side = "buy"
@@ -2831,7 +2831,7 @@ def analyze_multi_timeframe(
                     raw_risk = raw_sl - calc_entry
                     sl_dist = max(min_sl_dist, min(raw_risk, max_sl_dist))
                     invalidation_sl = round_price(calc_entry + sl_dist, calc_entry)
-                    target_tp = round_price(calc_entry - (2.5 * sl_dist), calc_entry)
+                    target_tp = round_price(calc_entry - (2.0 * sl_dist), calc_entry)
 
                     setup_qualified = True
                     setup_side = "sell"

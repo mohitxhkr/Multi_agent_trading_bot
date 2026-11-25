@@ -59,7 +59,7 @@ class MultiAgentTradingOrchestrator:
         symbols: Optional[List[str]] = None,
         interactive: bool = True,
         leverage: int = 25,
-        target_rr_ratio: float = 2.5
+        target_rr_ratio: float = 2.0
     ):
         self.client = client or DeltaExchangeClient()
         

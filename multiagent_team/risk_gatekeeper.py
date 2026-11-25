@@ -175,7 +175,7 @@ class RiskGatekeeperAgent:
             tm_wr = float(tm_meta.get("win_rate_pct", 0.0) or 0.0)
             tm_ev = float(tm_meta.get("expected_value_r", 0.0) or 0.0)
             planned_rr = float(setup.get("planned_rr_ratio") or setup.get("planned_risk_reward") or 2.0)
-            min_wr_req = 45.0 if planned_rr >= 2.2 else 60.0
+            min_wr_req = 45.0 if planned_rr >= 1.95 else 60.0
             if tm_wr < min_wr_req:
                 return {
                     "gate_decision": "REJECTED",

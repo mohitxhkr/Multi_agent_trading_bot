@@ -1052,17 +1052,22 @@ class MultiAgentTradingOrchestrator:
         print("\n💡 [Layer 2: Strategy Generator] Filtering alpha setups with VWAP & spread checks...")
         candidates = self.strategy_agent.find_best_candidates(scan_results)
 
-        # Directional bias filter
+        # Directional bias filter (Allow verified Liquidity Sweep Reversals to trade against the prior trend)
+        def _is_sweep_rev(cand: Dict[str, Any]) -> bool:
+            s_name = str(cand.get("strategy_name") or "").upper()
+            s_type = str(cand.get("setup_type") or "").upper()
+            return any(k in s_name for k in ("SWEEP", "TRAP", "REVERSAL")) or "SWEEP" in s_type
+
         direction_bias = posture_data.get("direction_bias", "BOTH")
         if direction_bias == "SHORTS_ONLY" and candidates:
-            shorts_only = [c for c in candidates if c.get("side") == "sell"]
+            shorts_only = [c for c in candidates if c.get("side") == "sell" or _is_sweep_rev(c)]
             if len(shorts_only) < len(candidates):
-                print(f"   🧭 [{posture_data['posture']}] Filtered out long setups. Enforcing SHORTS_ONLY direction bias.")
+                print(f"   🧭 [{posture_data['posture']}] Filtered out trend longs. Enforcing SHORTS_ONLY (sweep reversals permitted).")
             candidates = shorts_only
         elif direction_bias == "LONGS_ONLY" and candidates:
-            longs_only = [c for c in candidates if c.get("side") == "buy"]
+            longs_only = [c for c in candidates if c.get("side") == "buy" or _is_sweep_rev(c)]
             if len(longs_only) < len(candidates):
-                print(f"   🧭 [{posture_data['posture']}] Filtered out short setups. Enforcing LONGS_ONLY direction bias.")
+                print(f"   🧭 [{posture_data['posture']}] Filtered out trend shorts. Enforcing LONGS_ONLY (sweep reversals permitted).")
             candidates = longs_only
 
         # Defensive caution filter

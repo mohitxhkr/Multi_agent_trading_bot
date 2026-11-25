@@ -434,10 +434,26 @@ class StrategyAgent:
         reg_label = str(analysis.get("regime") or "").upper()
         dir_bias = str(analysis.get("directional_bias") or "").upper()
 
-        # Resolve Trade Side (from hp_setup or structural signals)
+        # Resolve Trade Side (from hp_setup, confirmed liquidity sweep reversal, or structural signals)
+        liq_ctx = analysis.get("liquidity") or {}
+        liq_15m_ctx = macro_15m.get("liquidity") or {}
+        hp_strat_upper = str(hp_setup.get("strategy") or hp_setup.get("strategy_name") or "").upper()
+        ssl_sweep_mss = (
+            (liq_ctx.get("sweep_type") == "BULLISH_SSL_SWEEP" and liq_ctx.get("mss_confirmed"))
+            or (liq_15m_ctx.get("sweep_type") == "BULLISH_SSL_SWEEP" and liq_15m_ctx.get("mss_confirmed"))
+        )
+        bsl_sweep_mss = (
+            (liq_ctx.get("sweep_type") == "BEARISH_BSL_SWEEP" and liq_ctx.get("mss_confirmed"))
+            or (liq_15m_ctx.get("sweep_type") == "BEARISH_BSL_SWEEP" and liq_15m_ctx.get("mss_confirmed"))
+        )
+
         side = hp_setup.get("side")
         if not side:
-            if smc_15m["choch_detected"]:
+            if ssl_sweep_mss:
+                side = "buy"
+            elif bsl_sweep_mss:
+                side = "sell"
+            elif smc_15m["choch_detected"]:
                 cand_side = "buy" if "BULLISH" in smc_15m["structure_type"] else "sell"
                 if (cand_side == "buy" and h1_dir != "BEARISH" and "BEARISH" not in macro_4h_reg) or (
                     cand_side == "sell" and h1_dir != "BULLISH" and "BULLISH" not in macro_4h_reg
@@ -456,7 +472,14 @@ class StrategyAgent:
                     self._record_rejection(symbol, "Unclear directional regime (1H & 15M Neutral without trigger).", "REGIME_VETO")
                     return None
 
-        # Hard Veto C2: Strict Trend Alignment (NEVER trade counter to active intraday trend or all-timeframe HTF alignment)
+        # Verified Liquidity Sweep Reversals intentionally trade AGAINST the prior trend
+        is_sweep_reversal = (
+            ("SWEEP" in hp_strat_upper or "TRAP" in hp_strat_upper or "REVERSAL" in hp_strat_upper)
+            or (side == "buy" and ssl_sweep_mss)
+            or (side == "sell" and bsl_sweep_mss)
+        )
+
+        # Hard Veto C2: Strict Trend Alignment (Exempt verified Liquidity Sweep Reversals that trade against the prior trend)
         bull_conflict = (
             h1_dir == "BEARISH"
             or "BEARISH" in dir_bias
@@ -477,31 +500,34 @@ class StrategyAgent:
             or ("BULLISH" in macro_4h_reg and h1_dir != "BEARISH" and "BEARISH" not in dir_bias)
             or ("BULLISH" in macro_daily_reg and "BEARISH" not in macro_4h_reg and h1_dir != "BEARISH")
         )
-        if side == "buy" and bull_conflict:
-            reason = (
-                f"Counter-trend LONG vetoed against market trend "
-                f"(1H={h1_dir}, 4H={macro_4h_reg or 'N/A'}, Daily={macro_daily_reg or 'N/A'}, Regime={reg_label or 'N/A'})."
-            )
-            self._record_rejection(symbol, reason, "COUNTER_TREND_VETO")
-            return None
-        if side == "sell" and bear_conflict:
-            reason = (
-                f"Counter-trend SHORT vetoed against market trend "
-                f"(1H={h1_dir}, 4H={macro_4h_reg or 'N/A'}, Daily={macro_daily_reg or 'N/A'}, Regime={reg_label or 'N/A'})."
-            )
-            self._record_rejection(symbol, reason, "COUNTER_TREND_VETO")
-            return None
+        if not is_sweep_reversal:
+            if side == "buy" and bull_conflict:
+                reason = (
+                    f"Counter-trend LONG vetoed against market trend "
+                    f"(1H={h1_dir}, 4H={macro_4h_reg or 'N/A'}, Daily={macro_daily_reg or 'N/A'}, Regime={reg_label or 'N/A'})."
+                )
+                self._record_rejection(symbol, reason, "COUNTER_TREND_VETO")
+                return None
+            if side == "sell" and bear_conflict:
+                reason = (
+                    f"Counter-trend SHORT vetoed against market trend "
+                    f"(1H={h1_dir}, 4H={macro_4h_reg or 'N/A'}, Daily={macro_daily_reg or 'N/A'}, Regime={reg_label or 'N/A'})."
+                )
+                self._record_rejection(symbol, reason, "COUNTER_TREND_VETO")
+                return None
 
-        # Hard Veto C3: Avoid directionless chop when 1H & 4H have no trend bias
-        if (
-            reg_label in ("RANGE_BOUND", "RANGING_CHOP", "CHOPPY_NOISE", "VOLATILITY_COMPRESSION")
-            and h1_dir == "NEUTRAL"
-            and "BULLISH" not in macro_4h_reg
-            and "BEARISH" not in macro_4h_reg
-        ):
-            reason = f"Choppy/rangebound regime ({reg_label}) with no 1H/4H directional trend."
-            self._record_rejection(symbol, reason, "CHOP_REGIME_VETO")
-            return None
+            # Hard Veto C3: Avoid directionless chop when 1H & 4H have no trend bias
+            if (
+                reg_label in ("RANGE_BOUND", "RANGING_CHOP", "CHOPPY_NOISE", "VOLATILITY_COMPRESSION")
+                and h1_dir == "NEUTRAL"
+                and "BULLISH" not in macro_4h_reg
+                and "BEARISH" not in macro_4h_reg
+            ):
+                reason = f"Choppy/rangebound regime ({reg_label}) with no 1H/4H directional trend."
+                self._record_rejection(symbol, reason, "CHOP_REGIME_VETO")
+                return None
+        else:
+            logger.info(f"StrategyAgent: Allowing {symbol} {side.upper()} Liquidity Sweep Reversal against prior trend.")
 
         # Setup entry, stop loss, and take profit calculation
         entry = float(hp_setup.get("entry_price") or current_price)

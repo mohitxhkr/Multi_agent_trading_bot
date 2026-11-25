@@ -2295,20 +2295,10 @@ def analyze_multi_timeframe(
 
     def _is_sweep_reversal_aligned(trade_side: str) -> bool:
         """
-        Check macro HTF alignment for Sweep & Trap Reversals (Priority A).
-        Reversals trade WITH the smart money stop-hunt flow.
-        We do NOT block the reversal simply because 1H was pulled along by the trap.
-        We only block if 4H and Daily are in an active extreme runaway trend opposing the reversal.
+        Liquidity Sweep & Trap Reversals (Priority A) intentionally trade AGAINST the prior trend
+        once stop-hunt liquidity is absorbed and MSS confirms the reversal flow.
         """
-        if trade_side == "buy":  # Reversal Long after SSL Sweep / Bear Trap
-            if "MACRO_BEARISH" in h4_reg_upper and "DAILY_BEARISH" in d1_reg_upper and rsi_1d >= 38.0:
-                return False
-            return True
-        if trade_side == "sell":  # Reversal Short after BSL Sweep / Bull Trap
-            if "MACRO_BULLISH" in h4_reg_upper and "DAILY_BULLISH" in d1_reg_upper and rsi_1d <= 62.0:
-                return False
-            return True
-        return False
+        return trade_side in ("buy", "sell")
 
     setup_qualified = False
     setup_side = None
@@ -2443,12 +2433,12 @@ def analyze_multi_timeframe(
             elif not mss_confirmed:
                 long_rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
             else:
-                setup_score = 40  # Base confirmed sweep
+                setup_score = 45  # Base confirmed sweep
                 setup_score += 25  # MSS confirmed (mandatory)
                 if vol_confirmed:
                     setup_score += 10  # Volume absorption confirmed
                 if macro_4h_regime == "MACRO_BULLISH":
-                    setup_score += 15  # 4H aligned
+                    setup_score += 10  # 4H aligned
                 elif macro_4h_regime == "MACRO_NEUTRAL":
                     setup_score += 5
                 if daily_regime == "DAILY_BULLISH" or rsi_1d < 38.0:
@@ -2489,12 +2479,12 @@ def analyze_multi_timeframe(
             elif not mss_confirmed:
                 short_rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
             else:
-                setup_score = 40  # Base confirmed sweep
+                setup_score = 45  # Base confirmed sweep
                 setup_score += 25  # MSS confirmed (mandatory)
                 if vol_confirmed:
                     setup_score += 10  # Volume absorption confirmed
                 if macro_4h_regime == "MACRO_BEARISH":
-                    setup_score += 15  # 4H aligned
+                    setup_score += 10  # 4H aligned
                 elif macro_4h_regime == "MACRO_NEUTRAL":
                     setup_score += 5
                 if daily_regime == "DAILY_BEARISH" or rsi_1d > 62.0:

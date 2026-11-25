@@ -527,6 +527,26 @@ class StrategyAgent:
                 self._record_rejection(symbol, reason, "CHOP_REGIME_VETO")
                 return None
         else:
+            # Reversal Trap Verification: ensure the sweep reversal itself is NOT a fake bounce/drop trap
+            sweep_extreme = float(liq_ctx.get("sweep_wick_extreme") or liq_15m_ctx.get("sweep_wick_extreme") or 0.0)
+            if sweep_extreme > 0:
+                if (side == "buy" and current_price < sweep_extreme) or (side == "sell" and current_price > sweep_extreme):
+                    reason = f"Reversal Trap detected on {symbol}: price (${current_price:.2f}) violated sweep extreme (${sweep_extreme:.2f})."
+                    self._record_rejection(symbol, reason, "REVERSAL_TRAP_VETO")
+                    return None
+            if len(c_15m) >= 2:
+                _h15, _l15, _o15, _c15 = h_15m[-1], l_15m[-1], o_15m[-1], c_15m[-1]
+                _rng15 = max(_h15 - _l15, 1e-6)
+                _uw15 = _h15 - max(_o15, _c15)
+                _lw15 = min(_o15, _c15) - _l15
+                if side == "buy" and ((_uw15 / _rng15 >= 0.40 and _uw15 >= 1.8 * _lw15) or (_c15 < _o15 and (_o15 - _c15) / _rng15 >= 0.55)):
+                    reason = f"Reversal Trap detected on {symbol}: BUY reversal rejected by upper wick or strong bearish 15m close."
+                    self._record_rejection(symbol, reason, "REVERSAL_TRAP_VETO")
+                    return None
+                if side == "sell" and ((_lw15 / _rng15 >= 0.40 and _lw15 >= 1.8 * _uw15) or (_c15 > _o15 and (_c15 - _o15) / _rng15 >= 0.55)):
+                    reason = f"Reversal Trap detected on {symbol}: SELL reversal absorbed by lower wick or strong bullish 15m close."
+                    self._record_rejection(symbol, reason, "REVERSAL_TRAP_VETO")
+                    return None
             logger.info(f"StrategyAgent: Allowing {symbol} {side.upper()} Liquidity Sweep Reversal against prior trend.")
 
         # Setup entry, stop loss, and take profit calculation

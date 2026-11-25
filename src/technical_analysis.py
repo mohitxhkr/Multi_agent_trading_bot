@@ -2426,12 +2426,34 @@ def analyze_multi_timeframe(
     # 3. Optimal Trade Entry (OTE): Retest limit entry to maximize R:R (>= 2.4:1).
     # 4. Strict Confluence: High precision setup targeting 80-90% win rate.
     if sweep_detected:
+        # Compute latest 15m candle body direction & opposing CVD check for Reversal Trap Verification
+        c15_has_bars = bool(candles_15m and len(candles_15m.get('c', [])) >= 2)
+        rev_bear_candle = False
+        rev_bull_candle = False
+        if c15_has_bars:
+            _h = float(candles_15m['h'][-1])
+            _l = float(candles_15m['l'][-1])
+            _o = float(candles_15m['o'][-1])
+            _c = float(candles_15m['c'][-1])
+            _rng = max(_h - _l, 1e-6)
+            if _c < _o and ((_o - _c) / _rng >= 0.50):
+                rev_bear_candle = True
+            elif _c > _o and ((_c - _o) / _rng >= 0.50):
+                rev_bull_candle = True
+
+        active_cvd_check = cvd_15m if (cvd_15m and cvd_15m.get("current_cvd", 0) != 0) else analysis_1h.get("cvd", {})
+        cvd_div_check = str((active_cvd_check or {}).get("divergence", "NONE"))
+
         if sweep_type == "BULLISH_SSL_SWEEP":
-            # STRICT VETO 1: Cannot go long against runaway 4H & Daily bear trends
+            # STRICT VETO 1 & REVERSAL TRAP VERIFICATION
             if not _is_sweep_reversal_aligned("buy"):
-                long_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily strongly Bearish)."
+                long_rejection_reason = "Blocked: Counter-trend conflict."
             elif not mss_confirmed:
                 long_rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
+            elif sweep_wick > 0 and current_price < sweep_wick:
+                long_rejection_reason = "Blocked [REVERSAL_TRAP]: Price broke back below sweep wick low; reversal failed."
+            elif has_upper_rejection_wick or rev_bear_candle or cvd_div_check == "BEARISH_EXHAUSTION_DIV":
+                long_rejection_reason = "Blocked [REVERSAL_TRAP]: Bounce rejected (upper wick / bearish close / bearish CVD exhaustion)."
             else:
                 setup_score = 45  # Base confirmed sweep
                 setup_score += 25  # MSS confirmed (mandatory)
@@ -2473,11 +2495,15 @@ def analyze_multi_timeframe(
                     )
 
         elif sweep_type == "BEARISH_BSL_SWEEP":
-            # STRICT VETO 1: Cannot short against runaway 4H & Daily bull trends
+            # STRICT VETO 1 & REVERSAL TRAP VERIFICATION
             if not _is_sweep_reversal_aligned("sell"):
-                short_rejection_reason = "Blocked: Counter-trend conflict (Higher Timeframe 4H/Daily strongly Bullish expansion)."
+                short_rejection_reason = "Blocked: Counter-trend conflict."
             elif not mss_confirmed:
                 short_rejection_reason = "Blocked: Market Structure Shift (MSS) not yet confirmed on lower timeframe."
+            elif sweep_wick > 0 and current_price > sweep_wick:
+                short_rejection_reason = "Blocked [REVERSAL_TRAP]: Price broke back above sweep wick high; reversal failed."
+            elif has_lower_rejection_wick or rev_bull_candle or cvd_div_check == "BULLISH_ABSORPTION_DIV":
+                short_rejection_reason = "Blocked [REVERSAL_TRAP]: Drop absorbed (lower wick / bullish close / bullish CVD absorption)."
             else:
                 setup_score = 45  # Base confirmed sweep
                 setup_score += 25  # MSS confirmed (mandatory)

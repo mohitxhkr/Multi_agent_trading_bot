@@ -453,10 +453,12 @@ class RiskGatekeeperAgent:
                     "reason": f"Liquidation distance (${est_liq_distance:.2f}) is too close to Stop Loss (${stop_distance:.2f}) even at minimum leverage."
                 }
 
-        # Margin guardrails
-        max_margin_pct = 0.25 if is_primary else 0.15
+        # Margin guardrails (Utilize 50% - 70% of available capital per trade for noticeable PnL on smaller accounts)
+        max_margin_pct = 0.70 if is_primary else 0.65
+        min_margin_pct = 0.50
         max_allowed_margin = min(usable_capital * max_margin_pct, usable_capital)
-        
+        target_margin = usable_capital * 0.60
+
         req_margin = (contracts * per_contract_notional) / leverage
         if req_margin > max_allowed_margin:
             capped_contracts = (int((max_allowed_margin * leverage) / per_contract_notional) // lot_size) * lot_size
@@ -467,6 +469,20 @@ class RiskGatekeeperAgent:
                 }
             contracts = capped_contracts
             req_margin = (contracts * per_contract_notional) / leverage
+        elif 0 < usable_capital <= 300.0 and leverage > 10 and req_margin < (usable_capital * min_margin_pct):
+            # On smaller accounts (e.g. ~10k INR), tune leverage down to deploy 50%-70% capital margin while keeping SL risk at 5%
+            notional_total = contracts * per_contract_notional
+            optimal_lev = max(5, min(leverage, int(round(notional_total / max(target_margin, 1e-6)))))
+            if optimal_lev < leverage:
+                leverage = optimal_lev
+                req_margin = notional_total / leverage
+                imr = 1.0 / leverage
+                if side == "buy":
+                    est_liq_price = entry * (1.0 - imr) / max(0.001, 1.0 - mmr)
+                    est_liq_distance = max(0.0, entry - est_liq_price)
+                else:
+                    est_liq_price = entry * (1.0 + imr) / max(0.001, 1.0 + mmr)
+                    est_liq_distance = max(0.0, est_liq_price - entry)
 
         if req_margin > usable_capital:
             return {

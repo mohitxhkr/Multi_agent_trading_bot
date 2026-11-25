@@ -575,13 +575,13 @@ class TrailingStopManager:
             is_volatile = self._is_market_highly_volatile(pos_state)
             vol_badge = " 🌪️ [VOLATILITY BUFFER ACTIVE]" if is_volatile else ""
 
-            # Progressive R-Multiple Ladder:
+            # Progressive R-Multiple Ladder with Volatility Buffer Breathing Cushion:
             # Initial target = 1:2 (2.0R)
-            # 1:1 (+0.85R/+0.95R) -> Breakeven (+0.05R)
-            # Approaching 1:2 (+1.70R) -> Lock +1.0R & Expand TP to 1:3 (+3.0R)
-            # Approaching 1:3 (+2.70R) -> Lock +2.0R & Expand TP to 1:4 (+4.0R)
-            # Approaching 1:4 (+3.70R) -> Lock +3.0R & Expand TP to 1:5 (+5.0R)
-            # Beyond 1:5 (+4.70R+) -> Lock +4.0R+ & Dynamic Runner Trailing (+1.0R TP ahead)
+            # Stage 1 (+0.85R / +0.95R volatile): Normal -> BE (+0.05R) | Volatile -> -0.25R (1.20R retest cushion)
+            # Stage 2 (+1.70R): Lock +1.0R (+0.80R volatile) & Extend TP to 1:3 (+3.0R)
+            # Stage 3 (+2.70R): Lock +2.0R (+1.75R volatile) & Extend TP to 1:4 (+4.0R)
+            # Stage 4 (+3.70R): Lock +3.0R (+2.75R volatile) & Extend TP to 1:5 (+5.0R)
+            # Stage 5 (+4.70R+): Dynamic Runner Trailing (0.75R cushion if volatile, 0.55R normal)
             m1_trigger = 0.95 if is_volatile else 0.85
             m2_trigger = 1.70
             m3_trigger = 2.70
@@ -589,41 +589,51 @@ class TrailingStopManager:
             m5_trigger = 4.70
 
             # ---------------------------------------------------------
-            # Stage 1: Breakeven Shield (+0.05R to cover fees)
+            # Stage 1: Breakeven Shield / Volatility Breathing Cushion
             # ---------------------------------------------------------
             if current_r >= m1_trigger and current_stage < 1:
-                be_ratio = 0.05
+                s1_ratio = -0.25 if is_volatile else 0.05
                 if side == "buy":
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (be_ratio * risk_per_unit))
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (s1_ratio * risk_per_unit))
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                 else:
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (be_ratio * risk_per_unit))
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (s1_ratio * risk_per_unit))
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
 
                 if new_sl:
                     new_stage = 1
-                    stage_narrative = (
-                        f"🛡️ <b>[1:1 BREAKEVEN SHIELD ACTIVE — ZERO LOSS LOCKED{vol_badge}]</b>\n"
-                        f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
-                        f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+0.05R covers fees)\n"
-                        f"• Targeting initial 1:2 R:R — trade is now 100% risk-free!"
-                    )
+                    if is_volatile:
+                        stage_narrative = (
+                            f"🛡️ <b>[75% RISK SLASHED — VOLATILITY BREATHING CUSHION{vol_badge}]</b>\n"
+                            f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
+                            f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
+                            f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (-0.25R · 1.20R retest cushion)\n"
+                            f"• Extra volatility room protects against entry-retest wicks before 1:2!"
+                        )
+                    else:
+                        stage_narrative = (
+                            f"🛡️ <b>[1:1 BREAKEVEN SHIELD ACTIVE — ZERO LOSS LOCKED]</b>\n"
+                            f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
+                            f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
+                            f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+0.05R covers fees)\n"
+                            f"• Targeting initial 1:2 R:R — trade is now 100% risk-free!"
+                        )
 
             # ---------------------------------------------------------
-            # Stage 2: Hit 1:2 Zone -> Lock +1.0R & Extend TP to 1:3
+            # Stage 2: Hit 1:2 Zone -> Lock +1.0R (+0.80R volatile) & Extend TP to 1:3
             # ---------------------------------------------------------
             elif current_r >= m2_trigger and current_stage < 2:
+                s2_lock = 0.80 if is_volatile else 1.00
                 if side == "buy":
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (1.00 * risk_per_unit))
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (s2_lock * risk_per_unit))
                     candidate_tp = self.client.round_to_tick(symbol, entry_price + (3.00 * risk_per_unit))
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
                 else:
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (1.00 * risk_per_unit))
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (s2_lock * risk_per_unit))
                     candidate_tp = self.client.round_to_tick(symbol, entry_price - (3.00 * risk_per_unit))
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
@@ -632,25 +642,26 @@ class TrailingStopManager:
                 if new_sl:
                     new_stage = 2
                     stage_narrative = (
-                        f"🔒 <b>[1:2 ACHIEVED → LOCKED +1.0R & TARGETING 1:3{vol_badge}]</b>\n"
+                        f"🔒 <b>[1:2 ACHIEVED → LOCKED +{s2_lock:.2f}R & TARGETING 1:3{vol_badge}]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss secured at <b>${new_sl:,.2f}</b> (+1.00R guaranteed)\n"
+                        f"• Stop Loss secured at <b>${new_sl:,.2f}</b> (+{s2_lock:.2f}R guaranteed)\n"
                         f"• Take Profit extended to <b>${new_tp:,.2f}</b> (1:3 R:R)!"
                     )
 
             # ---------------------------------------------------------
-            # Stage 3: Hit 1:3 Zone -> Lock +2.0R & Extend TP to 1:4
+            # Stage 3: Hit 1:3 Zone -> Lock +2.0R (+1.75R volatile) & Extend TP to 1:4
             # ---------------------------------------------------------
             elif current_r >= m3_trigger and current_stage < 3:
+                s3_lock = 1.75 if is_volatile else 2.00
                 if side == "buy":
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (2.00 * risk_per_unit))
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (s3_lock * risk_per_unit))
                     candidate_tp = self.client.round_to_tick(symbol, entry_price + (4.00 * risk_per_unit))
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
                 else:
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (2.00 * risk_per_unit))
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (s3_lock * risk_per_unit))
                     candidate_tp = self.client.round_to_tick(symbol, entry_price - (4.00 * risk_per_unit))
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
@@ -659,25 +670,26 @@ class TrailingStopManager:
                 if new_sl:
                     new_stage = 3
                     stage_narrative = (
-                        f"💰 <b>[1:3 ACHIEVED → LOCKED +2.0R & TARGETING 1:4{vol_badge}]</b>\n"
+                        f"💰 <b>[1:3 ACHIEVED → LOCKED +{s3_lock:.2f}R & TARGETING 1:4{vol_badge}]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+2.00R banked)\n"
+                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+{s3_lock:.2f}R banked)\n"
                         f"• Take Profit extended to <b>${new_tp:,.2f}</b> (1:4 R:R)!"
                     )
 
             # ---------------------------------------------------------
-            # Stage 4: Hit 1:4 Zone -> Lock +3.0R & Extend TP to 1:5
+            # Stage 4: Hit 1:4 Zone -> Lock +3.0R (+2.75R volatile) & Extend TP to 1:5
             # ---------------------------------------------------------
             elif current_r >= m4_trigger and current_stage < 4:
+                s4_lock = 2.75 if is_volatile else 3.00
                 if side == "buy":
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (3.00 * risk_per_unit))
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (s4_lock * risk_per_unit))
                     candidate_tp = self.client.round_to_tick(symbol, entry_price + (5.00 * risk_per_unit))
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
                 else:
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (3.00 * risk_per_unit))
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (s4_lock * risk_per_unit))
                     candidate_tp = self.client.round_to_tick(symbol, entry_price - (5.00 * risk_per_unit))
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
@@ -686,10 +698,10 @@ class TrailingStopManager:
                 if new_sl:
                     new_stage = 4
                     stage_narrative = (
-                        f"🚀 <b>[1:4 ACHIEVED → LOCKED +3.0R & TARGETING 1:5{vol_badge}]</b>\n"
+                        f"🚀 <b>[1:4 ACHIEVED → LOCKED +{s4_lock:.2f}R & TARGETING 1:5{vol_badge}]</b>\n"
                         f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                         f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+3.00R banked)\n"
+                        f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+{s4_lock:.2f}R banked)\n"
                         f"• Take Profit extended to <b>${new_tp:,.2f}</b> (1:5 R:R)!"
                     )
 
@@ -697,15 +709,16 @@ class TrailingStopManager:
             # Stage 5: Beyond 1:5 Zone -> Lock +4.0R+ & Trail Runner
             # ---------------------------------------------------------
             elif current_r >= m5_trigger:
-                runner_cushion = (0.65 * risk_per_unit) if is_volatile else (0.55 * risk_per_unit)
+                runner_cushion = (0.75 * risk_per_unit) if is_volatile else (0.55 * risk_per_unit)
+                s5_floor = 3.75 if is_volatile else 4.00
                 if side == "buy":
-                    candidate_sl = self.client.round_to_tick(symbol, max(entry_price + (4.00 * risk_per_unit), mark_price - runner_cushion))
+                    candidate_sl = self.client.round_to_tick(symbol, max(entry_price + (s5_floor * risk_per_unit), mark_price - runner_cushion))
                     candidate_tp = self.client.round_to_tick(symbol, mark_price + (1.00 * risk_per_unit))
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                         new_tp = candidate_tp
                 else:
-                    candidate_sl = self.client.round_to_tick(symbol, min(entry_price - (4.00 * risk_per_unit), mark_price + runner_cushion))
+                    candidate_sl = self.client.round_to_tick(symbol, min(entry_price - (s5_floor * risk_per_unit), mark_price + runner_cushion))
                     candidate_tp = self.client.round_to_tick(symbol, mark_price - (1.00 * risk_per_unit))
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl

@@ -2226,7 +2226,7 @@ def analyze_multi_timeframe(
         if (l_wick / rng >= 0.35) and (l_wick >= 1.8 * u_wick) and (nearest_ssl_lvl == 0 or last_l <= nearest_ssl_lvl * 1.002):
             has_lower_rejection_wick = True
 
-    is_primary = any(p in (symbol or "").upper() for p in ["BTC", "ETH", "XAU", "GOLD"])
+    is_primary = any(p in (symbol or "").upper() for p in ["BTC", "ETH", "XAU", "PAXG", "GOLD"])
     is_btc = "BTC" in (symbol or "").upper()
     is_eth = "ETH" in (symbol or "").upper()
 

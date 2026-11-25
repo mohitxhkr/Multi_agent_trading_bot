@@ -289,7 +289,7 @@ class RiskGatekeeperAgent:
                 "reason": f"Available capital (${usable_capital:.2f}) is too low to open a new position."
             }
 
-        is_primary = any(p in symbol.upper() for p in ["BTC", "ETH", "XAU", "GOLD"])
+        is_primary = any(p in symbol.upper() for p in ["BTC", "ETH", "XAU", "PAXG", "GOLD"])
         stop_distance = abs(entry - stop)
         if stop_distance <= 0:
             return {"gate_decision": "REJECTED", "reason": "Invalid stop loss distance (zero or negative)."}

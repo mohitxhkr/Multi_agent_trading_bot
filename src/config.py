@@ -152,7 +152,7 @@ class SystemConfig(BaseModel):
     default_symbols: List[str] = Field(
         default_factory=lambda: [
             s.strip().upper()
-            for s in os.getenv("DEFAULT_SYMBOLS", "BTCUSD,ETHUSD,SOLUSD,XRPUSD,DOGEUSD,ADAUSD").split(",")
+            for s in os.getenv("DEFAULT_SYMBOLS", "BTCUSD,ETHUSD,XAUUSD,SOLUSD,XRPUSD,DOGEUSD,ADAUSD").split(",")
             if s.strip()
         ]
     )

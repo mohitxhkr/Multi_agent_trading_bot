@@ -68,7 +68,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.03,
         "pivot_window": 2,
-        "is_primary": False,
+        "is_primary": True,
         "priority_tier": 1
     },
     "SOLUSD": {
@@ -115,6 +115,8 @@ def get_asset_config(symbol: Optional[str]) -> Dict[str, Any]:
     if not symbol:
         return ASSET_CONFIGS["DEFAULT"]
     sym = symbol.upper()
+    if any(g in sym for g in ["XAU", "PAXG", "GOLD"]):
+        return ASSET_CONFIGS["XAUUSD"]
     for key, cfg in ASSET_CONFIGS.items():
         if key in sym:
             return cfg

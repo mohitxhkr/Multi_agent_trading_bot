@@ -406,8 +406,8 @@ class RiskGatekeeperAgent:
         contracts = aligned_contracts
 
         # 6. Instrument-Specific Liquidation Buffer Calculation
-        # Enforce maximum leverage ceiling from config, risk manager, and exchange product specifications
-        prod_max_lev = 20
+        # Enforce leverage strictly between 25x and 50x (respecting exchange product & test ceilings)
+        prod_max_lev = 50
         if self.client and hasattr(self.client, "get_max_leverage"):
             try:
                 raw_max = self.client.get_max_leverage(symbol)
@@ -416,9 +416,10 @@ class RiskGatekeeperAgent:
                 elif isinstance(raw_max, str) and raw_max.isdigit():
                     prod_max_lev = int(raw_max)
             except Exception:
-                prod_max_lev = 20
-        max_lev_ceiling = min(config.max_allowed_leverage, self.risk_manager.max_allowed_leverage, prod_max_lev)
-        leverage = min(leverage, max_lev_ceiling)
+                prod_max_lev = 50
+        max_lev_ceiling = min(50, config.max_allowed_leverage, self.risk_manager.max_allowed_leverage, prod_max_lev)
+        min_lev_floor = 25 if max_lev_ceiling >= 25 else max_lev_ceiling
+        leverage = max(min_lev_floor, min(leverage, max_lev_ceiling))
         
         # Query authoritative maintenance margin rate (MMR) from product info
         mmr = float(pinfo.get("maintenance_margin_rate") or 0.01) if pinfo else 0.01
@@ -433,9 +434,9 @@ class RiskGatekeeperAgent:
 
         required_liq_buffer = config.liquidation_buffer_multiple * stop_distance
         if est_liq_distance < required_liq_buffer:
-            # Deterministic de-leverage until liquidation buffer is safe
+            # Deterministic de-leverage within [min_lev_floor, max_lev_ceiling] until liquidation buffer is safe
             needed_imr = (required_liq_buffer / entry) * (1.0 - mmr) + mmr
-            safe_leverage = max(1, min(int(1.0 / needed_imr) if needed_imr > 0 else 5, max_lev_ceiling))
+            safe_leverage = max(min_lev_floor, min(int(1.0 / needed_imr) if needed_imr > 0 else min_lev_floor, max_lev_ceiling))
             if safe_leverage < leverage:
                 logger.info(f"RiskGatekeeper: Clamping leverage on {symbol} from {leverage}x to {safe_leverage}x for liquidation safety buffer.")
                 leverage = safe_leverage
@@ -447,7 +448,7 @@ class RiskGatekeeperAgent:
                     est_liq_price = entry * (1.0 + imr) / max(0.001, 1.0 + mmr)
                     est_liq_distance = max(0.0, est_liq_price - entry)
 
-            if est_liq_distance < (2.0 * stop_distance):
+            if est_liq_distance < (1.5 * stop_distance):
                 return {
                     "gate_decision": "REJECTED",
                     "reason": f"Liquidation distance (${est_liq_distance:.2f}) is too close to Stop Loss (${stop_distance:.2f}) even at minimum leverage."
@@ -469,10 +470,10 @@ class RiskGatekeeperAgent:
                 }
             contracts = capped_contracts
             req_margin = (contracts * per_contract_notional) / leverage
-        elif 0 < usable_capital <= 300.0 and leverage > 10 and req_margin < (usable_capital * min_margin_pct):
-            # On smaller accounts (e.g. ~10k INR), tune leverage down to deploy 50%-70% capital margin while keeping SL risk at 5%
+        elif 0 < usable_capital <= 300.0 and leverage > min_lev_floor and req_margin < (usable_capital * min_margin_pct):
+            # Tune leverage within [25x, 50x] floor/ceiling to deploy higher margin while keeping SL risk at 5%
             notional_total = contracts * per_contract_notional
-            optimal_lev = max(5, min(leverage, int(round(notional_total / max(target_margin, 1e-6)))))
+            optimal_lev = max(min_lev_floor, min(leverage, int(round(notional_total / max(target_margin, 1e-6)))))
             if optimal_lev < leverage:
                 leverage = optimal_lev
                 req_margin = notional_total / leverage

@@ -61,8 +61,8 @@ class ExecutionAgent:
         take_profit = float(decision["take_profit_price"])
         leverage = int(decision.get("leverage", 25))
 
-        # Respect Delta Exchange maximum leverage for the specific instrument
-        product_max_lev = 20
+        # Respect Delta Exchange maximum leverage, fixed between 25x and 50x when supported
+        product_max_lev = 50
         if self.client and hasattr(self.client, "get_max_leverage"):
             try:
                 raw_lev = self.client.get_max_leverage(symbol)
@@ -71,10 +71,13 @@ class ExecutionAgent:
                 elif isinstance(raw_lev, str) and raw_lev.isdigit():
                     product_max_lev = int(raw_lev)
             except Exception:
-                product_max_lev = 20
-        if product_max_lev > 0 and leverage > product_max_lev:
-            logger.info(f"ExecutionAgent: Clamping requested leverage {leverage}x down to exchange product max {product_max_lev}x for {symbol}.")
-            leverage = product_max_lev
+                product_max_lev = 50
+        effective_max = min(50, product_max_lev) if product_max_lev > 0 else 50
+        effective_min = 25 if effective_max >= 25 else effective_max
+        clamped_lev = max(effective_min, min(leverage, effective_max))
+        if clamped_lev != leverage:
+            logger.info(f"ExecutionAgent: Clamping requested leverage {leverage}x to {clamped_lev}x (25x-50x band) for {symbol}.")
+            leverage = clamped_lev
 
         if contracts <= 0:
             return {

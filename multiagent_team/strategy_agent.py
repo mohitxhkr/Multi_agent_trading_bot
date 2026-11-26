@@ -12,6 +12,8 @@ high-conviction trade setups using deterministic Smart Money Concepts (SMC):
 - Asymmetric Risk-to-Reward (Net R:R >= 2.2:1) & Technical Invalidation Stop Loss.
 """
 
+from email import encoders
+import json
 from typing import Dict, Any, List, Optional, Tuple
 import time
 import math
@@ -939,8 +941,18 @@ class StrategyAgent:
         elif pat_adj < 0 and "PENALIZED" not in thesis:
             thesis = f"⚠️ [PENALIZED PATTERN {pat_adj}pts] {thesis}"
 
-        # Hard Veto H: Minimum Confluence Score Floor
+        # Hard Veto H: Minimum Confluence Score Floor (tighten during recovery/loss streaks)
         min_score = cfg["min_confluence_score"]
+        try:
+            from multiagent_team.exposure_coach import POSTURE_STATE_FILE
+            # pyrefly: ignore[unknown-name]
+            if os.path.exists(POSTURE_STATE_FILE):
+                with open(POSTURE_STATE_FILE, "r", encoding="utf-8") as pf:
+                    pdata = json.load(pf)
+                    if pdata.get("posture") == "RECOVERY_POSTURE":
+                        min_score = max(min_score, 83)
+        except Exception:
+            pass
         if total_normalized_score < min_score:
             reason = f"Confluence score ({total_normalized_score}/100) below required {min_score}/100 floor for {priority_tag} asset."
             self._record_rejection(symbol, reason, "CONFLUENCE_SCORE_VETO", {"score": total_normalized_score, "min_required": min_score})

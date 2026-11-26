@@ -34,7 +34,7 @@ class ExposureCoachAgent:
         self.state_file = POSTURE_STATE_FILE
 
     def _check_consecutive_losses(self) -> int:
-        """Check the number of trailing consecutive losses from trade journal."""
+        """Check the number of trailing consecutive real losses from trade journal."""
         journal_file = os.path.join(STATE_DIR, "trade_journal.json")
         if not os.path.exists(journal_file):
             return 0
@@ -44,10 +44,18 @@ class ExposureCoachAgent:
                 trades = data.get("trades", [])
                 losses = 0
                 for t in reversed(trades):
-                    outcome = t.get("outcome", "").upper()
-                    if outcome in ["LOSS", "STOP_LOSS", "FAILED"]:
+                    tid = str(t.get("trade_id", ""))
+                    if tid.startswith("test_trade_") or t.get("strategy") == "SMC_BOS_LONG":
+                        continue
+                    status = str(t.get("status", "")).upper()
+                    if status and status != "CLOSED":
+                        continue
+                    outcome = str(t.get("outcome", "")).upper()
+                    exit_reason = str(t.get("exit_reason", "")).upper()
+                    pnl = float(t.get("realized_pnl_usd") or 0.0)
+                    if pnl < -0.05 or outcome in ["LOSS", "STOP_LOSS", "FAILED"] or (exit_reason == "STOP_LOSS" and pnl <= 0):
                         losses += 1
-                    elif outcome in ["WIN", "TAKE_PROFIT", "SUCCESS"]:
+                    elif pnl > 0.05 or outcome in ["WIN", "TAKE_PROFIT", "SUCCESS"] or (exit_reason in ["TAKE_PROFIT", "PROFIT_TRAILING"] and pnl > 0):
                         break
                 return losses
         except Exception:

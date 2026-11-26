@@ -47,7 +47,23 @@ class RiskGatekeeperAgent:
         try:
             from src.journal import load_journal
             journal = load_journal()
-            closed_trades = [t for t in journal.get("trades", []) if t.get("status") == "CLOSED"]
+            closed_trades = [
+                t for t in journal.get("trades", [])
+                if t.get("status") == "CLOSED"
+                and not str(t.get("trade_id", "")).startswith("test_trade_")
+                and t.get("strategy") != "SMC_BOS_LONG"
+            ]
+
+            # Check for trailing consecutive real losses first (skip breakeven scratches)
+            overall_loss_streak = 0
+            for t in reversed(closed_trades):
+                pnl_val = float(t.get("realized_pnl_usd") or 0.0)
+                if pnl_val < -0.05:
+                    overall_loss_streak += 1
+                elif pnl_val > 0.05:
+                    break
+            if overall_loss_streak >= 2:
+                return (0.65, f"Defensive Loss-Streak Scaling (0.65x risk after {overall_loss_streak} consecutive losses)")
 
             # Check symbol-specific closed trades
             sym_clean = symbol.replace("USD", "").replace("USDT", "").replace("-", "").upper()
@@ -364,6 +380,11 @@ class RiskGatekeeperAgent:
         if boost_mult > 1.0:
             conviction_multiplier = boost_mult
             conviction_tier = f"BOOSTED_{int(round((boost_mult - 1.0) * 100))}%"
+            if boost_reason not in conviction_reasons:
+                conviction_reasons.append(boost_reason)
+        elif boost_mult < 1.0:
+            conviction_multiplier = boost_mult
+            conviction_tier = "DEFENSIVE_LOSS_SCALING"
             if boost_reason not in conviction_reasons:
                 conviction_reasons.append(boost_reason)
 

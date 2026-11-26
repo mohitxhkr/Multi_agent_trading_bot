@@ -35,10 +35,20 @@ class TestFullMultiAgentPipeline(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
         self.state_file = os.path.join(self.test_dir, "circuit_breaker_state.json")
+        self.journal_file = os.path.join(self.test_dir, "trade_journal.json")
+        self.db_file = os.path.join(self.test_dir, "trading_journal.db")
         self.patcher = patch("src.risk_manager.CIRCUIT_BREAKER_STATE_FILE", self.state_file)
+        self.journal_patcher = patch("src.journal.JOURNAL_FILE", self.journal_file)
+        self.db_patcher = patch("src.journal.DB_FILE", self.db_file)
         self.patcher.start()
+        self.journal_patcher.start()
+        self.db_patcher.start()
+        from src.journal import init_db
+        init_db()
 
     def tearDown(self):
+        self.db_patcher.stop()
+        self.journal_patcher.stop()
         self.patcher.stop()
         shutil.rmtree(self.test_dir, ignore_errors=True)
 

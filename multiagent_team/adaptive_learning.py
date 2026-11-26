@@ -1093,21 +1093,27 @@ class AdaptiveLearningEngine:
         pat["cumulative_pnl"] = round(pat["cumulative_pnl"] + pnl, 2)
         if outcome == "WIN":
             pat["wins"] += 1
+            pat["consecutive_losses"] = 0
         elif outcome == "LOSS":
             pat["losses"] += 1
+            pat["consecutive_losses"] = int(pat.get("consecutive_losses", 0)) + 1
         else:
             pat["breakevens"] += 1
 
         resolved = pat["wins"] + pat["losses"]
         pat["win_rate_pct"] = round((pat["wins"] / resolved * 100.0), 1) if resolved > 0 else 50.0
+        consec_l = int(pat.get("consecutive_losses", 0))
 
-        # Status & Adjustment
-        if resolved >= 5 and pat["win_rate_pct"] >= 70.0:
+        # Status & Adjustment: fast reaction to consecutive losses so mistakes are not repeated
+        if consec_l >= 3 or (resolved >= 3 and pat["win_rate_pct"] < 40.0):
+            pat["status"] = "PENALIZED"
+            pat["score_adjustment"] = -25
+        elif consec_l >= 2 or (pat["losses"] >= 2 and pat["win_rate_pct"] < 50.0):
+            pat["status"] = "PENALIZED"
+            pat["score_adjustment"] = -12
+        elif resolved >= 4 and pat["win_rate_pct"] >= 65.0:
             pat["status"] = "REINFORCED"
             pat["score_adjustment"] = +8
-        elif pat["losses"] >= 4 and pat["win_rate_pct"] < 35.0:
-            pat["status"] = "PENALIZED"
-            pat["score_adjustment"] = -15
         else:
             pat["status"] = "NEUTRAL"
             pat["score_adjustment"] = 0
@@ -1164,16 +1170,17 @@ class AdaptiveLearningEngine:
         adj = pat.get("score_adjustment", 0)
         resolved = int(pat.get("wins", 0)) + int(pat.get("losses", 0))
         pat_wr = float(pat.get("win_rate_pct", 50.0))
+        consec_l = int(pat.get("consecutive_losses", 0))
 
-        if resolved >= 4 and pat_wr < 45.0:
+        if consec_l >= 3 or (resolved >= 4 and pat_wr < 45.0):
             return {
                 "pattern_key": pattern_key,
                 "status": "BLACKLISTED_LOW_WIN_RATE",
                 "score_adjustment": -25,
                 "can_trade": False,
                 "reason": (
-                    f"Pattern {pattern_key} rejected due to low historical win rate "
-                    f"({pat_wr:.1f}% across {resolved} trades < 45.0% floor)."
+                    f"Pattern {pattern_key} blocked due to consecutive/low win rate "
+                    f"({pat_wr:.1f}% across {resolved} trades, {consec_l} consecutive losses)."
                 ),
             }
 

@@ -393,12 +393,16 @@ class TelegramConfirmationBot:
         entry = float(trade_spec.get("entry_price") or trade_spec.get("entry") or 0.0)
         sl = float(trade_spec.get("stop_loss_price") or trade_spec.get("stop_loss") or 0.0)
         tp = float(trade_spec.get("take_profit_price") or trade_spec.get("take_profit") or 0.0)
-        rr = float(trade_spec.get("reward_to_risk_ratio") or trade_spec.get("planned_rr_ratio") or 2.0)
-        contracts = trade_spec.get("contracts", 1)
-        leverage = trade_spec.get("leverage", 25)
+        rr = float(trade_spec.get("reward_to_risk_ratio") or trade_spec.get("planned_rr_ratio") or 0.0)
+        if rr <= 0 and entry > 0 and sl > 0 and tp > 0 and abs(entry - sl) > 0:
+            rr = round(abs(tp - entry) / abs(entry - sl), 2)
+        if rr <= 0:
+            rr = 2.0
+        contracts = int(trade_spec.get("contracts") or 1)
+        leverage = int(float(trade_spec.get("leverage") or 25))
         margin = float(trade_spec.get("required_margin_usd") or 0.0)
-        risk_usd = float(trade_spec.get("dollar_risk_usd") or 2.0)
-        risk_pct = float(trade_spec.get("risk_pct") or 1.5)
+        risk_usd = float(trade_spec.get("dollar_risk_usd") or 0.0)
+        risk_pct = float(trade_spec.get("risk_pct") or 0.0)
         strategy = trade_spec.get("strategy") or trade_spec.get("strategy_name") or "High-Probability Edge"
         confluence = trade_spec.get("confluence", {})
 
@@ -1618,11 +1622,22 @@ class TelegramConfirmationBot:
                             # Detailed rejection or notification already dispatched directly to Telegram
                             pass
                         elif status == "SUCCESS":
+                            exec_lev = res.get("leverage") or 25
+                            exec_side = str(res.get("side") or "").upper()
+                            side_badge = f" ({exec_side})" if exec_side else ""
+                            ent_v = float(res.get("entry_price") or 0.0)
+                            sl_v = float(res.get("stop_loss_price") or 0.0)
+                            tp_v = float(res.get("take_profit_price") or 0.0)
+                            levels_line = (
+                                f"• <b>Levels:</b> Entry <code>${ent_v:,.2f}</code> | SL <code>${sl_v:,.2f}</code> | TP <code>${tp_v:,.2f}</code>\n"
+                                if ent_v > 0 and sl_v > 0 and tp_v > 0 else ""
+                            )
                             reply(
                                 f"🚀 <b>TRADE EXECUTED ON DELTA EXCHANGE!</b>\n\n"
                                 f"• <b>Order ID:</b> <code>#{res.get('order_id')}</code>\n"
-                                f"• <b>Contract:</b> <code>{res.get('symbol', target_sym or 'BTCUSD')}</code>\n"
-                                f"• <b>Size:</b> <code>{res.get('contracts')}</code> contracts\n"
+                                f"• <b>Contract:</b> <code>{res.get('symbol', target_sym or 'BTCUSD')}</code>{side_badge}\n"
+                                f"• <b>Size:</b> <code>{res.get('contracts')}</code> contracts ({exec_lev}x Isolated)\n"
+                                f"{levels_line}"
                                 f"• <b>Status:</b> 🟢 <b>PUNCHED & ACTIVE</b> (SL & TP attached)"
                             )
                         elif code == "USER_REJECTED_OR_EXPIRED" or status == "TIMEOUT":

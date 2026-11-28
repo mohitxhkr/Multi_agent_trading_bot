@@ -63,6 +63,9 @@ class TrailingStopManager:
         is_high_volatility: bool = False,
         trade_id: Optional[str] = None,
         atr: Optional[float] = None,
+        leverage: Optional[int] = None,
+        required_margin_usd: float = 0.0,
+        dollar_risk_usd: float = 0.0,
     ) -> None:
         """Register newly entered trade parameters for exact R-multiple trailing calculations."""
         risk = abs(entry_price - initial_sl)
@@ -79,6 +82,9 @@ class TrailingStopManager:
             "risk_per_unit": float(risk),
             "atr": float(effective_atr),
             "contracts": int(contracts),
+            "leverage": int(leverage) if leverage and int(leverage) > 0 else 0,
+            "required_margin_usd": float(required_margin_usd or 0.0),
+            "dollar_risk_usd": float(dollar_risk_usd or 0.0),
             "highest_r_reached": 0.0,
             "lowest_r_reached": 0.0,
             "stage": 0,
@@ -530,13 +536,39 @@ class TrailingStopManager:
             # Notify Telegram when order transitions to FILLED on orderbook
             if not pos_state.get("fill_notified"):
                 wallet_metrics = self.get_wallet_metrics()
-                leverage = 25 if "BTC" not in symbol else 50
+                resolved_lev = int(pos_state.get("leverage") or 0)
+                if resolved_lev <= 0:
+                    try:
+                        raw_pos_lev = float(p.get("leverage") or 0)
+                        if raw_pos_lev > 0:
+                            resolved_lev = int(round(raw_pos_lev))
+                    except (TypeError, ValueError):
+                        pass
+                if resolved_lev <= 0:
+                    try:
+                        pos_margin = float(p.get("margin") or pos_state.get("required_margin_usd") or 0.0)
+                        if pos_margin > 0 and entry_price > 0 and abs(size) > 0:
+                            c_val = 0.001 if "BTC" in symbol else (0.01 if "ETH" in symbol or "PAXG" in symbol or "XAU" in symbol else 1.0)
+                            if hasattr(self.client, "get_contract_value"):
+                                try:
+                                    c_val = float(self.client.get_contract_value(symbol) or c_val)
+                                except Exception:
+                                    pass
+                            notional = abs(size) * entry_price * c_val
+                            est_lev = int(round(notional / pos_margin))
+                            if est_lev > 0:
+                                resolved_lev = est_lev
+                    except Exception:
+                        pass
+                if resolved_lev <= 0:
+                    resolved_lev = 25
+                pos_state["leverage"] = resolved_lev
                 self.telegram.notify_order_filled(
                     symbol=symbol,
                     side=side,
                     fill_price=entry_price,
                     contracts=abs(size),
-                    leverage=leverage,
+                    leverage=resolved_lev,
                     sl=pos_state.get("current_sl", 0.0),
                     tp=pos_state.get("current_tp", 0.0),
                     wallet=wallet_metrics

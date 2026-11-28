@@ -835,7 +835,13 @@ class MultiAgentTradingOrchestrator:
                 if self.telegram_bot and self.telegram_bot.is_configured:
                     tid = trade.get("trade_id") or exec_res.get("trade_id")
                     if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
-                        self.telegram_bot.update_proposal_card_status(tid, "EXECUTED", f"Order #{exec_res.get('order_id')} placed successfully", chat_id=chat_id)
+                        exec_lev = exec_res.get("leverage") or trade.get("leverage") or 25
+                        self.telegram_bot.update_proposal_card_status(
+                            tid,
+                            "EXECUTED",
+                            f"Order #{exec_res.get('order_id')} | {trade['contracts']} contracts @ {exec_lev}x Isolated",
+                            chat_id=chat_id
+                        )
                 trade_atr = trade.get("atr_profile", {}).get("atr_14") or trade.get("atr_14") or 0.0
                 try:
                     if exec_res.get("is_scale_in"):
@@ -858,6 +864,9 @@ class MultiAgentTradingOrchestrator:
                             is_high_volatility=False,
                             trade_id=exec_res.get("trade_id"),
                             atr=trade_atr,
+                            leverage=exec_res.get("leverage") or trade.get("leverage"),
+                            required_margin_usd=float(exec_res.get("required_margin_usd") or trade.get("required_margin_usd") or 0.0),
+                            dollar_risk_usd=float(exec_res.get("dollar_risk_usd") or trade.get("dollar_risk_usd") or 0.0),
                         )
                 except Exception as re_err:
                     logger.error(f"TrailingStopManager register error: {re_err}")
@@ -883,7 +892,13 @@ class MultiAgentTradingOrchestrator:
                     "trade_id": exec_res["trade_id"],
                     "order_id": exec_res.get("order_id"),
                     "symbol": trade["symbol"],
-                    "contracts": trade["contracts"]
+                    "side": trade.get("side"),
+                    "contracts": trade["contracts"],
+                    "leverage": exec_res.get("leverage") or trade.get("leverage"),
+                    "entry_price": exec_res.get("entry_price") or trade.get("entry_price"),
+                    "stop_loss_price": exec_res.get("stop_loss_price") or trade.get("stop_loss_price"),
+                    "take_profit_price": exec_res.get("take_profit_price") or trade.get("take_profit_price"),
+                    "required_margin_usd": exec_res.get("required_margin_usd") or trade.get("required_margin_usd"),
                 }
             else:
                 err_msg = exec_res.get("error")
@@ -1352,7 +1367,12 @@ class MultiAgentTradingOrchestrator:
                 if self.telegram_bot and self.telegram_bot.is_configured:
                     tid = trade.get("trade_id") or exec_res.get("trade_id")
                     if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
-                        self.telegram_bot.update_proposal_card_status(tid, "EXECUTED", f"Order #{exec_res.get('order_id')} placed successfully")
+                        exec_lev = exec_res.get("leverage") or trade.get("leverage") or 25
+                        self.telegram_bot.update_proposal_card_status(
+                            tid,
+                            "EXECUTED",
+                            f"Order #{exec_res.get('order_id')} | {trade['contracts']} contracts @ {exec_lev}x Isolated"
+                        )
                 
                 # Register into TrailingStopManager with Volatility Buffer
                 is_high_vol = (
@@ -1381,6 +1401,9 @@ class MultiAgentTradingOrchestrator:
                         is_high_volatility=is_high_vol,
                         trade_id=exec_res.get("trade_id"),
                         atr=trade_atr,
+                        leverage=exec_res.get("leverage") or trade.get("leverage"),
+                        required_margin_usd=float(exec_res.get("required_margin_usd") or trade.get("required_margin_usd") or 0.0),
+                        dollar_risk_usd=float(exec_res.get("dollar_risk_usd") or trade.get("dollar_risk_usd") or 0.0),
                     )
                 self.risk_gatekeeper.register_execution(trade["symbol"])
 
@@ -1397,7 +1420,13 @@ class MultiAgentTradingOrchestrator:
                     "trade_id": exec_res["trade_id"],
                     "order_id": exec_res.get("order_id"),
                     "symbol": trade["symbol"],
-                    "contracts": trade["contracts"]
+                    "side": trade.get("side"),
+                    "contracts": trade["contracts"],
+                    "leverage": exec_res.get("leverage") or trade.get("leverage"),
+                    "entry_price": exec_res.get("entry_price") or trade.get("entry_price"),
+                    "stop_loss_price": exec_res.get("stop_loss_price") or trade.get("stop_loss_price"),
+                    "take_profit_price": exec_res.get("take_profit_price") or trade.get("take_profit_price"),
+                    "required_margin_usd": exec_res.get("required_margin_usd") or trade.get("required_margin_usd"),
                 }
             else:
                 print(f"   ⚠️ Order execution failed on Delta Exchange: {exec_res.get('error')}")
@@ -2016,7 +2045,12 @@ class MultiAgentTradingOrchestrator:
             if self.telegram_bot and self.telegram_bot.is_configured:
                 tid = decision.get("trade_id") or exec_res.get("trade_id")
                 if tid and hasattr(self.telegram_bot, "update_proposal_card_status"):
-                    self.telegram_bot.update_proposal_card_status(tid, "EXECUTED", f"Order #{exec_res.get('order_id')} placed successfully", chat_id=chat_id)
+                        self.telegram_bot.update_proposal_card_status(
+                            tid,
+                            "EXECUTED",
+                            f"Order #{exec_res.get('order_id')} | {decision['contracts']} contracts @ {exec_res.get('leverage') or decision.get('leverage') or 25}x Isolated",
+                            chat_id=chat_id
+                        )
             trade_atr = decision.get("atr_profile", {}).get("atr_14") or decision.get("atr_14") or 0.0
             if trade_atr <= 0 and candidate:
                 trade_atr = candidate.get("atr_profile", {}).get("atr_14") or candidate.get("atr_14") or 0.0
@@ -2044,6 +2078,9 @@ class MultiAgentTradingOrchestrator:
                         is_high_volatility=False,
                         trade_id=exec_res.get("trade_id"),
                         atr=trade_atr,
+                        leverage=exec_res.get("leverage") or decision.get("leverage"),
+                        required_margin_usd=float(exec_res.get("required_margin_usd") or decision.get("required_margin_usd") or 0.0),
+                        dollar_risk_usd=float(exec_res.get("dollar_risk_usd") or decision.get("dollar_risk_usd") or 0.0),
                     )
             except Exception as re_err:
                 logger.error(f"TrailingStopManager register error: {re_err}")
@@ -2069,7 +2106,13 @@ class MultiAgentTradingOrchestrator:
                 "trade_id": exec_res["trade_id"],
                 "order_id": exec_res.get("order_id"),
                 "symbol": decision["symbol"],
-                "contracts": decision["contracts"]
+                "side": decision.get("side"),
+                "contracts": decision["contracts"],
+                "leverage": exec_res.get("leverage") or decision.get("leverage"),
+                "entry_price": exec_res.get("entry_price") or decision.get("entry_price"),
+                "stop_loss_price": exec_res.get("stop_loss_price") or decision.get("stop_loss_price"),
+                "take_profit_price": exec_res.get("take_profit_price") or decision.get("take_profit_price"),
+                "required_margin_usd": exec_res.get("required_margin_usd") or decision.get("required_margin_usd"),
             }
         else:
             err_msg = exec_res.get("error")

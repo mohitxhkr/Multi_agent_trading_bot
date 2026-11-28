@@ -539,6 +539,7 @@ class TrailingStopManager:
                 resolved_lev = int(pos_state.get("leverage") or 0)
                 if resolved_lev <= 0:
                     try:
+                        # pyrefly: ignore[unknown-name]
                         raw_pos_lev = float(p.get("leverage") or 0)
                         if raw_pos_lev > 0:
                             resolved_lev = int(round(raw_pos_lev))
@@ -546,6 +547,7 @@ class TrailingStopManager:
                         pass
                 if resolved_lev <= 0:
                     try:
+                        # pyrefly: ignore[unknown-name]
                         pos_margin = float(p.get("margin") or pos_state.get("required_margin_usd") or 0.0)
                         if pos_margin > 0 and entry_price > 0 and abs(size) > 0:
                             c_val = 0.001 if "BTC" in symbol else (0.01 if "ETH" in symbol or "PAXG" in symbol or "XAU" in symbol else 1.0)
@@ -624,13 +626,17 @@ class TrailingStopManager:
             # Stage 1: Breakeven Shield / Volatility Breathing Cushion
             # ---------------------------------------------------------
             if current_r >= m1_trigger and current_stage < 1:
-                s1_ratio = -0.25 if is_volatile else 0.05
+                if is_volatile:
+                    sl_offset = -0.25 * risk_per_unit
+                else:
+                    # Cover round-trip taker fees (~0.10% notional) + small profit lock
+                    sl_offset = min(0.35 * risk_per_unit, max(0.15 * risk_per_unit, entry_price * 0.0014))
                 if side == "buy":
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price + (s1_ratio * risk_per_unit))
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price + sl_offset)
                     if candidate_sl > current_sl:
                         new_sl = candidate_sl
                 else:
-                    candidate_sl = self.client.round_to_tick(symbol, entry_price - (s1_ratio * risk_per_unit))
+                    candidate_sl = self.client.round_to_tick(symbol, entry_price - sl_offset)
                     if candidate_sl < current_sl:
                         new_sl = candidate_sl
 
@@ -646,10 +652,10 @@ class TrailingStopManager:
                         )
                     else:
                         stage_narrative = (
-                            f"🛡️ <b>[1:1 BREAKEVEN SHIELD ACTIVE — ZERO LOSS LOCKED]</b>\n"
+                            f"🛡️ <b>[FEE-SHIELDED BREAKEVEN ACTIVE — NET PROFIT LOCKED]</b>\n"
                             f"• Asset: <b>{symbol}</b> ({side.upper()})\n"
                             f"• Profit: <b>+{current_r:.2f}R</b> (Mark: ${mark_price:,.2f})\n"
-                            f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (+0.05R covers fees)\n"
+                            f"• Stop Loss moved to <b>${new_sl:,.2f}</b> (covers round-trip fees + net lock)\n"
                             f"• Targeting initial 1:2 R:R — trade is now 100% risk-free!"
                         )
 

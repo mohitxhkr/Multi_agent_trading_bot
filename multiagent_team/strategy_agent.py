@@ -41,7 +41,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "symbol": "BTCUSD",
         "max_spread_pct": 0.05,       # Institutional liquidity on BTC
         "target_rr_ratio": 2.0,
-        "min_confluence_score": 75,   # Institutional primary alpha floor
+        "min_confluence_score": 80,   # High-conviction primary alpha floor
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.03,
@@ -53,7 +53,7 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
         "symbol": "ETHUSD",
         "max_spread_pct": 0.07,
         "target_rr_ratio": 2.0,
-        "min_confluence_score": 75,   # Institutional primary alpha floor
+        "min_confluence_score": 80,   # High-conviction primary alpha floor
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.04,
@@ -64,8 +64,8 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "XAUUSD": {
         "symbol": "XAUUSD",
         "max_spread_pct": 0.10,       # Gold market microstructure
-        "target_rr_ratio": 2.0,
-        "min_confluence_score": 75,   # Institutional primary alpha floor
+        "target_rr_ratio": 2.4,
+        "min_confluence_score": 84,   # Stricter filter on Gold to avoid chop
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.03,
@@ -76,8 +76,8 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "SOLUSD": {
         "symbol": "SOLUSD",
         "max_spread_pct": 0.12,       # Higher altcoin volatility & spread
-        "target_rr_ratio": 2.0,
-        "min_confluence_score": 75,
+        "target_rr_ratio": 2.5,
+        "min_confluence_score": 85,   # Only A+ altcoin setups
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.05,
@@ -88,8 +88,8 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "XRPUSD": {
         "symbol": "XRPUSD",
         "max_spread_pct": 0.15,
-        "target_rr_ratio": 2.0,
-        "min_confluence_score": 75,
+        "target_rr_ratio": 2.5,
+        "min_confluence_score": 85,
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.05,
@@ -100,8 +100,8 @@ ASSET_CONFIGS: Dict[str, Dict[str, Any]] = {
     "DEFAULT": {
         "symbol": "DEFAULT",
         "max_spread_pct": 0.15,
-        "target_rr_ratio": 2.0,
-        "min_confluence_score": 75,
+        "target_rr_ratio": 2.5,
+        "min_confluence_score": 85,
         "atr_stop_min_mult": 0.40,
         "atr_stop_max_mult": 3.5,
         "fvg_min_gap_pct": 0.04,
@@ -622,6 +622,13 @@ class StrategyAgent:
         if planned_rr < 1.95:
             reason = f"Planned R:R ({planned_rr:.2f}:1) is below 2.0:1 minimum threshold."
             self._record_rejection(symbol, reason, "INSUFFICIENT_RR_VETO", {"planned_rr": planned_rr})
+            return None
+
+        # Hard Veto G2: Fee-Clearing Minimum Target Move (>= 0.90% so round-trip fees don't erode profits)
+        tp_move_pct = abs(tp - entry) / entry if entry > 0 else 0.0
+        if tp_move_pct < 0.0090:
+            reason = f"Take-profit distance ({tp_move_pct * 100:.2f}%) is below 0.90% fee-clearing floor."
+            self._record_rejection(symbol, reason, "INSUFFICIENT_TP_FOR_FEES_VETO", {"tp_move_pct": round(tp_move_pct * 100, 3)})
             return None
 
         # ---------------------------------------------------------------------

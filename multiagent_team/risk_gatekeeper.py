@@ -191,16 +191,16 @@ class RiskGatekeeperAgent:
             tm_wr = float(tm_meta.get("win_rate_pct", 0.0) or 0.0)
             tm_ev = float(tm_meta.get("expected_value_r", 0.0) or 0.0)
             planned_rr = float(setup.get("planned_rr_ratio") or setup.get("planned_risk_reward") or 2.0)
-            min_wr_req = 45.0 if planned_rr >= 1.95 else 60.0
+            min_wr_req = 52.0 if planned_rr >= 2.2 else 60.0
             if tm_wr < min_wr_req:
                 return {
                     "gate_decision": "REJECTED",
                     "reason": f"Low Win Rate Veto: {tm_wr:.1f}% historical win rate is below the mandatory {min_wr_req:.1f}% minimum."
                 }
-            if tm_ev < 0.20:
+            if tm_ev < 0.30:
                 return {
                     "gate_decision": "REJECTED",
-                    "reason": f"Low Expectancy Veto: Net EV {tm_ev:+.2f}R is below the mandatory +0.20R minimum."
+                    "reason": f"Low Expectancy Veto: Net EV {tm_ev:+.2f}R is below the mandatory +0.30R minimum."
                 }
 
         # 1.5. Selective Post-Trade Cooldown Check (Prevents overtrading the same symbol)

@@ -851,13 +851,84 @@ class TelegramConfirmationBot:
             ]
         }
 
-        # Send directional candlestick chart if available
+        # Send directional candlestick projection chart (auto-generate if caller didn't attach one)
         chart_path = trade_spec.get("chart_path")
-        if chart_path and os.path.exists(chart_path):
+        if not chart_path or not os.path.exists(str(chart_path)):
             try:
-                self.send_photo(chart_path, chat_id=target_chat)
+                from src.candlestick_chart import generate_candlestick_chart
+                chart_client = client
+                if chart_client is None:
+                    from src.delta_client import DeltaExchangeClient
+                    chart_client = DeltaExchangeClient()
+                sym_c = str(trade_spec.get("symbol", "")).strip()
+                if sym_c and hasattr(chart_client, "get_candles"):
+                    c_res = chart_client.get_candles(sym_c, resolution="15")
+                    c_data = c_res.get("result") if (c_res and isinstance(c_res, dict)) else None
+                    c_dict = None
+                    if isinstance(c_data, dict) and len(c_data.get("c", [])) >= 5:
+                        c_dict = {
+                            "o": [float(x) for x in c_data.get("o", [])],
+                            "h": [float(x) for x in c_data.get("h", [])],
+                            "l": [float(x) for x in c_data.get("l", [])],
+                            "c": [float(x) for x in c_data.get("c", [])],
+                            "v": [float(x) for x in c_data.get("v", [])],
+                            "t": [int(x) for x in c_data.get("t", [])],
+                        }
+                    elif isinstance(c_data, list) and len(c_data) >= 5:
+                        c_dict = {
+                            "o": [float(x.get("open", 0)) for x in c_data],
+                            "h": [float(x.get("high", 0)) for x in c_data],
+                            "l": [float(x.get("low", 0)) for x in c_data],
+                            "c": [float(x.get("close", 0)) for x in c_data],
+                            "v": [float(x.get("volume", 0)) for x in c_data],
+                            "t": [int(x.get("time", 0)) for x in c_data],
+                        }
+                    if c_dict:
+                        side_str = str(trade_spec.get("side", "")).upper()
+                        is_buy = side_str in ("BUY", "LONG")
+                        sl_p = float(trade_spec.get("stop_loss_price") or 0.0)
+                        tp_p = float(trade_spec.get("take_profit_price") or 0.0)
+                        cur_p = float(trade_spec.get("entry_price") or c_dict["c"][-1])
+                        chart_kl = {
+                            "breakout_level": cur_p if is_buy else tp_p,
+                            "breakdown_level": sl_p if is_buy else cur_p,
+                            "status_label": f"PROPOSED {side_str} ({trade_spec.get('strategy_name', 'SMC Edge')})",
+                            "proximity_status": "TESTING_BREAKOUT" if is_buy else "TESTING_BREAKDOWN",
+                            "position_projection": {
+                                "side": "buy" if is_buy else "sell",
+                                "entry": cur_p,
+                                "sl": sl_p,
+                                "tp": tp_p,
+                                "rr": float(trade_spec.get("planned_rr_ratio") or 2.0),
+                            },
+                            "bullish_breakout_plan": {
+                                "take_profit_price": tp_p if is_buy else 0.0,
+                                "stop_loss_price": sl_p if is_buy else 0.0,
+                            },
+                            "bearish_breakdown_plan": {
+                                "take_profit_price": tp_p if not is_buy else 0.0,
+                                "stop_loss_price": sl_p if not is_buy else 0.0,
+                            },
+                        }
+                        chart_path = generate_candlestick_chart(c_dict, sym_c, key_levels=chart_kl, timeframe_label="15m")
+                        trade_spec["chart_path"] = chart_path
+            except Exception as ge:
+                logger.warning(f"Failed to auto-generate proposal chart: {ge}")
+
+        if chart_path and os.path.exists(str(chart_path)):
+            try:
+                sym_c = str(trade_spec.get("symbol", "")).upper()
+                side_c = str(trade_spec.get("side", "")).upper()
+                entry_c = float(trade_spec.get("entry_price") or 0.0)
+                sl_c = float(trade_spec.get("stop_loss_price") or 0.0)
+                tp_c = float(trade_spec.get("take_profit_price") or 0.0)
+                chart_cap = (
+                    f"📊 <b>{sym_c} {side_c} Position Projection (15m)</b>\n"
+                    f"Entry: <code>${entry_c:,.2f}</code> | SL: <code>${sl_c:,.2f}</code> | TP: <code>${tp_c:,.2f}</code>"
+                )
+                self.send_photo(chart_path, caption=chart_cap, chat_id=target_chat)
             except Exception as pe:
-                logger.debug(f"Failed to send proposal chart photo: {pe}")
+                logger.warning(f"Failed to send proposal chart photo: {pe}")
 
         if target_chat and target_chat != self.chat_id:
             msg_id = self.send_message(proposal_text, reply_markup=reply_markup, chat_id=target_chat)

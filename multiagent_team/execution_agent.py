@@ -61,6 +61,34 @@ class ExecutionAgent:
         take_profit = float(decision["take_profit_price"])
         leverage = int(decision.get("leverage", 25))
 
+        # Hybrid Real-Market-Data -> Demo-Account Execution Price Translation:
+        # When analyzing Real Production data while executing on Testnet/Demo, translate exact SL% & TP%
+        # onto the Demo venue's mark price if prices diverge (> 0.3%), preventing exchange stop rejections.
+        m_url = getattr(self.client, "market_data_base_url", None)
+        e_url = getattr(self.client, "base_url", None)
+        if isinstance(m_url, str) and isinstance(e_url, str) and m_url != e_url:
+            try:
+                demo_tick = self.client.get_ticker(symbol, use_execution_venue=True)
+                demo_mark = float((demo_tick.get("result") or {}).get("mark_price") or 0.0)
+                if demo_mark > 0 and entry_price > 0 and abs(demo_mark - entry_price) / entry_price > 0.003:
+                    sl_pct = abs(entry_price - stop_loss) / entry_price
+                    tp_pct = abs(take_profit - entry_price) / entry_price if take_profit > 0 else 0.0
+                    if side == "buy":
+                        stop_loss = self.client.round_to_tick(symbol, demo_mark * (1.0 - sl_pct))
+                        if tp_pct > 0:
+                            take_profit = self.client.round_to_tick(symbol, demo_mark * (1.0 + tp_pct))
+                    else:
+                        stop_loss = self.client.round_to_tick(symbol, demo_mark * (1.0 + sl_pct))
+                        if tp_pct > 0:
+                            take_profit = self.client.round_to_tick(symbol, demo_mark * (1.0 - tp_pct))
+                    entry_price = self.client.round_to_tick(symbol, demo_mark)
+                    logger.info(
+                        f"ExecutionAgent: [HYBRID REAL->DEMO] Translated real-market levels to Demo mark ${demo_mark:,.2f} "
+                        f"(SL: ${stop_loss:,.2f} [{sl_pct*100:.2f}%], TP: ${take_profit:,.2f} [{tp_pct*100:.2f}%])."
+                    )
+            except Exception as tr_err:
+                logger.warning(f"ExecutionAgent: Hybrid Demo price translation skipped: {tr_err}")
+
         # Respect Delta Exchange maximum leverage, fixed between 25x and 50x when supported
         product_max_lev = 50
         if self.client and hasattr(self.client, "get_max_leverage"):

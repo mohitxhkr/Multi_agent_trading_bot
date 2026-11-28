@@ -52,6 +52,10 @@ class DeltaExchangeClient:
                 self.base_url = self.ENV_URLS.get(self.environment, self.ENV_URLS["india"])
 
         self.timeout = timeout
+        market_url = os.getenv("DELTA_MARKET_DATA_URL", "").strip()
+        if not market_url and os.getenv("USE_REAL_MARKET_DATA", "true").lower() == "true":
+            market_url = self.ENV_URLS["india"]
+        self.market_data_base_url = (market_url or self.base_url).rstrip("/")
         self.session = requests.Session()
         self._products_cache: Dict[str, Dict[str, Any]] = {}
         self._product_id_map: Dict[str, int] = {}
@@ -74,6 +78,7 @@ class DeltaExchangeClient:
         params: Optional[Dict[str, Any]] = None,
         payload: Optional[Dict[str, Any]] = None,
         authenticated: bool = True,
+        base_url_override: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Execute signed HTTP request to Delta Exchange API.
@@ -88,7 +93,8 @@ class DeltaExchangeClient:
             if clean_params:
                 query_string = "?" + urllib.parse.urlencode(clean_params)
 
-        endpoint_url = f"{self.base_url}{path}{query_string}"
+        target_base = (base_url_override or self.base_url).rstrip("/")
+        endpoint_url = f"{target_base}{path}{query_string}"
         
         # Build payload body string
         body = ""
@@ -383,21 +389,24 @@ class DeltaExchangeClient:
         return res
 
     # -------------------------------------------------------------------------
-    # Market Data Endpoints
+    # Market Data Endpoints (Uses Real Production Market Data when configured)
     # -------------------------------------------------------------------------
-    def get_ticker(self, symbol: str) -> Dict[str, Any]:
+    def get_ticker(self, symbol: str, use_execution_venue: bool = False) -> Dict[str, Any]:
         """Get real-time ticker data (mark price, 24h stats, funding rate)."""
         resolved = self.resolve_symbol(symbol)
-        return self._request("GET", f"/v2/tickers/{resolved}", authenticated=False)
+        base_override = self.base_url if use_execution_venue else getattr(self, "market_data_base_url", self.base_url)
+        return self._request("GET", f"/v2/tickers/{resolved}", authenticated=False, base_url_override=base_override)
 
     def get_all_tickers(self) -> Dict[str, Any]:
         """Get tickers for all live contracts."""
-        return self._request("GET", "/v2/tickers", authenticated=False)
+        base_override = getattr(self, "market_data_base_url", self.base_url)
+        return self._request("GET", "/v2/tickers", authenticated=False, base_url_override=base_override)
 
     def get_orderbook(self, symbol: str) -> Dict[str, Any]:
         """Get Level 2 orderbook for symbol."""
         resolved = self.resolve_symbol(symbol)
-        return self._request("GET", f"/v2/l2orderbook/{resolved}", authenticated=False)
+        base_override = getattr(self, "market_data_base_url", self.base_url)
+        return self._request("GET", f"/v2/l2orderbook/{resolved}", authenticated=False, base_url_override=base_override)
 
     def get_candles(
         self,
@@ -428,7 +437,8 @@ class DeltaExchangeClient:
             "from": start,
             "to": end
         }
-        return self._request("GET", "/v2/chart/history", params=params, authenticated=False)
+        base_override = getattr(self, "market_data_base_url", self.base_url)
+        return self._request("GET", "/v2/chart/history", params=params, authenticated=False, base_url_override=base_override)
 
     def get_options_chain(self, underlying_asset: str = "BTC") -> Dict[str, Any]:
         """
@@ -438,7 +448,8 @@ class DeltaExchangeClient:
             "contract_types": "call_options,put_options",
             "underlying_asset_symbols": underlying_asset.upper()
         }
-        return self._request("GET", "/v2/tickers", params=params, authenticated=False)
+        base_override = getattr(self, "market_data_base_url", self.base_url)
+        return self._request("GET", "/v2/tickers", params=params, authenticated=False, base_url_override=base_override)
 
     # -------------------------------------------------------------------------
     # Trading & Execution Endpoints

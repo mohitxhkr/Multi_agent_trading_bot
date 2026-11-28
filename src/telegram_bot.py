@@ -2012,7 +2012,16 @@ class TelegramConfirmationBot:
                     c_res = client.get_candles(target_sym, resolution="15")
                     if c_res and isinstance(c_res, dict) and c_res.get("result"):
                         c_list = c_res["result"]
-                        if isinstance(c_list, list) and len(c_list) >= 5:
+                        if isinstance(c_list, dict) and len(c_list.get("c", [])) >= 5:
+                            candles = {
+                                "o": [float(x) for x in c_list.get("o", [])],
+                                "h": [float(x) for x in c_list.get("h", [])],
+                                "l": [float(x) for x in c_list.get("l", [])],
+                                "c": [float(x) for x in c_list.get("c", [])],
+                                "v": [float(x) for x in c_list.get("v", [])],
+                                "t": [int(x) for x in c_list.get("t", [])],
+                            }
+                        elif isinstance(c_list, list) and len(c_list) >= 5:
                             candles = {
                                 "o": [float(x.get("open", 0)) for x in c_list],
                                 "h": [float(x.get("high", 0)) for x in c_list],

@@ -1240,7 +1240,17 @@ class MultiAgentTradingOrchestrator:
                 from src.candlestick_chart import generate_candlestick_chart
                 c_res = self.client.get_candles(trade["symbol"], resolution="15")
                 c_data = c_res.get("result") if (c_res and isinstance(c_res, dict)) else None
-                if isinstance(c_data, list) and len(c_data) >= 5:
+                c_dict = None
+                if isinstance(c_data, dict) and len(c_data.get("c", [])) >= 5:
+                    c_dict = {
+                        "o": [float(x) for x in c_data.get("o", [])],
+                        "h": [float(x) for x in c_data.get("h", [])],
+                        "l": [float(x) for x in c_data.get("l", [])],
+                        "c": [float(x) for x in c_data.get("c", [])],
+                        "v": [float(x) for x in c_data.get("v", [])],
+                        "t": [int(x) for x in c_data.get("t", [])],
+                    }
+                elif isinstance(c_data, list) and len(c_data) >= 5:
                     c_dict = {
                         "o": [float(x.get("open", 0)) for x in c_data],
                         "h": [float(x.get("high", 0)) for x in c_data],
@@ -1249,6 +1259,7 @@ class MultiAgentTradingOrchestrator:
                         "v": [float(x.get("volume", 0)) for x in c_data],
                         "t": [int(x.get("time", 0)) for x in c_data],
                     }
+                if c_dict:
                     side_str = str(trade.get("side", "")).upper()
                     is_buy = side_str in ["BUY", "LONG"]
                     sl_p = float(trade.get("stop_loss_price", 0))
@@ -1908,7 +1919,16 @@ class MultiAgentTradingOrchestrator:
             if not candles_15m or len(candles_15m.get("c", [])) < 5:
                 c_res = self.client.get_candles(decision["symbol"], resolution="15")
                 c_data = c_res.get("result") if (c_res and isinstance(c_res, dict)) else None
-                if isinstance(c_data, list) and len(c_data) >= 5:
+                if isinstance(c_data, dict) and len(c_data.get("c", [])) >= 5:
+                    candles_15m = {
+                        "o": [float(x) for x in c_data.get("o", [])],
+                        "h": [float(x) for x in c_data.get("h", [])],
+                        "l": [float(x) for x in c_data.get("l", [])],
+                        "c": [float(x) for x in c_data.get("c", [])],
+                        "v": [float(x) for x in c_data.get("v", [])],
+                        "t": [int(x) for x in c_data.get("t", [])],
+                    }
+                elif isinstance(c_data, list) and len(c_data) >= 5:
                     candles_15m = {
                         "o": [float(x.get("open", 0)) for x in c_data],
                         "h": [float(x.get("high", 0)) for x in c_data],

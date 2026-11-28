@@ -17,11 +17,16 @@ from datetime import datetime, timezone, timedelta
 
 # Set headless Matplotlib configuration directory before importing
 os.environ["MPLCONFIGDIR"] = os.path.join(tempfile.gettempdir(), "delta_mpl")
+# pyrefly: ignore[missing-import]
 import matplotlib
 matplotlib.use("Agg")
+# pyrefly: ignore[missing-import]
 import matplotlib.pyplot as plt
+# pyrefly: ignore[missing-import]
 import matplotlib.patches as patches
+# pyrefly: ignore[missing-import]
 import matplotlib.lines as mlines
+# pyrefly: ignore[missing-import]
 from matplotlib.gridspec import GridSpec
 
 # Windows UTF-8 configuration
@@ -171,8 +176,8 @@ def generate_candlestick_chart(
     if vwap_price > 0:
         ax_price.axhline(vwap_price, color=VWAP_COLOR, linestyle=":", linewidth=1.4, alpha=0.85, zorder=4)
         ax_price.text(
-            bars_count - 1.2, vwap_price, f" VWAP ${vwap_price:,.2f}",
-            color=VWAP_COLOR, fontsize=8, verticalalignment="center",
+            bars_count - 1.5, vwap_price, f" VWAP ${vwap_price:,.2f} ",
+            color=VWAP_COLOR, fontsize=8, ha="right", verticalalignment="center",
             bbox=dict(boxstyle="square,pad=0.2", facecolor=PANEL_COLOR, edgecolor=VWAP_COLOR, alpha=0.85),
             zorder=6
         )
@@ -215,8 +220,8 @@ def generate_candlestick_chart(
         if bullish_tp > 0:
             ax_price.axhline(bullish_tp, color="#00E676", linestyle=":", linewidth=1.2, alpha=0.75, zorder=4)
             ax_price.text(
-                bars_count - 1.2, bullish_tp, f" [TP] LONG TARGET ${bullish_tp:,.2f} ",
-                color="#00E676", fontsize=8, fontweight="bold", verticalalignment="center",
+                bars_count - 1.5, bullish_tp, f" [TP] LONG TARGET ${bullish_tp:,.2f} ",
+                color="#00E676", fontsize=8, fontweight="bold", ha="right", verticalalignment="center",
                 bbox=dict(boxstyle="square,pad=0.2", facecolor=PANEL_COLOR, edgecolor="#00E676", alpha=0.85),
                 zorder=6
             )
@@ -236,22 +241,43 @@ def generate_candlestick_chart(
         if bearish_tp > 0:
             ax_price.axhline(bearish_tp, color="#FF1744", linestyle=":", linewidth=1.2, alpha=0.75, zorder=4)
             ax_price.text(
-                bars_count - 1.2, bearish_tp, f" [TP] SHORT TARGET ${bearish_tp:,.2f} ",
-                color="#FF1744", fontsize=8, fontweight="bold", verticalalignment="center",
+                bars_count - 1.5, bearish_tp, f" [TP] SHORT TARGET ${bearish_tp:,.2f} ",
+                color="#FF1744", fontsize=8, fontweight="bold", ha="right", verticalalignment="center",
                 bbox=dict(boxstyle="square,pad=0.2", facecolor=PANEL_COLOR, edgecolor="#FF1744", alpha=0.85),
                 zorder=6
             )
 
-    # Plot TradingView-Style Long / Short Position Projection Box if trade projection is provided
+    # Plot TradingView-Style Long / Short Position Projection Box
     pos_proj = kl.get("position_projection") or {}
     proj_entry = float(pos_proj.get("entry") or 0.0)
     proj_sl = float(pos_proj.get("sl") or 0.0)
     proj_tp = float(pos_proj.get("tp") or 0.0)
     proj_side = str(pos_proj.get("side") or "").lower()
-    if proj_entry > 0 and proj_sl > 0 and proj_tp > 0 and proj_side in ("buy", "long", "sell", "short"):
+
+    # Auto-derive projection from active/closest breakout or breakdown plan when not explicitly supplied
+    if not (proj_entry > 0 and proj_sl > 0 and proj_tp > 0 and proj_side in ("buy", "long", "sell", "short")):
+        has_bo = breakout_level > 0 and bullish_sl > 0 and bullish_tp > 0
+        has_bd = breakdown_level > 0 and bearish_sl > 0 and bearish_tp > 0
+        prox_upper = str(prox_status or status_label).upper()
+        if has_bd and ("BREAKDOWN" in prox_upper or "DOWN" in prox_upper or "SHORT" in prox_upper or "SELL" in prox_upper):
+            proj_entry, proj_sl, proj_tp, proj_side = breakdown_level, bearish_sl, bearish_tp, "sell"
+        elif has_bo and ("BREAKOUT" in prox_upper or "UP" in prox_upper or "LONG" in prox_upper or "BUY" in prox_upper):
+            proj_entry, proj_sl, proj_tp, proj_side = breakout_level, bullish_sl, bullish_tp, "buy"
+        elif has_bo and has_bd:
+            if abs(current_price - breakdown_level) < abs(breakout_level - current_price):
+                proj_entry, proj_sl, proj_tp, proj_side = breakdown_level, bearish_sl, bearish_tp, "sell"
+            else:
+                proj_entry, proj_sl, proj_tp, proj_side = breakout_level, bullish_sl, bullish_tp, "buy"
+        elif has_bo:
+            proj_entry, proj_sl, proj_tp, proj_side = breakout_level, bullish_sl, bullish_tp, "buy"
+        elif has_bd:
+            proj_entry, proj_sl, proj_tp, proj_side = breakdown_level, bearish_sl, bearish_tp, "sell"
+
+    has_pos_proj = proj_entry > 0 and proj_sl > 0 and proj_tp > 0 and proj_side in ("buy", "long", "sell", "short")
+    if has_pos_proj:
         is_long_proj = proj_side in ("buy", "long")
-        proj_x0 = bars_count - 1.0
-        proj_w = 8.2
+        proj_x0 = bars_count + 0.3
+        proj_w = 9.5
         risk_d = abs(proj_entry - proj_sl)
         rew_d = abs(proj_tp - proj_entry)
         proj_rr = float(pos_proj.get("rr") or (rew_d / risk_d if risk_d > 0 else 2.0))
@@ -303,8 +329,8 @@ def generate_candlestick_chart(
     # Plot Current Mark Price Line
     ax_price.axhline(current_price, color=MARK_COLOR, linestyle="-", linewidth=1.2, alpha=0.75, zorder=4)
     ax_price.text(
-        bars_count - 1.2, current_price, f" ● MARK ${current_price:,.2f} ",
-        color="#000000", fontsize=8.5, fontweight="bold", verticalalignment="center",
+        bars_count - 2.0, current_price, f" ● MARK ${current_price:,.2f} ",
+        color="#000000", fontsize=8.5, fontweight="bold", ha="right", verticalalignment="center",
         bbox=dict(boxstyle="round,pad=0.25", facecolor=MARK_COLOR, edgecolor="none"),
         zorder=7
     )
@@ -320,31 +346,32 @@ def generate_candlestick_chart(
         y_max = max(y_max, bullish_tp * 1.002)
     if bearish_tp > 0:
         y_min = min(y_min, bearish_tp * 0.998)
-    if proj_entry > 0 and proj_sl > 0 and proj_tp > 0:
+    if has_pos_proj:
         y_min = min(y_min, proj_sl * 0.998, proj_tp * 0.998)
         y_max = max(y_max, proj_sl * 1.002, proj_tp * 1.002)
     padding = (y_max - y_min) * 0.10
     ax_price.set_ylim(y_min - padding, y_max + padding)
-    ax_price.set_xlim(-1, bars_count + 9)  # Extra right space for projection box & level labels
+    ax_price.set_xlim(-1, bars_count + (11.5 if has_pos_proj else 9))  # Extra right space for projection box & level labels
 
-    # Directional Arrows on the Right Side
-    arrow_x = bars_count + 3.5
-    if breakout_level > 0:
-        ax_price.annotate(
-            "▲ UP\n(LONG)",
-            xy=(arrow_x, breakout_level),
-            xytext=(arrow_x, min(y_max - padding * 0.2, breakout_level + (y_max - y_min) * 0.14)),
-            arrowprops=dict(facecolor="#00E676", edgecolor="#00E676", width=2.5, headwidth=8, headlength=7, shrink=0.08),
-            color="#00E676", fontsize=8.5, fontweight="bold", ha="center", va="bottom", zorder=7
-        )
-    if breakdown_level > 0:
-        ax_price.annotate(
-            "▼ DOWN\n(SHORT)",
-            xy=(arrow_x, breakdown_level),
-            xytext=(arrow_x, max(y_min + padding * 0.2, breakdown_level - (y_max - y_min) * 0.14)),
-            arrowprops=dict(facecolor="#FF1744", edgecolor="#FF1744", width=2.5, headwidth=8, headlength=7, shrink=0.08),
-            color="#FF1744", fontsize=8.5, fontweight="bold", ha="center", va="top", zorder=7
-        )
+    # Directional Arrows on the Right Side (only when no projection box occupies the right margin)
+    if not has_pos_proj:
+        arrow_x = bars_count + 3.5
+        if breakout_level > 0:
+            ax_price.annotate(
+                "▲ UP\n(LONG)",
+                xy=(arrow_x, breakout_level),
+                xytext=(arrow_x, min(y_max - padding * 0.2, breakout_level + (y_max - y_min) * 0.14)),
+                arrowprops=dict(facecolor="#00E676", edgecolor="#00E676", width=2.5, headwidth=8, headlength=7, shrink=0.08),
+                color="#00E676", fontsize=8.5, fontweight="bold", ha="center", va="bottom", zorder=7
+            )
+        if breakdown_level > 0:
+            ax_price.annotate(
+                "▼ DOWN\n(SHORT)",
+                xy=(arrow_x, breakdown_level),
+                xytext=(arrow_x, max(y_min + padding * 0.2, breakdown_level - (y_max - y_min) * 0.14)),
+                arrowprops=dict(facecolor="#FF1744", edgecolor="#FF1744", width=2.5, headwidth=8, headlength=7, shrink=0.08),
+                color="#FF1744", fontsize=8.5, fontweight="bold", ha="center", va="top", zorder=7
+            )
 
     # Grid & Spines
     for ax in [ax_price, ax_vol]:
